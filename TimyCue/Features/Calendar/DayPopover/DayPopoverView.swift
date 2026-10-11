@@ -24,7 +24,9 @@ struct DayPopoverLayer: View {
 
             ForEach(Array(days.enumerated()), id: \.element) { index, day in
                 let frame = frames[index]
-                DayPopoverView(day: day, rows: store.popoverRows(on: day))
+                DayPopoverView(day: day, rows: store.popoverRows(on: day)) {
+                    store.openTimeline(day)
+                }
                     .frame(width: width)
                     .fixedSize(horizontal: false, vertical: true)
                     .background {
@@ -67,13 +69,23 @@ struct PopoverHeightKey: PreferenceKey {
 struct DayPopoverView: View {
     let day: CalendarDay
     let rows: [DayPopoverRow]
+    /// 上の日付を押したとき（1 日タイムラインへ移る。仕様 §25）
+    let onOpenTimeline: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            // 押すと 1 日タイムラインへ移る（仕様 §25）。タイムラインは次の段階で作る
-            Text("\(day.month)月\(day.day)日（\(day.weekdaySymbol())）")
-                .font(CalendarMetrics.popoverTitleFont)
-                .foregroundStyle(Theme.Colors.textPrimary)
+            Button(action: onOpenTimeline) {
+                HStack(spacing: 4) {
+                    Text("\(day.month)月\(day.day)日（\(day.weekdaySymbol())）")
+                        .font(CalendarMetrics.popoverTitleFont)
+                        .foregroundStyle(Theme.Colors.textPrimary)
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Theme.Colors.textSecondary)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
             if rows.isEmpty {
                 Text("予定はありません")
                     .font(CalendarMetrics.popoverSecondaryFont)

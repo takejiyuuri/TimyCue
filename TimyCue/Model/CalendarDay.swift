@@ -74,6 +74,14 @@ extension MinuteOfDay {
     static let minutesPerDay = 24 * 60
 }
 
+enum Clock {
+    /// その時刻の 0:00 からの分（14:17 なら 857）
+    static func minuteOfDay(_ date: Date, calendar: Calendar = .timyCue) -> MinuteOfDay {
+        let parts = calendar.dateComponents([.hour, .minute], from: date)
+        return (parts.hour ?? 0) * 60 + (parts.minute ?? 0)
+    }
+}
+
 enum TimeText {
     /// 857 → "14:17"
     static func hourMinute(_ minute: MinuteOfDay) -> String {

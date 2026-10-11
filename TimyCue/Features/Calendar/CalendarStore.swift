@@ -1,6 +1,14 @@
 import Foundation
 import Observation
 
+/// カレンダータブの中で移る先
+enum CalendarRoute: Hashable {
+    /// 1 日タイムライン（仕様 §25）
+    case timeline(CalendarDay)
+    /// 予定詳細（Q17・v1.1）
+    case eventDetail(UUID)
+}
+
 /// 日付吹き出しの 1 行（仕様 §22）
 struct DayPopoverRow: Identifiable, Equatable {
     let id: UUID
@@ -35,6 +43,8 @@ final class CalendarStore {
     var topWeekID: CalendarDay?
     /// 吹き出しを開いている日。古い順（仕様 §23）
     private(set) var openDays: [CalendarDay] = []
+    /// カレンダータブの中の画面の行き来（1 日タイムライン・予定詳細）。戻る操作で書き換わるので外から書ける
+    var path: [CalendarRoute] = []
     private var eventsByDay: [CalendarDay: [CalendarEvent]] = [:]
     private var metadataByEventID: [UUID: TimyCueEventMetadata] = [:]
 
@@ -114,6 +124,16 @@ final class CalendarStore {
         eventsByDay[day] ?? []
     }
 
+    /// その日の時刻のある予定（開始時刻順）。1 日タイムラインの 0:00〜24:00 に置く（仕様 §26）
+    func timedEvents(on day: CalendarDay) -> [CalendarEvent] {
+        events(on: day).filter { !$0.isAllDay }
+    }
+
+    /// その日の終日の予定。タイムラインの上の終日専用帯に出す（仕様 §30）
+    func allDayEvents(on day: CalendarDay) -> [CalendarEvent] {
+        events(on: day).filter(\.isAllDay)
+    }
+
     /// 予定の色。TimyCue の情報がない予定（Apple カレンダーから来たばかりなど）は仮にオレンジ。
     /// Apple カレンダー由来の色を初期候補にするのは第4段階（仕様 §53）
     func color(for event: CalendarEvent) -> EventColor {
@@ -161,6 +181,29 @@ final class CalendarStore {
     func closeAllPopovers() {
         guard !openDays.isEmpty else { return }
         openDays = []
+    }
+
+    // MARK: - 1 日タイムライン
+
+    /// 吹き出しの上の日付を押して、その日の 1 日タイムラインへ移る（仕様 §25）
+    func openTimeline(_ day: CalendarDay) {
+        path = [.timeline(day)]
+    }
+
+    /// 予定を押して、予定詳細を開く（Q17）。3 分割の編集画面へは直接行かない
+    func openEventDetail(_ eventID: UUID) {
+        path.append(.eventDetail(eventID))
+    }
+
+    // MARK: - 予定詳細
+
+    func event(id: UUID) -> CalendarEvent? {
+        eventsByDay.values.lazy.flatMap { $0 }.first { $0.id == id }
+    }
+
+    /// TimyCue の情報。まだない予定（Apple カレンダーから来たばかりなど）は nil
+    func metadata(for eventID: UUID) -> TimyCueEventMetadata? {
+        metadataByEventID[eventID]
     }
 
     // MARK: - 内部
