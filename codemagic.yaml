@@ -60,6 +60,10 @@ workflows:
             sleep 4
             xcrun simctl io "$SIM_UDID" screenshot "build/screenshots/$TAB.png"
           done
+          # 月カレンダーで吹き出しを 2 つ開いた画面（今日と、見本で 13 件入れた 4 日後）
+          xcrun simctl launch --terminate-running-process "$SIM_UDID" io.github.takejiyuuri.timycue -TimyCueTab calendar -TimyCueOpenDays "0,4"
+          sleep 4
+          xcrun simctl io "$SIM_UDID" screenshot "build/screenshots/calendar-popovers.png"
     artifacts:
       - build/screenshots/*.png
       - build/test.log

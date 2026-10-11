@@ -33,6 +33,17 @@ enum SampleEvents {
         add(2, 8, 45, "朝会", color: .green, duration: 15)
         add(2, 15, 30, "A社打合せ", place: "広島市中区（見本）", color: .orange, duration: 60, arrival: 10, transport: .car)
         add(7, 9, 30, "A社打合せ", place: "広島市中区（見本）", color: .orange, duration: 60, arrival: 10, transport: .car)
+        add(5, 11, 0, "見本株式会社本社打ち合わせ（長い予定名の見本）", place: "見本ビル 10F", color: .saxeBlue, duration: 60)
+
+        // 月カレンダーの表示の見本（仕様 §21）：6 件の日（色点だけ）と 13 件の日（11 件＋「+2」）
+        let colors = EventColor.allCases
+        let busyTitles = ["朝会", "見積", "現場A", "現場B", "打合せ", "書類", "電話", "移動", "点検", "納品", "片付け", "日報", "連絡"]
+        for (index, title) in busyTitles.prefix(6).enumerated() {
+            add(3, 8 + index, 0, title, color: colors[index % colors.count], duration: 30)
+        }
+        for (index, title) in busyTitles.enumerated() {
+            add(4, 7 + index, 0, title, color: colors[index % colors.count], duration: 30)
+        }
 
         return (events, metadata)
     }
