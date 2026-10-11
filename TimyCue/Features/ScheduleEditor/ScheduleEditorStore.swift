@@ -163,6 +163,21 @@ final class ScheduleEditorStore {
         displayedDay = day
     }
 
+    /// 何も入力していない状態か（カレンダータブを開いて眺めているだけの状態）
+    var isBrowsing: Bool {
+        mode == .new && startMinutes.isEmpty && content == EventContent()
+    }
+
+    /// カレンダーで日を見る。何も入力していなければ、その日を新規の登録先にして表示する。
+    /// 入力中なら表示を切り替えるだけ（入力中のタップで日を足すかどうかは未決のため、ここでは決めない）
+    func browse(to day: CalendarDay) {
+        if isBrowsing {
+            startNew(on: day)
+        } else {
+            displayDay(day)
+        }
+    }
+
     // MARK: - 時刻
 
     /// 開始時刻を入れる（時をタップ、分ホイール、仮予定のドラッグ。仕様 §21〜§23）。

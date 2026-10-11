@@ -246,4 +246,27 @@ final class ScheduleEditorStoreTests: XCTestCase {
         XCTAssertEqual(store.suggestedScrollMinute(for: d1), 510, "最初の予定の少し前（仕様 §26）")
         XCTAssertNil(store.suggestedScrollMinute(for: d2))
     }
+
+    // MARK: - カレンダータブで眺める
+
+    func testBrowsingMovesSelectionWithoutUnsavedChanges() {
+        let (store, _) = makeStore()
+        store.startNew(on: d1)
+        XCTAssertTrue(store.isBrowsing)
+        store.browse(to: d2)
+        XCTAssertEqual(store.selectedDays, [d2])
+        XCTAssertEqual(store.displayedDay, d2)
+        XCTAssertFalse(store.hasUnsavedChanges, "眺めているだけなら未保存の変更にしない")
+    }
+
+    func testBrowsingDuringInputOnlyChangesDisplayedDay() {
+        let (store, _) = makeStore()
+        store.startNew(on: d1)
+        store.setStartMinute(600)
+        XCTAssertFalse(store.isBrowsing)
+        store.browse(to: d2)
+        XCTAssertEqual(store.selectedDays, [d1], "入力中の登録先は変えない")
+        XCTAssertEqual(store.startMinutes[d1], 600)
+        XCTAssertEqual(store.displayedDay, d2)
+    }
 }

@@ -29,12 +29,23 @@ struct RootTabView: View {
     var body: some View {
         TabView(selection: $selection) {
             ForEach(RootTab.allCases, id: \.self) { tab in
-                PlaceholderScreen(title: tab.title)
+                screen(for: tab)
                     .tabItem { Label(tab.title, systemImage: tab.systemImage) }
                     .tag(tab)
             }
         }
         .tint(Theme.Colors.accent)
+    }
+
+    @ViewBuilder
+    private func screen(for tab: RootTab) -> some View {
+        switch tab {
+        case .calendar:
+            // カレンダータブそのものが 3 分割画面（別画面に分けない）
+            ScheduleEditorView()
+        case .home, .settings:
+            PlaceholderScreen(title: tab.title)
+        }
     }
 
     /// Codemagic でシミュレータの画面写真を撮るとき、起動引数 `-TimyCueTab calendar` で最初のタブを選ぶ
@@ -64,4 +75,5 @@ struct PlaceholderScreen: View {
 
 #Preview {
     RootTabView()
+        .environment(ScheduleEditorStore(repository: InMemoryEventRepository(events: SampleEvents.make())))
 }
