@@ -1,0 +1,131 @@
+# Codemagic（クラウドの Mac）で iOS アプリ「TimyCue」をビルドし、TestFlight へ送る設定。
+# Mac がなくても、Windows のブラウザから Codemagic と App Store Connect を操作するだけで進められる。
+# 手順と、Apple 側で用意するものは docs/ios-release.md を参照。
+#
+# Xcode プロジェクトは Git に入れず、project.yml から XcodeGen で毎回作る。
+# どちらのワークフローも、Codemagic の画面から手動で始める（push のたびにビルド時間を使わないように）。
+
+workflows:
+  # ---- 1. 署名なしでシミュレータ向けにビルドし、自動テストを流して、画面写真を撮る ----
+  # Apple Developer Program の登録や署名の準備が済む前から使える
+  ios-check:
+    name: iOS ビルド確認（署名なし）
+    instance_type: mac_mini_m2
+    max_build_duration: 45
+    environment:
+      xcode: latest
+    scripts:
+      - name: XcodeGen を入れて Xcode プロジェクトを作る
+        script: |
+          brew install xcodegen
+          xcodegen generate
+      - name: シミュレータを選ぶ（いちばん新しい iOS の Pro Max）
+        script: |
+          UDID=$(xcrun simctl list devices available -j | python3 -c '
+          import json, sys
+          devices = json.load(sys.stdin)["devices"]
+          found = [d for runtime, items in sorted(devices.items()) if "iOS" in runtime for d in items if "Pro Max" in d["name"]]
+          print(found[-1]["udid"] if found else "")
+          ')
+          if [ -z "$UDID" ]; then
+            echo "Pro Max のシミュレータが見つかりませんでした"
+            xcrun simctl list devices available
+            exit 1
+          fi
+          echo "シミュレータ: $UDID"
+          echo "SIM_UDID=$UDID" >> "$CM_ENV"
+      - name: 自動テスト（シミュレータ）
+        script: |
+          set -o pipefail
+          mkdir -p build
+          xcodebuild test \
+            -project TimyCue.xcodeproj \
+            -scheme TimyCue \
+            -configuration Debug \
+            -destination "id=$SIM_UDID" \
+            -derivedDataPath build/derived \
+            CODE_SIGNING_ALLOWED=NO \
+            | tee build/test.log
+      - name: 画面写真を撮る（見本の予定だけが入った状態）
+        script: |
+          set -e
+          APP=build/derived/Build/Products/Debug-iphonesimulator/TimyCue.app
+          mkdir -p build/screenshots
+          xcrun simctl boot "$SIM_UDID" 2>/dev/null || true
+          xcrun simctl bootstatus "$SIM_UDID" -b
+          xcrun simctl status_bar "$SIM_UDID" override --time "9:41" --batteryState charged --batteryLevel 100 || true
+          xcrun simctl install "$SIM_UDID" "$APP"
+          for TAB in home calendar settings; do
+            xcrun simctl launch --terminate-running-process "$SIM_UDID" io.github.takejiyuuri.timycue -TimyCueTab "$TAB"
+            sleep 4
+            xcrun simctl io "$SIM_UDID" screenshot "build/screenshots/$TAB.png"
+          done
+    artifacts:
+      - build/screenshots/*.png
+      - build/test.log
+      - build/derived/Logs/**/*.xcactivitylog
+
+  # ---- 2. 署名して ipa を作り、App Store Connect（TestFlight）へ送る ----
+  ios-testflight:
+    name: iOS → TestFlight
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    integrations:
+      # Codemagic の Team settings → Integrations → Developer Portal に登録した
+      # App Store Connect API キーの名前（JWWミテハカールと同じキーを使う）
+      app_store_connect: codemagic-asc
+    environment:
+      ios_signing:
+        # Codemagic の Code signing identities に、配布用の証明書と App Store 用のプロファイルを用意しておく
+        distribution_type: app_store
+        bundle_identifier: io.github.takejiyuuri.timycue
+      vars:
+        XCODE_PROJECT: TimyCue.xcodeproj
+        XCODE_SCHEME: TimyCue
+        # App Store Connect の「App 情報」に出るアプリの Apple ID（数字）。
+        # TestFlight に最初の 1 本が届いたあとで、次の行の先頭の # を消して数字を入れる。
+        # これがあると、TestFlight にある最新のビルド番号の次を使う（無いと Codemagic の通し番号を使う）。
+        # 空の値 "" は書けない（Codemagic が設定の誤りとして止める）ので、使わないときは # を付けたままにする
+        # APP_STORE_APPLE_ID: "0000000000"
+      xcode: latest
+    scripts:
+      - name: XcodeGen を入れて Xcode プロジェクトを作る
+        script: |
+          brew install xcodegen
+          xcodegen generate
+      - name: 署名の設定を Xcode プロジェクトに入れる
+        script: xcode-project use-profiles
+      - name: ビルド番号を決める
+        script: |
+          NEXT=${BUILD_NUMBER:-1}
+          if [ -n "$APP_STORE_APPLE_ID" ]; then
+            # 取れないまま進めると、TestFlight にある番号以下でビルドしてから送信で断られるので、ここで止める
+            if ! LATEST=$(app-store-connect get-latest-testflight-build-number "$APP_STORE_APPLE_ID"); then
+              echo "TestFlight の最新のビルド番号を取れませんでした。App Store Connect の API キー（codemagic-asc）と APP_STORE_APPLE_ID を確かめてください。"
+              exit 1
+            fi
+            case "$LATEST" in
+              ''|*[!0-9]*)
+                echo "TestFlight の最新のビルド番号が数ではありません: $LATEST"
+                exit 1
+                ;;
+            esac
+            if [ $((LATEST + 1)) -gt "$NEXT" ]; then NEXT=$((LATEST + 1)); fi
+          fi
+          echo "ビルド番号: $NEXT"
+          echo "IOS_BUILD_NUMBER=$NEXT" >> "$CM_ENV"
+      - name: ipa を作る
+        script: |
+          xcode-project build-ipa \
+            --project "$XCODE_PROJECT" \
+            --scheme "$XCODE_SCHEME" \
+            --archive-xcargs "COMPILER_INDEX_STORE_ENABLE=NO CURRENT_PROJECT_VERSION=$IOS_BUILD_NUMBER"
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+    publishing:
+      app_store_connect:
+        auth: integration
+        # 社内テスター（App Store Connect のユーザ）は、内部テストのグループで「自動配信」をオンにしておけば
+        # 処理が済み次第 TestFlight で入れられる。社外のテスターに配るときだけ true にする（毎回 Beta App Review がある）
+        submit_to_testflight: false
