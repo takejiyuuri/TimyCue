@@ -1,0 +1,17 @@
+# XcodeGen が project.yml から作るもの（Codemagic の Mac で毎回作る）
+TimyCue.xcodeproj/
+TimyCue/Info.plist
+
+# Xcode・ビルドの生成物
+build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+
+# 署名の鍵（App Store Connect API キーの .p8 などは、リポジトリにもチャットにも置かない）
+*.p8
+*.p12
+*.mobileprovision
+
+.DS_Store
+__pycache__/
