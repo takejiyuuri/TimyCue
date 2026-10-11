@@ -2,8 +2,8 @@ import CoreGraphics
 
 /// 日付吹き出しの置き場所の決まり（仕様 §22・§23・Q11）。画面に依らない計算だけを置く。
 ///
-/// 基本は押したセルの近く。下に入れば下、入らなければ上。2 つが重なるときは左右・上下をずらす。
-/// 優先するのは「画面内に収まること」と「吹き出し同士が重ならないこと」。
+/// 基本は押したセルの近く。下に入れば下、入らなければ上、それでも入らなければ左右。2 つが重なるときは左右・上下をずらす。
+/// 優先するのは「画面内に収まること」「吹き出し同士が重ならないこと」「元の日付セルや予定ブロックを隠さないこと」（Q11・Q28(b)・追加）。
 enum PopoverPlacement {
     /// 吹き出しの枠を、開いた順（古い順）に決める
     static func frames(container: CGSize,
@@ -14,15 +14,19 @@ enum PopoverPlacement {
         var placed: [CGRect] = []
         for (anchor, size) in zip(anchors, sizes) {
             let options = candidates(anchor: anchor, size: size, placed: placed, container: container, gap: gap, margin: margin)
-            let fitting = options.first { fits($0, in: container, margin: margin) && !overlapsAny($0, placed, gap: gap) }
-            let chosen = fitting ?? options.min { penalty($0, placed, container, margin, gap) < penalty($1, placed, container, margin, gap) }
+            let fitting = options.first {
+                fits($0, in: container, margin: margin) && !overlapsAny($0, placed + anchors, gap: gap)
+            }
+            let chosen = fitting ?? options.min {
+                penalty($0, placed + anchors, container, margin, gap) < penalty($1, placed + anchors, container, margin, gap)
+            }
                 ?? CGRect(origin: .zero, size: size)
             placed.append(chosen)
         }
         return placed
     }
 
-    /// 試す順の候補：セルの下・上（真ん中寄せ → 左寄せ → 右寄せ）、すでに置いた吹き出しの下・上
+    /// 試す順の候補：セルの下・上（真ん中寄せ → 左寄せ → 右寄せ）、セルの右・左、すでに置いた吹き出しの下・上
     private static func candidates(anchor: CGRect, size: CGSize, placed: [CGRect],
                                    container: CGSize, gap: CGFloat, margin: CGFloat) -> [CGRect] {
         let centeredX = clamp(anchor.midX - size.width / 2, margin, container.width - size.width - margin)
@@ -37,6 +41,9 @@ enum PopoverPlacement {
                 result.append(CGRect(x: x, y: y, width: size.width, height: size.height))
             }
         }
+        let sideY = clamp(anchor.midY - size.height / 2, margin, container.height - size.height - margin)
+        result.append(CGRect(x: anchor.maxX + gap, y: sideY, width: size.width, height: size.height))
+        result.append(CGRect(x: anchor.minX - gap - size.width, y: sideY, width: size.width, height: size.height))
         for other in placed {
             for y in [other.maxY + gap, other.minY - gap - size.height] {
                 result.append(CGRect(x: centeredX, y: y, width: size.width, height: size.height))

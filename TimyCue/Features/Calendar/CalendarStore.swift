@@ -1,12 +1,17 @@
 import Foundation
 import Observation
 
-/// カレンダータブの中で移る先
+/// カレンダータブの中で移る先。予定詳細は別の画面にせず吹き出しで出す（Q27）
 enum CalendarRoute: Hashable {
     /// 1 日タイムライン（仕様 §25）
     case timeline(CalendarDay)
-    /// 予定詳細（Q17・v1.1）
-    case eventDetail(UUID)
+}
+
+/// 予定詳細の吹き出しの「編集」から開く 3 分割画面（Q30）
+struct EditRequest: Identifiable, Equatable {
+    let id: UUID
+    /// 下カレンダーを最初に出す月
+    let month: CalendarMonth
 }
 
 /// 1 日タイムラインでスクロールして見せる位置
@@ -49,7 +54,13 @@ final class CalendarStore {
     var topWeekID: CalendarDay?
     /// 吹き出しを開いている日。古い順（仕様 §23）
     private(set) var openDays: [CalendarDay] = []
-    /// カレンダータブの中の画面の行き来（1 日タイムライン・予定詳細）。戻る操作で書き換わるので外から書ける
+    /// 月カレンダーの吹き出しで、一覧から予定詳細に切り替えている日と予定（Q28(a)）
+    private(set) var popoverDetails: [CalendarDay: UUID] = [:]
+    /// 1 日タイムラインで予定詳細の吹き出しを出している予定（Q28(b)）
+    private(set) var timelineDetailEventID: UUID?
+    /// 予定詳細の吹き出しの「編集」で開く 3 分割画面（Q30）。閉じたら nil に戻るので外から書ける
+    var editRequest: EditRequest?
+    /// カレンダータブの中の画面の行き来（1 日タイムライン）。戻る操作で書き換わるので外から書ける
     var path: [CalendarRoute] = []
     /// 1 日タイムラインの「＋」から保存したあと、作った予定が見える位置までスクロールする目印（Q22）
     private(set) var timelineFocus: TimelineFocus?
@@ -177,30 +188,65 @@ final class CalendarStore {
     func tapDay(_ day: CalendarDay) {
         if let index = openDays.firstIndex(of: day) {
             openDays.remove(at: index)
+            popoverDetails[day] = nil
             return
         }
         openDays.append(day)
         if openDays.count > Self.maxOpenPopovers {
-            openDays.removeFirst(openDays.count - Self.maxOpenPopovers)
+            let closed = openDays.prefix(openDays.count - Self.maxOpenPopovers)
+            closed.forEach { popoverDetails[$0] = nil }
+            openDays.removeFirst(closed.count)
         }
     }
 
-    /// 吹き出しの外を押したとき、開いている吹き出しを閉じる（Q9）
+    /// 吹き出しの外を押したとき、開いている吹き出しを閉じる。予定詳細に切り替えていても一覧へ戻さず、まとめて閉じる（Q9・Q29）
     func closeAllPopovers() {
         guard !openDays.isEmpty else { return }
         openDays = []
+        popoverDetails = [:]
+    }
+
+    /// 一覧の予定を押す：別の吹き出しを重ねず、同じ吹き出しの中身を予定詳細に切り替える（Q28(a)）
+    func showDetail(in day: CalendarDay, eventID: UUID) {
+        guard isOpen(day) else { return }
+        popoverDetails[day] = eventID
+    }
+
+    /// 予定詳細の吹き出しの中をもう一度押すと、元の予定一覧へ戻る（Q29）
+    func backToList(in day: CalendarDay) {
+        popoverDetails[day] = nil
+    }
+
+    /// その日の吹き出しで出している予定詳細。一覧のときは nil
+    func detailEventID(inPopoverOf day: CalendarDay) -> UUID? {
+        popoverDetails[day]
     }
 
     // MARK: - 1 日タイムライン
 
     /// 吹き出しの上の日付を押して、その日の 1 日タイムラインへ移る（仕様 §25）
     func openTimeline(_ day: CalendarDay) {
+        timelineDetailEventID = nil
         path = [.timeline(day)]
     }
 
-    /// 予定を押して、予定詳細を開く（Q17）。3 分割の編集画面へは直接行かない
-    func openEventDetail(_ eventID: UUID) {
-        path.append(.eventDetail(eventID))
+    /// 予定ブロックを押す：そのブロックの近くに予定詳細の吹き出しを出す（Q17・Q28(b)）。
+    /// 出している予定をもう一度押したら閉じる（仮）。3 分割の編集画面へは直接行かない
+    func tapTimelineEvent(_ eventID: UUID) {
+        timelineDetailEventID = timelineDetailEventID == eventID ? nil : eventID
+    }
+
+    /// 吹き出しの外を押したとき、予定詳細の吹き出しを閉じる（Q29）
+    func closeTimelineDetail() {
+        timelineDetailEventID = nil
+    }
+
+    // MARK: - 編集（Q30）
+
+    /// 予定詳細の吹き出しの「編集」：3 分割画面を開く。閉じたら元の画面に戻り、吹き出しもそのまま出す
+    func requestEdit(_ eventID: UUID) {
+        guard let event = event(id: eventID) else { return }
+        editRequest = EditRequest(id: eventID, month: CalendarMonth(event.day))
     }
 
     // MARK: - 新規予定（Q21・Q22）
@@ -228,9 +274,12 @@ final class CalendarStore {
         timelineFocus = nil
     }
 
-    /// 予定を消したあと、その予定詳細を閉じる
+    /// 予定を消したあと、その予定詳細の吹き出しを閉じる（月カレンダーの吹き出しは一覧に戻す）
     func closeEventDetail(_ eventID: UUID) {
-        path.removeAll { $0 == .eventDetail(eventID) }
+        for (day, id) in popoverDetails where id == eventID {
+            popoverDetails[day] = nil
+        }
+        if timelineDetailEventID == eventID { timelineDetailEventID = nil }
     }
 
     // MARK: - 予定詳細

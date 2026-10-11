@@ -124,9 +124,12 @@ final class CalendarTimelineStoreTests: XCTestCase {
         XCTAssertEqual(store.path, [.timeline(today)], "吹き出しの日付からその日のタイムラインへ（仕様 §25）")
 
         let event = store.timedEvents(on: today)[0]
-        store.openEventDetail(event.id)
-        XCTAssertEqual(store.path, [.timeline(today), .eventDetail(event.id)],
-                       "予定ブロックを押すと予定詳細へ。3 分割画面へは直接行かない（Q17）")
+        store.tapTimelineEvent(event.id)
+        XCTAssertEqual(store.timelineDetailEventID, event.id, "予定ブロックを押すと、その近くに予定詳細の吹き出し（Q17・Q28(b)）")
+        XCTAssertEqual(store.path, [.timeline(today)], "別の画面へは移らない（Q27）")
+        XCTAssertNil(store.editRequest, "3 分割画面へは直接行かない")
+        store.closeTimelineDetail()
+        XCTAssertNil(store.timelineDetailEventID, "吹き出しの外を押すと閉じる（Q29）")
         XCTAssertEqual(store.event(id: event.id)?.title, "A")
         XCTAssertEqual(store.timedEvents(on: today).map(\.title), ["A"])
         XCTAssertEqual(store.allDayEvents(on: today).map(\.title), ["終日"], "終日は上の専用帯へ（仕様 §30）")

@@ -364,6 +364,18 @@ final class ScheduleEditorStore {
         startNew(on: day)
     }
 
+    /// 予定詳細の吹き出しの「編集」（Q30）：その予定の編集を始め、カレンダー側に 3 分割画面を開いてもらう
+    func beginEditing(_ eventID: UUID, from calendar: CalendarStore) {
+        refresh()
+        do {
+            try startEditing(eventID: eventID)
+        } catch {
+            calendar.reload()
+            return
+        }
+        calendar.requestEdit(eventID)
+    }
+
     /// 保存先を読み直す（カレンダーなど、ほかの画面で予定が変わったあと）
     func refresh() {
         reloadEvents()
