@@ -45,7 +45,8 @@ final class ModelTests: XCTestCase {
             .beforeDeparture(minutes: 10),
             .beforeDeparture(minutes: 60),
         ])
-        XCTAssertEqual(mixed.summary, "60分・10分・出発・開始15分前", "出発の早い順 → 出発 → 開始前")
+        XCTAssertEqual(mixed.summary, "60分・10分・出発・予定開始15分前",
+                       "出発の早い順 → 出発 → 予定開始前。予定開始基準は「予定開始○分前」と書く（Q7）")
     }
 
     func testNotificationPresetsIncludeSixtyMinutes() {

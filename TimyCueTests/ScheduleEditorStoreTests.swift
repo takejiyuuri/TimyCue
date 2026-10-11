@@ -151,7 +151,51 @@ final class ScheduleEditorStoreTests: XCTestCase {
         XCTAssertThrowsError(try store.save())
         XCTAssertEqual(store.displayedDay, d2, "時刻のない日を表示する")
         XCTAssertEqual(store.presentedIssue, .missingStartTime([d2]))
+        XCTAssertEqual(store.presentedIssue?.message, "開始時刻を設定してください", "文言は Q7 で統一")
         XCTAssertNil(store.expandedRow, "予定名は入っているので行は開かない")
+    }
+
+    func testIssueMessages() {
+        XCTAssertEqual(SaveIssue.noDaySelected.message, "日付を選んでください")
+        XCTAssertEqual(SaveIssue.missingStartTime([]).message, "開始時刻を設定してください")
+        XCTAssertEqual(SaveIssue.missingTitle.message, "予定名を入力してください")
+    }
+
+    // MARK: - 名前のない予定の編集（Q4）
+
+    func testEditingUntitledExternalEventDoesNotRequireTitle() throws {
+        var external = makeEvent("", on: d1, at: 600)
+        external.locationName = "広島駅"
+        external.source = .appleCalendar
+        let (store, events, _) = makeStore([external])
+
+        try store.startEditing(eventID: external.id)
+        XCTAssertFalse(store.requiresTitle, "元から予定名がない予定は、編集では予定名を必須にしない")
+        store.selectDay(d2)
+        try store.save()
+        XCTAssertEqual(events.allEvents().first?.day, d2)
+        XCTAssertEqual(events.allEvents().first?.displayTitle, "広島駅", "表示は場所名にフォールバック（Q3）")
+    }
+
+    func testEditingTitledEventStillRequiresTitle() throws {
+        let original = makeEvent("A社打合せ", on: d1, at: 600)
+        let store = makeStore([original]).store
+        try store.startEditing(eventID: original.id)
+        XCTAssertTrue(store.requiresTitle)
+        store.content.title = ""
+        XCTAssertThrowsError(try store.save(), "予定名がある予定から予定名を消して保存はできない")
+        XCTAssertEqual(store.expandedRow, .title)
+    }
+
+    func testCopyOfUntitledEventRequiresTitle() throws {
+        let external = makeEvent("", on: d1, at: 600)
+        let store = makeStore([external]).store
+        try store.startEditing(eventID: external.id)
+        try store.startCopy()
+        XCTAssertTrue(store.requiresTitle, "コピーは TimyCue で新しく作る予定なので予定名が必須")
+        store.selectDay(d2)
+        store.setStartMinute(600, on: d2)
+        XCTAssertEqual(store.saveIssues, [.missingTitle])
     }
 
     // MARK: - 終了時刻（仕様 §41・§69）
@@ -218,6 +262,36 @@ final class ScheduleEditorStoreTests: XCTestCase {
         store.setEndMinute(690, on: d2)
         store.setEndMinute(660, on: d2)
         XCTAssertTrue(store.durationOverrides.isEmpty, "共通の値に戻したら、その日だけの値は消える")
+    }
+
+    func testApplyDurationToAllDays() {
+        let store = makeStore().store
+        store.startNew()
+        [d1, d2, d3].forEach(store.selectDay)
+        for day in [d1, d2, d3] { store.setStartMinute(600, on: day) }
+        store.setEndMinute(660, on: d1)
+        XCTAssertFalse(store.canApplyDurationToAllDays, "全部同じなら「全日に適用」は要らない")
+
+        store.displayDay(d2)
+        store.setEndMinute(690)
+        XCTAssertTrue(store.canApplyDurationToAllDays, "違う日があれば出す")
+
+        store.applyDurationToAllDays()
+        XCTAssertEqual([d1, d2, d3].map { store.durationMinutes(on: $0) }, [90, 90, 90],
+                       "表示中の日の所要時間を全部の日に入れ直す（Q5）")
+        XCTAssertFalse(store.canApplyDurationToAllDays)
+
+        store.displayDay(d3)
+        store.setEndMinute(630)
+        XCTAssertEqual([d1, d2, d3].map { store.durationMinutes(on: $0) }, [90, 90, 30],
+                       "適用したあとも、日ごとに変えられる")
+    }
+
+    func testApplyDurationIsNotOfferedWhileEditing() throws {
+        let original = makeEvent("A社打合せ", on: d1, at: 600, duration: 60)
+        let store = makeStore([original]).store
+        try store.startEditing(eventID: original.id)
+        XCTAssertFalse(store.canApplyDurationToAllDays, "編集は 1 件だけ")
     }
 
     func testDeselectingDayDropsItsDuration() {

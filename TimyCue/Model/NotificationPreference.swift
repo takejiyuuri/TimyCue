@@ -17,12 +17,13 @@ enum NotificationTiming: Hashable, Codable {
         .atDeparture,
     ]
 
-    /// 右上の通知行に並べる短い表記（仕様 §17 の例「30分・10分・出発」）。「開始○分前」の表記は仮
+    /// 右上の通知行に並べる短い表記（仕様 §17 の例「30分・10分・出発」）。
+    /// 予定開始を基準にするものは、出発基準と取り違えないよう「予定開始15分前」と書く（Q7）
     var label: String {
         switch self {
         case .beforeDeparture(let minutes): "\(minutes)分"
         case .atDeparture: "出発"
-        case .beforeStart(let minutes): "開始\(minutes)分前"
+        case .beforeStart(let minutes): "予定開始\(minutes)分前"
         }
     }
 
@@ -40,7 +41,8 @@ enum NotificationTiming: Hashable, Codable {
 struct NotificationPreference: Equatable, Codable {
     var timings: Set<NotificationTiming>
 
-    /// 新しい予定の初期値は仮に「30分・10分・出発」。設定画面の既定値ができたら、そこから取る
+    /// 新しい予定の初期値は当面「出発30分前・出発10分前・出発時」（Q6）。
+    /// 設定画面に既定の通知ができたら、そのユーザー設定を初期値にする
     init(timings: Set<NotificationTiming> = [.beforeDeparture(minutes: 30), .beforeDeparture(minutes: 10), .atDeparture]) {
         self.timings = timings
     }

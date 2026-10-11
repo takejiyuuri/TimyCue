@@ -103,10 +103,19 @@ final class ScheduleEditorStore {
             let missing = selectedDays.filter { startMinutes[$0] == nil }
             if !missing.isEmpty { issues.append(.missingStartTime(missing)) }
         }
-        if content.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        if requiresTitle && Self.isBlank(content.title) {
             issues.append(.missingTitle)
         }
         return issues
+    }
+
+    /// 予定名が必須か（Q3・Q4）。TimyCue で新しく作る予定（新規・コピー）は必須。
+    /// 編集では、元から予定名がない予定（Apple カレンダーから来たものなど）だけ必須にしない
+    var requiresTitle: Bool {
+        switch mode {
+        case .new, .copy: true
+        case .edit: !Self.isBlank(editingEvent?.title ?? "")
+        }
     }
 
     /// 保存しようとして足りなかったとき、直るまで出しておく知らせ（仕様 §46）
@@ -266,6 +275,20 @@ final class ScheduleEditorStore {
         }
     }
 
+    /// 「全日に適用」を出すか（Q5）。複数日を選んでいて、表示中の日と所要時間が違う日があるとき
+    var canApplyDurationToAllDays: Bool {
+        guard mode.allowsMultipleDays, selectedDays.count > 1, let shown = displayedDay else { return false }
+        let duration = durationMinutes(on: shown)
+        return selectedDays.contains { durationMinutes(on: $0) != duration }
+    }
+
+    /// 「全日に適用」（Q5）：表示中の日の所要時間を、選んでいる全部の日に入れ直す
+    func applyDurationToAllDays() {
+        guard let shown = displayedDay else { return }
+        commonDurationMinutes = durationMinutes(on: shown)
+        durationOverrides = [:]
+    }
+
     // MARK: - 予測で一括
 
     /// 時刻のない日だけに予測の候補を入れる。自分で入れた時刻は上書きしない（Q2）。保存はしない（仕様 §36）
@@ -367,6 +390,10 @@ final class ScheduleEditorStore {
     private func reloadEvents() {
         events = repository.allEvents()
         metadataByEventID = metadataRepository.allMetadata()
+    }
+
+    private static func isBlank(_ text: String) -> Bool {
+        text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private func clampToDay(_ minute: MinuteOfDay) -> MinuteOfDay {

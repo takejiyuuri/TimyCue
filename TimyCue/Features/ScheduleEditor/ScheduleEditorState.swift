@@ -58,11 +58,11 @@ enum SaveIssue: Equatable {
     case missingStartTime([CalendarDay])
     case missingTitle
 
-    /// 画面に出す知らせ。予定名は仕様 §46 の例どおり。日付・開始時刻の文言は仮
+    /// 画面に出す知らせ（仕様 §46・Q7 で統一した文言）
     var message: String {
         switch self {
         case .noDaySelected: "日付を選んでください"
-        case .missingStartTime: "開始時刻を入れてください"
+        case .missingStartTime: "開始時刻を設定してください"
         case .missingTitle: "予定名を入力してください"
         }
     }
