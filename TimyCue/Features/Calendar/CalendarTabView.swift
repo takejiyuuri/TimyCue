@@ -13,6 +13,8 @@ struct CalendarTabView: View {
         @Bindable var store = store
         NavigationStack(path: $store.path) {
             VStack(spacing: 0) {
+                // Apple カレンダーとつなぐ（仮の置き場所。§79・§81）
+                CalendarConnectionBanner()
                 CalendarHeaderView(year: store.stickyMonth.yearLabel)
                     .contentShape(Rectangle())
                     .onTapGesture { store.closeAllPopovers() }
