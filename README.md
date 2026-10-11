@@ -4,6 +4,8 @@
 
 予定時刻・場所・現在地・移動手段などから「何時に出ればいいか」を伝える iPhone アプリ（SwiftUI、iOS 17 以上、iPhone のみ）。
 
+仕様は [docs/spec.md](docs/spec.md)（v1.0）。コードの「仕様 §N」はその番号、「Q1」などは spec.md の「決まったことの記録」を指す。
+
 ## いまの段階
 
 段階 B：雛形と、予定登録・編集・コピーの 3 分割画面の**状態管理**まで。画面は下部 3 タブ（ホーム｜カレンダー｜設定）の仮の画面だけで、
@@ -16,7 +18,7 @@
 | `project.yml` | XcodeGen の設定。Xcode プロジェクトは Git に入れず、ここから作る |
 | `TimyCue/App/` | 入口と下部タブ |
 | `TimyCue/DesignSystem/` | 色・角丸・余白（値は仮。決まったらここだけ差し替える） |
-| `TimyCue/Model/` | 予定・日付・予定色などのデータ |
+| `TimyCue/Model/` | 予定のデータ。Apple カレンダーと共有する部分（`CalendarEvent`）と TimyCue だけの情報（`TimyCueEventMetadata`）を分けて持つ（仕様 §84） |
 | `TimyCue/Data/` | 予定の読み書き（今はメモリ上のモック。後で EventKit 版に差し替え） |
 | `TimyCue/Prediction/` | 「予測で一括」の入口（今はモック） |
 | `TimyCue/Features/ScheduleEditor/` | 3 分割画面の状態管理（`ScheduleEditorStore`） |

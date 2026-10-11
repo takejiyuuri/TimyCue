@@ -41,11 +41,11 @@ targets:
           UIColorName: LaunchBackground
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
-        # 位置情報・カレンダー・通知などの許可の説明文は、使う段階になってから足す（仕様 §46）
+        # 位置情報・カレンダー・通知などの許可の説明文は、使う段階になってから足す（仕様 §79：必要になった時に許可を求める）
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.github.takejiyuuri.timycue
-        # v1 は iPhone のみ（仕様 §47）
+        # v1 は iPhone のみ（仕様 §2）
         TARGETED_DEVICE_FAMILY: "1"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor

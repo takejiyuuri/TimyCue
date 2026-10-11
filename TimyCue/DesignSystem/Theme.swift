@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// 色・角丸・余白の仮の値（仕様 §2）。正確な HEX・フォントサイズ・比率は未決（仕様 §53）なので、
+/// 色・角丸・余白の仮の値（仕様 §4）。正確な HEX・フォントサイズ・比率は実機で確かめて決める（仕様 §86）ので、
 /// 値はすべてここに集め、決まったらここだけ差し替える。
 enum Theme {
     enum Colors {
@@ -13,7 +13,7 @@ enum Theme {
         static let textPrimary = Color(hex: 0x3D3730)
         static let textSecondary = Color(hex: 0x8A8178)
         static let separator = Color(hex: 0xE9E1D4)
-        /// 警告の黄色・赤は予定色とは別の意味（仕様 §2）
+        /// 警告の黄色・赤は予定色とは別の意味（仕様 §4）
         static let warning = Color(hex: 0xE8B931)
         static let danger = Color(hex: 0xE0645A)
     }
