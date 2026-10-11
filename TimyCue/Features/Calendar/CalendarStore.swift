@@ -210,7 +210,7 @@ final class CalendarStore {
 
     /// 吹き出しの時刻（Q12）。終了時刻があれば「10:00–11:30」、なければ「10:00」。終日は「終日」。
     /// Apple カレンダーに保存するために付ける仮の終了時刻は、終了時刻として持たないので出ない（§69）
-    static func timeText(for event: CalendarEvent) -> String {
+    nonisolated static func timeText(for event: CalendarEvent) -> String {
         if event.isAllDay { return "終日" }
         let start = TimeText.hourMinute(event.startMinute)
         guard let end = event.endMinute else { return start }
