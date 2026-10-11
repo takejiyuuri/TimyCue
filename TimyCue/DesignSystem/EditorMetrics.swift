@@ -31,6 +31,16 @@ enum EditorMetrics {
     /// 終了時刻のない予定は短い固定の高さ（§37）
     static let noEndBlockHeight: CGFloat = 20
     static let draftOpacity: Double = 0.55
+    /// 仮予定を動かしている間に出す時刻（§40）
+    static let dragTimeFont = Font.system(size: 11, weight: .bold).monospacedDigit()
+    /// 仮予定の下端の、終了時刻のハンドル（§41）
+    static let endHandleWidth: CGFloat = 28
+    static let endHandleHeight: CGFloat = 16
+    /// 分ホイール（§38。形は実機で確かめて決める）
+    static let wheelFont = Font.system(size: 14, weight: .medium).monospacedDigit()
+    static let wheelSelectedFont = Font.system(size: 16, weight: .bold).monospacedDigit()
+    static let wheelRowHeight: CGFloat = 24
+    static let wheelWidth: CGFloat = 36
 
     // MARK: 予定入力（§44・§45）
 
