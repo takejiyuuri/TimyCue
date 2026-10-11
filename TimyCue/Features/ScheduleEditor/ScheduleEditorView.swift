@@ -2,9 +2,12 @@ import SwiftUI
 
 /// 予定登録・編集・コピーの専用 3 分割画面（仕様 §31・§32）。カレンダー画面とは分ける。
 /// 左上：時間画面、右上：予定入力、下：日付カレンダー。3 つとも常に出し、それぞれ別々に動く。
+/// 保存したら元の画面へ戻る（Q22。旧 §65 の「保存しても閉じない」は変更）
 struct ScheduleEditorView: View {
     /// 下カレンダーを最初に出す月
     let initialMonth: CalendarMonth
+    /// 保存したとき。保存した予定を渡す（元の画面が、保存した日や時刻を見せるため。Q22）
+    var onSaved: ([CalendarEvent]) -> Void = { _ in }
     /// 予定を消したとき（予定詳細も閉じるため）
     var onDeleted: () -> Void = {}
 
@@ -15,7 +18,6 @@ struct ScheduleEditorView: View {
     @FocusState private var focusedRow: InputRow?
     @State private var confirmsDiscard = false
     @State private var confirmsDelete = false
-    @State private var showsSavedMessage = false
 
     var body: some View {
         GeometryReader { geometry in
@@ -42,19 +44,6 @@ struct ScheduleEditorView: View {
             .animation(.easeInOut(duration: 0.2), value: isTyping)
         }
         .background(Theme.Colors.separator.ignoresSafeArea())
-        .overlay(alignment: .top) {
-            if showsSavedMessage {
-                // 保存しても画面は閉じない。少しのあいだ知らせる（§65）
-                Text("✓ 保存しました")
-                    .font(EditorMetrics.headerTitleFont)
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
-                    .background(Capsule().fill(Theme.Colors.textPrimary.opacity(0.85)))
-                    .padding(.top, EditorMetrics.headerHeight + 8)
-                    .transition(.opacity)
-            }
-        }
         // 未保存のまま離れるときは確かめる（§66）
         .confirmationDialog("保存していない変更があります", isPresented: $confirmsDiscard, titleVisibility: .visible) {
             Button("変更を破棄して閉じる", role: .destructive) { close() }
@@ -91,27 +80,18 @@ struct ScheduleEditorView: View {
         .background(Theme.Colors.surface)
     }
 
-    /// 保存する（§65・§66）。足りないものがあれば store が該当の行を開いて知らせる（§46）。
-    /// 新規・コピーは保存した予定を保存済みのブロックにして、続けて登録できるよう新規に戻す（表示中の日は残す。仮）
+    /// 保存して元の画面へ戻る（Q22）。足りないものがあれば store が該当の行を開いて知らせ、閉じない（§46）
     private func save() {
+        let saved: [CalendarEvent]
         do {
-            try store.save()
+            saved = try store.save()
         } catch {
             return
         }
         focusedRow = nil
         calendarStore.reload()
-        switch store.mode {
-        case .new, .copy:
-            store.startNew(on: store.displayedDay)
-        case .edit:
-            break
-        }
-        withAnimation { showsSavedMessage = true }
-        Task { @MainActor in
-            try? await Task.sleep(for: .seconds(1.5))
-            withAnimation { showsSavedMessage = false }
-        }
+        onSaved(saved)
+        dismiss()
     }
 
     private func deleteEvent() {

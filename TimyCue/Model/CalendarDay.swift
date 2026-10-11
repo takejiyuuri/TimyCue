@@ -72,6 +72,10 @@ enum Weekday {
     static let symbols = ["月", "火", "水", "木", "金", "土", "日"]
 }
 
+extension CalendarDay: Identifiable {
+    var id: Self { self }
+}
+
 /// 0:00 からの分。14:17 なら 857。
 typealias MinuteOfDay = Int
 

@@ -30,8 +30,22 @@ extension ScheduleEditorStore {
     /// 到着目標の候補（仕様 §49。カスタムは入力の段階で足す）
     static let arrivalTargetChoices = [5, 10, 15, 20, 30]
 
-    /// 終了の行で選べる所要時間（仮。仮予定の下端のハンドルで決める操作は時間画面の段階で作る。仕様 §41）
+    /// 終了の行で素早く選べる所要時間（Q24：未設定・30・60・90・120 分・カスタム）
     static let durationChoices = [30, 60, 90, 120]
+    /// カスタムで選べる所要時間の範囲と刻み（分。仮）
+    static let customDurationRange = 5...(24 * 60)
+    static let customDurationStep = 5
+
+    /// 下カレンダーの日付に出す予定の印（Q23）。予定色のドットを最大 3 個と、残りの件数
+    func eventDots(on day: CalendarDay) -> (colors: [EventColor], more: Int) {
+        let dayEvents = events
+            .filter { $0.day == day }
+            .sorted { ($0.isAllDay ? 0 : 1, $0.startMinute) < ($1.isAllDay ? 0 : 1, $1.startMinute) }
+        let colors = dayEvents.prefix(Self.maxEventDots).map { metadata(for: $0.id)?.color ?? .orange }
+        return (Array(colors), max(dayEvents.count - Self.maxEventDots, 0))
+    }
+
+    static let maxEventDots = 3
 
     /// 表示中の日の所要時間を、分で入れる。開始時刻がない日は何もしない
     func setDuration(_ minutes: Int?) {

@@ -48,7 +48,11 @@ enum EditorMetrics {
     static let calendarDayFont = Font.system(size: 14, weight: .medium).monospacedDigit()
     static let calendarWeekdayHeight: CGFloat = 20
     static let calendarWeekdayFont = Font.system(size: 11, weight: .medium)
-    static let selectedCircleSize: CGFloat = 30
+    static let selectedCircleSize: CGFloat = 26
+    /// 予定がある日の予定色のドット（Q23）
+    static let eventDotSize: CGFloat = 4
+    static let eventDotSpacing: CGFloat = 2
+    static let eventMoreFont = Font.system(size: 7, weight: .semibold)
     /// なぞって選んでいるとみなす、指の動きの大きさ
     static let dragSelectThreshold: CGFloat = 8
 

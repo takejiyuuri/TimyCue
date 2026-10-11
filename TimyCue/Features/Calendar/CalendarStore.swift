@@ -9,6 +9,12 @@ enum CalendarRoute: Hashable {
     case eventDetail(UUID)
 }
 
+/// 1 日タイムラインでスクロールして見せる位置
+struct TimelineFocus: Equatable {
+    let day: CalendarDay
+    let minute: MinuteOfDay
+}
+
 /// 日付吹き出しの 1 行（仕様 §22）
 struct DayPopoverRow: Identifiable, Equatable {
     let id: UUID
@@ -45,6 +51,8 @@ final class CalendarStore {
     private(set) var openDays: [CalendarDay] = []
     /// カレンダータブの中の画面の行き来（1 日タイムライン・予定詳細）。戻る操作で書き換わるので外から書ける
     var path: [CalendarRoute] = []
+    /// 1 日タイムラインの「＋」から保存したあと、作った予定が見える位置までスクロールする目印（Q22）
+    private(set) var timelineFocus: TimelineFocus?
     private var eventsByDay: [CalendarDay: [CalendarEvent]] = [:]
     private var metadataByEventID: [UUID: TimyCueEventMetadata] = [:]
 
@@ -193,6 +201,31 @@ final class CalendarStore {
     /// 予定を押して、予定詳細を開く（Q17）。3 分割の編集画面へは直接行かない
     func openEventDetail(_ eventID: UUID) {
         path.append(.eventDetail(eventID))
+    }
+
+    // MARK: - 新規予定（Q21・Q22）
+
+    /// 月カレンダーの「＋」で最初に選ぶ日。選択中の日（いちばん新しく開いた吹き出しの日）があればその日、なければ今日（Q21）
+    var dayForNewEvent: CalendarDay {
+        openDays.last ?? today
+    }
+
+    /// 月カレンダーの「＋」から保存したあと：保存した日を選択状態にして、その日の吹き出しを開く。
+    /// 複数日なら最初の日を代表にする（Q22）
+    func showSavedDay(_ day: CalendarDay) {
+        reload()
+        if !isOpen(day) { tapDay(day) }
+    }
+
+    /// 1 日タイムラインの「＋」から保存したあと：作った予定が見える位置までスクロールする（Q22）
+    func focusTimeline(on day: CalendarDay, minute: MinuteOfDay) {
+        reload()
+        timelineFocus = TimelineFocus(day: day, minute: minute)
+    }
+
+    /// タイムラインがスクロールし終えたら目印を消す
+    func clearTimelineFocus() {
+        timelineFocus = nil
     }
 
     /// 予定を消したあと、その予定詳細を閉じる

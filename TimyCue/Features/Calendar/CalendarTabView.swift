@@ -4,6 +4,9 @@ import SwiftUI
 /// 吹き出しの日付を押すとその日の 1 日タイムラインへ（仕様 §25）、タイムラインの予定を押すと予定詳細へ移る（Q17）
 struct CalendarTabView: View {
     @Environment(CalendarStore.self) private var store
+    @Environment(ScheduleEditorStore.self) private var editorStore
+    /// 「＋」で開いた新規の 3 分割画面（Q21）
+    @State private var newEventDay: CalendarDay?
 
     var body: some View {
         @Bindable var store = store
@@ -13,6 +16,10 @@ struct CalendarTabView: View {
                     .contentShape(Rectangle())
                     .onTapGesture { store.closeAllPopovers() }
                 MonthCalendarView()
+                    .overlay(alignment: .bottomTrailing) {
+                        NewEventButton { openNewEvent() }
+                            .padding(Theme.Spacing.l)
+                    }
             }
             .background(Theme.Colors.background.ignoresSafeArea())
             .toolbar(.hidden, for: .navigationBar)
@@ -29,6 +36,24 @@ struct CalendarTabView: View {
             store.updateToday()
             openForScreenshot()
         }
+        .fullScreenCover(item: $newEventDay) { day in
+            ScheduleEditorView(initialMonth: CalendarMonth(day), onSaved: { saved in
+                // 保存したら月カレンダーへ戻り、保存した日（複数日なら最初の日）の吹き出しを開く（Q22）
+                if let first = saved.map(\.day).min() {
+                    store.showSavedDay(first)
+                }
+            })
+            .environment(editorStore)
+            .environment(store)
+        }
+    }
+
+    /// 月カレンダーの「＋」（Q21）：選択中の日があればその日、なければ今日を選んだ新規。開始時刻は未設定
+    private func openNewEvent() {
+        let day = store.dayForNewEvent
+        editorStore.refresh()
+        editorStore.startNew(on: day)
+        newEventDay = day
     }
 
     /// Codemagic で画面写真を撮るときの起動引数（DEBUG のときだけ）。

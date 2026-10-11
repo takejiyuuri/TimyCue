@@ -10,7 +10,17 @@ struct InputPane: View {
     let onDelete: () -> Void
 
     var body: some View {
-        @Bindable var store = store
+        VStack(spacing: 0) {
+            // コピーは既存予定の編集中だけ、右の入力の上（固定ヘッダー付近）に出す。削除とは離す（Q25）
+            if case .edit = store.mode {
+                CopyBar(onCopy: onCopy)
+            }
+            rows
+        }
+        .background(Theme.Colors.surface)
+    }
+
+    private var rows: some View {
         ScrollViewReader { proxy in
             ScrollView {
                 VStack(spacing: 0) {
@@ -38,7 +48,7 @@ struct InputPane: View {
                         }
                     }
                     if case .edit = store.mode {
-                        EditActions(onCopy: onCopy, onDelete: onDelete)
+                        DeleteButton(onDelete: onDelete)
                     }
                 }
             }
@@ -46,7 +56,27 @@ struct InputPane: View {
                 if let row { withAnimation { proxy.scrollTo(row, anchor: .top) } }
             }
         }
-        .background(Theme.Colors.surface)
+    }
+}
+
+/// 右の入力の上に固定する、コピーの操作（Q25）
+private struct CopyBar: View {
+    let onCopy: () -> Void
+
+    var body: some View {
+        HStack {
+            Spacer()
+            Button(action: onCopy) {
+                Label("コピー", systemImage: "doc.on.doc")
+                    .font(EditorMetrics.chipFont)
+            }
+            .buttonStyle(.bordered)
+        }
+        .padding(.horizontal, Theme.Spacing.m)
+        .padding(.vertical, Theme.Spacing.xs)
+        .overlay(alignment: .bottom) {
+            Theme.Colors.separator.frame(height: 1)
+        }
     }
 }
 
@@ -161,20 +191,73 @@ private struct InlineEditor: View {
                 }
             }
         case .end:
-            VStack(alignment: .leading, spacing: Theme.Spacing.s) {
-                ChipRow(options: ScheduleEditorStore.durationChoices.map(Optional.some) + [nil],
-                        label: { $0.map { "\($0)分" } ?? "未設定" },
-                        isSelected: { minutes in
-                            guard let day = store.displayedDay else { return false }
-                            return store.durationMinutes(on: day) == minutes
-                        },
-                        onTap: { store.setDuration($0) })
-                if store.canApplyDurationToAllDays {
-                    // 選んでいる全部の日へ、今の所要時間を入れ直す（Q5）
-                    Button("全日に適用") { store.applyDurationToAllDays() }
-                        .font(EditorMetrics.chipFont)
-                        .buttonStyle(.bordered)
-                }
+            EndEditor()
+        }
+    }
+}
+
+/// 終了の行の編集（Q24）：未設定・30・60・90・120 分・カスタム。時間画面の下端ハンドルとは同じ値を見る
+private struct EndEditor: View {
+    @Environment(ScheduleEditorStore.self) private var store
+    @State private var showsCustom = false
+
+    private enum Choice: Hashable {
+        case unset
+        case minutes(Int)
+        case custom
+    }
+
+    var body: some View {
+        let current = store.displayedDay.flatMap { store.durationMinutes(on: $0) }
+        let isPreset = current.map { ScheduleEditorStore.durationChoices.contains($0) } ?? true
+        let hasStart = store.displayedDay.map { store.startMinutes[$0] != nil } ?? false
+
+        VStack(alignment: .leading, spacing: Theme.Spacing.s) {
+            if !hasStart {
+                Text("先に開始時刻を決めてください")
+                    .font(EditorMetrics.inputLabelFont)
+                    .foregroundStyle(Theme.Colors.textSecondary)
+            }
+            ChipRow(options: [Choice.unset] + ScheduleEditorStore.durationChoices.map(Choice.minutes) + [Choice.custom],
+                    label: { choice in
+                        switch choice {
+                        case .unset: "未設定"
+                        case .minutes(let minutes): "\(minutes)分"
+                        case .custom: isPreset ? "カスタム" : "\(current ?? 0)分"
+                        }
+                    },
+                    isSelected: { choice in
+                        switch choice {
+                        case .unset: current == nil && !showsCustom
+                        case .minutes(let minutes): current == minutes && !showsCustom
+                        case .custom: showsCustom || !isPreset
+                        }
+                    },
+                    onTap: { choice in
+                        switch choice {
+                        case .unset:
+                            showsCustom = false
+                            store.setDuration(nil)
+                        case .minutes(let minutes):
+                            showsCustom = false
+                            store.setDuration(minutes)
+                        case .custom:
+                            showsCustom = true
+                            if current == nil { store.setDuration(60) }
+                        }
+                    })
+            if showsCustom, let minutes = current {
+                Stepper("所要時間 \(minutes)分",
+                        value: Binding(get: { minutes }, set: { store.setDuration($0) }),
+                        in: ScheduleEditorStore.customDurationRange,
+                        step: ScheduleEditorStore.customDurationStep)
+                    .font(EditorMetrics.chipFont)
+            }
+            if store.canApplyDurationToAllDays {
+                // 選んでいる全部の日へ、今の所要時間を入れ直す（Q5）
+                Button("全日に適用") { store.applyDurationToAllDays() }
+                    .font(EditorMetrics.chipFont)
+                    .buttonStyle(.bordered)
             }
         }
     }
@@ -207,22 +290,15 @@ private struct ChipRow<Option: Hashable>: View {
     }
 }
 
-/// 編集のときだけ、右の入力の下に出す操作。削除は誤操作を防ぐため固定ヘッダーには置かない（§62・§64）
-private struct EditActions: View {
-    let onCopy: () -> Void
+/// 編集のときだけ、右の入力のいちばん下に独立して出す「予定を削除」。誤操作を防ぐため固定ヘッダーには置かない（§64・Q25）
+private struct DeleteButton: View {
     let onDelete: () -> Void
 
     var body: some View {
-        VStack(spacing: Theme.Spacing.m) {
-            Button("コピー", action: onCopy)
-                .font(EditorMetrics.chipFont)
-                .buttonStyle(.bordered)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            Button("予定を削除", role: .destructive, action: onDelete)
-                .font(EditorMetrics.chipFont)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .padding(Theme.Spacing.m)
-        .padding(.top, Theme.Spacing.l)
+        Button("予定を削除", role: .destructive, action: onDelete)
+            .font(EditorMetrics.chipFont)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(Theme.Spacing.m)
+            .padding(.top, Theme.Spacing.xl)
     }
 }

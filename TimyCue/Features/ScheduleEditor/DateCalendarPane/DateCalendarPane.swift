@@ -121,10 +121,13 @@ private struct EditorWeekRow: View {
     var body: some View {
         HStack(spacing: 0) {
             ForEach(week.days, id: \.self) { day in
+                let dots = store.eventDots(on: day)
                 EditorDayCell(day: day,
                               isSelected: store.selectedDays.contains(day),
                               isDisplayed: store.displayedDay == day,
-                              isToday: day == CalendarDay(Date()))
+                              isToday: day == CalendarDay(Date()),
+                              dotColors: dots.colors,
+                              moreCount: dots.more)
                     .frame(maxWidth: .infinity)
             }
         }
@@ -132,31 +135,50 @@ private struct EditorWeekRow: View {
     }
 }
 
-/// 下カレンダーの 1 日。選んだ日は塗り、時間画面に出している日は枠。今日は数字の後ろに淡いオレンジ
+/// 下カレンダーの 1 日。選んだ日は塗り、時間画面に出している日は枠。今日は数字の後ろに淡いオレンジ。
+/// 予定がある日は、数字の下に予定色のドットを最大 3 個（4 件以上は「+N」）。丸・塗り・枠とは重ならない所に置く（Q23）
 private struct EditorDayCell: View {
     let day: CalendarDay
     let isSelected: Bool
     let isDisplayed: Bool
     let isToday: Bool
+    let dotColors: [EventColor]
+    let moreCount: Int
 
     var body: some View {
-        Text("\(day.day)")
-            .font(EditorMetrics.calendarDayFont)
-            .foregroundStyle(isSelected ? Color.white : Theme.Colors.textPrimary)
-            .frame(width: EditorMetrics.selectedCircleSize, height: EditorMetrics.selectedCircleSize)
-            .background {
-                if isSelected {
-                    Circle().fill(Theme.Colors.accent)
-                } else if isToday {
-                    Circle().fill(Theme.Colors.todayCircle)
+        VStack(spacing: EditorMetrics.eventDotSpacing) {
+            Text("\(day.day)")
+                .font(EditorMetrics.calendarDayFont)
+                .foregroundStyle(isSelected ? Color.white : Theme.Colors.textPrimary)
+                .frame(width: EditorMetrics.selectedCircleSize, height: EditorMetrics.selectedCircleSize)
+                .background {
+                    if isSelected {
+                        Circle().fill(Theme.Colors.accent)
+                    } else if isToday {
+                        Circle().fill(Theme.Colors.todayCircle)
+                    }
+                }
+                .overlay {
+                    if isDisplayed {
+                        Circle().strokeBorder(Theme.Colors.textPrimary, lineWidth: 1.5)
+                            .padding(-2)
+                    }
+                }
+            HStack(spacing: EditorMetrics.eventDotSpacing) {
+                ForEach(Array(dotColors.enumerated()), id: \.offset) { _, color in
+                    Circle()
+                        .fill(EventPalette.color(for: color))
+                        .frame(width: EditorMetrics.eventDotSize, height: EditorMetrics.eventDotSize)
+                }
+                if moreCount > 0 {
+                    Text("+\(moreCount)")
+                        .font(EditorMetrics.eventMoreFont)
+                        .foregroundStyle(Theme.Colors.textSecondary)
+                        .fixedSize()
                 }
             }
-            .overlay {
-                if isDisplayed {
-                    Circle().strokeBorder(Theme.Colors.textPrimary, lineWidth: 1.5)
-                        .padding(-3)
-                }
-            }
+            .frame(height: EditorMetrics.eventDotSize + 2)
+        }
     }
 }
 

@@ -5,6 +5,9 @@ import SwiftUI
 struct DayTimelineView: View {
     let day: CalendarDay
     @Environment(CalendarStore.self) private var store
+    @Environment(ScheduleEditorStore.self) private var editorStore
+    /// 「＋」で開いた新規の 3 分割画面（Q21）。この画面は残るので、ズームの倍率もそのまま（Q22）
+    @State private var showsNewEvent = false
 
     /// ピンチで変えた倍率。保存せず、開き直したら標準の倍率に戻る（仕様 §27）
     @State private var zoom: CGFloat = 1
@@ -63,6 +66,14 @@ struct DayTimelineView: View {
                         let minute = TimelineLayout.initialMinute(events: events, isToday: isToday, now: Clock.minuteOfDay(now))
                         proxy.scrollTo(TimelineAnchor.hour(minute / 60), anchor: .top)
                     }
+                    // 「＋」から保存したら、作った予定が見える位置までスクロールする（Q22）
+                    .onChange(of: store.timelineFocus) { _, focus in
+                        guard let focus, focus.day == day else { return }
+                        withAnimation {
+                            proxy.scrollTo(TimelineAnchor.marker(nearest: Double(max(focus.minute - 30, 0))), anchor: .top)
+                        }
+                        store.clearTimelineFocus()
+                    }
                 }
             }
         }
@@ -75,6 +86,30 @@ struct DayTimelineView: View {
         }
         .navigationTitle("\(day.month)月\(day.day)日（\(day.weekdaySymbol())）")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            // 1 日タイムラインの「＋」（Q21）：表示中の日を選んだ新規。開始時刻は未設定
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    editorStore.refresh()
+                    editorStore.startNew(on: day)
+                    showsNewEvent = true
+                } label: {
+                    Image(systemName: "plus")
+                }
+                .accessibilityLabel("新規予定")
+            }
+        }
+        .fullScreenCover(isPresented: $showsNewEvent) {
+            ScheduleEditorView(initialMonth: CalendarMonth(day), onSaved: { saved in
+                // この日に作った予定があればそれ、なければ最初の予定の時刻へ（Q22）
+                let target = saved.filter { $0.day == day }.min { $0.startMinute < $1.startMinute } ?? saved.first
+                if let target {
+                    store.focusTimeline(on: day, minute: target.startMinute)
+                }
+            })
+            .environment(editorStore)
+            .environment(store)
+        }
     }
 }
 
