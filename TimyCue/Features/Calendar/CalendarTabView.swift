@@ -1,12 +1,14 @@
 import SwiftUI
 
-/// カレンダータブ。月表示が主役で、編集の画面は常に出さない（仕様 §18）
+/// カレンダータブ。月表示が主役で、編集の画面は常に出さない（仕様 §18）。予定検索は設けない（v1.1）
 struct CalendarTabView: View {
     @Environment(CalendarStore.self) private var store
 
     var body: some View {
         VStack(spacing: 0) {
-            WeekdayHeaderView()
+            CalendarHeaderView(year: store.stickyMonth.yearLabel)
+                .contentShape(Rectangle())
+                .onTapGesture { store.closeAllPopovers() }
             MonthCalendarView()
         }
         .background(Theme.Colors.background.ignoresSafeArea())

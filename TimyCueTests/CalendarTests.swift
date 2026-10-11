@@ -1,30 +1,39 @@
 import XCTest
 @testable import TimyCue
 
-final class CalendarMonthTests: XCTestCase {
-    func testWeeksStartOnMonday() {
-        // 2026 年 10 月 1 日は木曜
-        let weeks = CalendarMonth(year: 2026, month: 10).weeks()
-        XCTAssertEqual(weeks.count, 5)
-        XCTAssertEqual(weeks.first?.map { $0?.day }, [nil, nil, nil, 1, 2, 3, 4], "月曜始まり（仕様 §19）")
-        XCTAssertEqual(weeks.last?.map { $0?.day }, [26, 27, 28, 29, 30, 31, nil])
-        XCTAssertTrue(weeks.allSatisfy { $0.count == 7 })
+final class CalendarWeekTests: XCTestCase {
+    func testWeekStartsOnMondayAndCrossesMonthBoundary() {
+        // 2026 年 10 月 31 日は土曜
+        let week = CalendarWeek(containing: CalendarDay(year: 2026, month: 10, day: 31))
+        XCTAssertEqual(week.start, CalendarDay(year: 2026, month: 10, day: 26), "月曜始まり（仕様 §19）")
+        XCTAssertEqual(week.days.map(\.day), [26, 27, 28, 29, 30, 31, 1], "月の境目も途切れず続ける（v1.1）")
     }
 
-    func testFebruaryAndLeapYear() {
-        XCTAssertEqual(CalendarMonth(year: 2027, month: 2).numberOfDays(), 28)
-        XCTAssertEqual(CalendarMonth(year: 2028, month: 2).numberOfDays(), 29)
+    func testMonthLabelOnlyOnWeekContainingFirstDay() {
+        let boundary = CalendarWeek(containing: CalendarDay(year: 2026, month: 10, day: 26))
+        XCTAssertEqual(boundary.monthStartingInWeek, CalendarMonth(year: 2026, month: 11), "11 月 1 日を含む週に「11月」（Q18）")
+        XCTAssertNil(CalendarWeek(containing: CalendarDay(year: 2026, month: 10, day: 19)).monthStartingInWeek)
+        XCTAssertEqual(CalendarMonth(year: 2026, month: 11).monthLabel, "11月", "月表示列は月だけ（Q20）")
+    }
+
+    func testStickyMonthSwitchesWhenNextMonthsFirstWeekIsOnTop() {
+        let lateOctober = CalendarWeek(containing: CalendarDay(year: 2026, month: 10, day: 19))
+        XCTAssertEqual(lateOctober.stickyMonth, CalendarMonth(year: 2026, month: 10))
+        let boundary = lateOctober.adding(weeks: 1)
+        XCTAssertEqual(boundary.stickyMonth, CalendarMonth(year: 2026, month: 11),
+                       "11 月 1 日を含む週が一番上に来たら 10月 → 11月（Q19）")
+    }
+
+    func testYearSwitchesWhenJanuaryWeekIsOnTop() {
+        let newYearWeek = CalendarWeek(containing: CalendarDay(year: 2026, month: 12, day: 31))
+        XCTAssertEqual(newYearWeek.days.map(\.day), [28, 29, 30, 31, 1, 2, 3])
+        XCTAssertEqual(newYearWeek.stickyMonth.yearLabel, "2027年", "次年 1 月の週が一番上で 2026年 → 2027年（Q20）")
+        XCTAssertEqual(newYearWeek.adding(weeks: -1).stickyMonth.yearLabel, "2026年")
     }
 
     func testAddingMonthsAcrossYears() {
         XCTAssertEqual(CalendarMonth(year: 2026, month: 12).adding(months: 1), CalendarMonth(year: 2027, month: 1))
         XCTAssertEqual(CalendarMonth(year: 2026, month: 1).adding(months: -1), CalendarMonth(year: 2025, month: 12))
-        XCTAssertEqual(CalendarMonth(year: 2026, month: 10).adding(months: 24), CalendarMonth(year: 2028, month: 10))
-    }
-
-    func testRangeIsContinuous() {
-        let months = CalendarMonth.range(around: CalendarMonth(year: 2026, month: 10), before: 2, after: 3)
-        XCTAssertEqual(months.map(\.title), ["2026年8月", "2026年9月", "2026年10月", "2026年11月", "2026年12月", "2027年1月"])
     }
 
     func testWeekdaySymbol() {
@@ -80,12 +89,48 @@ final class CalendarStoreTests: XCTestCase {
                       today: today)
     }
 
-    func testMonthsAroundToday() {
+    func testWeeksStartAroundTodayWithCurrentMonthOnTop() {
         let store = makeStore([])
-        XCTAssertEqual(store.currentMonth, CalendarMonth(year: 2026, month: 10))
-        XCTAssertEqual(store.months.first, CalendarMonth(year: 2025, month: 10))
-        XCTAssertEqual(store.months.last, CalendarMonth(year: 2028, month: 10))
-        XCTAssertEqual(store.months, store.months.sorted(), "月は縦に順につながる（仕様 §19）")
+        XCTAssertEqual(store.weeks, store.weeks.sorted(), "週は縦に順につながる（仕様 §19）")
+        XCTAssertEqual(store.weeks.count, CalendarStore.initialWeeksBefore + CalendarStore.initialWeeksAfter + 1)
+        XCTAssertTrue(store.weeks.contains(CalendarWeek(containing: today)))
+        XCTAssertEqual(store.topWeek, CalendarWeek(containing: CalendarDay(year: 2026, month: 10, day: 1)),
+                       "最初は今月の 1 日を含む週を一番上に")
+        XCTAssertEqual(store.stickyMonth.monthLabel, "10月")
+        XCTAssertEqual(store.stickyMonth.yearLabel, "2026年")
+    }
+
+    func testStickyMonthFollowsTopWeek() {
+        let store = makeStore([])
+        store.topWeekID = CalendarDay(year: 2026, month: 10, day: 26)
+        XCTAssertEqual(store.stickyMonth.monthLabel, "11月")
+    }
+
+    func testWeeksAreAddedTowardScrollDirection() {
+        let store = makeStore([])
+        let first = store.weeks.first!
+        let last = store.weeks.last!
+        let count = store.weeks.count
+
+        store.weekDidAppear(last)
+        XCTAssertEqual(store.weeks.count, count + CalendarStore.weeksPerExtension, "下の端に近づいたら先の週を足す（Q13）")
+        XCTAssertEqual(store.weeks.last, last.adding(weeks: CalendarStore.weeksPerExtension))
+
+        store.weekDidAppear(first)
+        XCTAssertEqual(store.weeks.first, first.adding(weeks: -CalendarStore.weeksPerExtension), "上の端なら前の週を足す")
+        XCTAssertEqual(store.weeks, store.weeks.sorted())
+
+        store.weekDidAppear(store.weeks[store.weeks.count / 2])
+        XCTAssertEqual(store.weeks.count, count + CalendarStore.weeksPerExtension * 2, "真ん中では足さない")
+    }
+
+    func testWeeksStopAtSafetyLimit() {
+        let store = makeStore([])
+        for _ in 0..<(CalendarStore.maxWeeksFromToday / CalendarStore.weeksPerExtension + 2) {
+            store.extendAfter()
+        }
+        XCTAssertEqual(store.weeks.last, CalendarWeek(containing: today).adding(weeks: CalendarStore.maxWeeksFromToday),
+                       "内部の安全上限で止まる")
     }
 
     func testEventsAreAllDayFirstThenByStartTime() {
@@ -95,7 +140,7 @@ final class CalendarStoreTests: XCTestCase {
             CalendarEvent(day: today, startMinute: 540, title: "朝"),
             CalendarEvent(day: today.adding(days: 1), startMinute: 600, title: "翌日"),
         ])
-        XCTAssertEqual(store.events(on: today).map(\.title), ["終日", "朝", "午後"])
+        XCTAssertEqual(store.events(on: today).map(\.title), ["終日", "朝", "午後"], "終日 → 時間指定を開始時刻順（Q8）")
         XCTAssertEqual(store.popoverRows(on: today).map(\.timeText), ["終日", "9:00", "15:00"])
     }
 
@@ -142,7 +187,29 @@ final class CalendarStoreTests: XCTestCase {
         let store = makeStore([])
         store.tapDay(today)
         store.tapDay(today)
-        XCTAssertTrue(store.openDays.isEmpty)
+        XCTAssertTrue(store.openDays.isEmpty, "開いている日をもう一度押すと閉じる（Q9）")
+    }
+
+    func testTappingOutsideClosesPopovers() {
+        let store = makeStore([])
+        store.tapDay(today)
+        store.tapDay(today.adding(days: 1))
+        store.closeAllPopovers()
+        XCTAssertTrue(store.openDays.isEmpty, "吹き出しの外を押すと閉じる（Q9）")
+    }
+
+    func testPopoverTimeShowsEndOnlyWhenSet() {
+        let withEnd = CalendarEvent(day: today, startMinute: 600, durationMinutes: 90, title: "A")
+        let withoutEnd = CalendarEvent(day: today, startMinute: 600, title: "B")
+        XCTAssertEqual(CalendarStore.timeText(for: withEnd), "10:00–11:30", "終了時刻があれば出す（Q12）")
+        XCTAssertEqual(CalendarStore.timeText(for: withoutEnd), "10:00", "終了未設定なら開始だけ")
+    }
+
+    func testEmptyDayStillOpensPopover() {
+        let store = makeStore([])
+        store.tapDay(today)
+        XCTAssertTrue(store.isOpen(today), "予定のない日も「予定はありません」の吹き出しを出す（Q10）")
+        XCTAssertTrue(store.popoverRows(on: today).isEmpty)
     }
 
     func testReloadPicksUpNewEvents() throws {

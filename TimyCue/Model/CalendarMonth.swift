@@ -1,6 +1,6 @@
 import Foundation
 
-/// 年と月。月カレンダーで縦につなげて並べる 1 か月分（仕様 §19）。
+/// 年と月（仕様 §19・Q18〜Q20 の月表示・年表示に使う）
 struct CalendarMonth: Hashable, Comparable, Identifiable {
     let year: Int
     let month: Int
@@ -20,8 +20,11 @@ struct CalendarMonth: Hashable, Comparable, Identifiable {
         lhs.id < rhs.id
     }
 
-    /// 月の見出し（例：2026年10月）。書き方は仮
-    var title: String { "\(year)年\(month)月" }
+    /// 月表示列に出す文字。月だけ（Q20：例 10月）
+    var monthLabel: String { "\(month)月" }
+
+    /// 画面上部の固定領域に出す年（Q20：例 2026年）
+    var yearLabel: String { "\(year)年" }
 
     func adding(months: Int) -> CalendarMonth {
         let index = id + months
@@ -30,23 +33,41 @@ struct CalendarMonth: Hashable, Comparable, Identifiable {
     }
 
     var firstDay: CalendarDay { CalendarDay(year: year, month: month, day: 1) }
+}
 
-    func numberOfDays(calendar: Calendar = .timyCue) -> Int {
-        calendar.range(of: .day, in: .month, for: firstDay.date(calendar: calendar))?.count ?? 30
+/// 月曜から日曜までの 1 週間。通常の月カレンダーは、月ごとの箱にせず週を途切れず縦に並べる（v1.1・§19）
+struct CalendarWeek: Hashable, Comparable, Identifiable {
+    /// その週の月曜
+    let start: CalendarDay
+
+    init(containing day: CalendarDay) {
+        start = day.adding(days: -day.weekdayIndexFromMonday())
     }
 
-    /// 月曜始まりの週ごとの日。前後の月にあたる枠は nil
-    func weeks(calendar: Calendar = .timyCue) -> [[CalendarDay?]] {
-        let leading = firstDay.weekdayIndexFromMonday(calendar: calendar)
-        var slots: [CalendarDay?] = Array(repeating: nil, count: leading)
-        slots += (1...numberOfDays(calendar: calendar)).map { CalendarDay(year: year, month: month, day: $0) }
-        let trailing = (7 - slots.count % 7) % 7
-        slots += Array(repeating: nil, count: trailing)
-        return stride(from: 0, to: slots.count, by: 7).map { Array(slots[$0..<($0 + 7)]) }
+    var id: CalendarDay { start }
+
+    static func < (lhs: CalendarWeek, rhs: CalendarWeek) -> Bool {
+        lhs.start < rhs.start
     }
 
-    /// 基準の月の前後を並べる（仕様 §19 の縦の連続スクロール）
-    static func range(around center: CalendarMonth, before: Int, after: Int) -> [CalendarMonth] {
-        (-before...after).map { center.adding(months: $0) }
+    /// 月曜〜日曜の 7 日。月の境目もそのまま続ける（例：28 29 30 31 1 2 3）
+    var days: [CalendarDay] {
+        (0..<7).map { start.adding(days: $0) }
     }
+
+    /// その週の日曜
+    var lastDay: CalendarDay { start.adding(days: 6) }
+
+    func adding(weeks: Int) -> CalendarWeek {
+        CalendarWeek(containing: start.adding(days: weeks * 7))
+    }
+
+    /// この週に 1 日がある月。月表示列のこの週の高さに出す（Q18）
+    var monthStartingInWeek: CalendarMonth? {
+        days.first { $0.day == 1 }.map(CalendarMonth.init)
+    }
+
+    /// この週が一番上にあるときに固定表示する月と年（Q19・Q20）。
+    /// 次の月の 1 日を含む週が一番上に来たら次の月になるよう、週の最後の日（日曜）の月を使う
+    var stickyMonth: CalendarMonth { CalendarMonth(lastDay) }
 }

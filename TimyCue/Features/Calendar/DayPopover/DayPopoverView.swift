@@ -1,30 +1,65 @@
 import SwiftUI
 
-/// 吹き出しを開いている日のセルの近くに、吹き出しを並べる層（仕様 §22・§23）
+/// 吹き出しを開いている日のセルの近くに、吹き出しを並べる層（仕様 §22・§23）。
+/// 2 つの吹き出しは重ならないように置く（Q11。置き場所の決まりは PopoverPlacement）
 struct DayPopoverLayer: View {
     let anchors: [CalendarDay: Anchor<CGRect>]
     @Environment(CalendarStore.self) private var store
+    /// 実際に描いた吹き出しの高さ。描く前は行の数から見積もる
+    @State private var measuredHeights: [CalendarDay: CGFloat] = [:]
 
     var body: some View {
         GeometryReader { proxy in
-            ForEach(store.openDays, id: \.self) { day in
-                if let anchor = anchors[day] {
-                    let cell = proxy[anchor]
-                    let width = min(CalendarMetrics.popoverMaxWidth, proxy.size.width * CalendarMetrics.popoverWidthRatio)
-                    let x = min(max(cell.midX - width / 2, CalendarMetrics.popoverMargin),
-                                proxy.size.width - width - CalendarMetrics.popoverMargin)
-                    // 下に入りきるなら下、入りきらなければ上に出す
-                    let below = cell.maxY + CalendarMetrics.popoverGap + CalendarMetrics.popoverMaxHeight <= proxy.size.height
-                    DayPopoverView(day: day, rows: store.popoverRows(on: day))
-                        .frame(width: width)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: below ? .topLeading : .bottomLeading)
-                        .offset(x: x,
-                                y: below
-                                    ? cell.maxY + CalendarMetrics.popoverGap
-                                    : cell.minY - CalendarMetrics.popoverGap - proxy.size.height)
-                }
+            let width = min(CalendarMetrics.popoverMaxWidth, proxy.size.width * CalendarMetrics.popoverWidthRatio)
+            let days = store.openDays.filter { anchors[$0] != nil }
+            let frames = PopoverPlacement.frames(
+                container: proxy.size,
+                anchors: days.compactMap { day in anchors[day].map { proxy[$0] } },
+                sizes: days.map { day in
+                    CGSize(width: width,
+                           height: measuredHeights[day] ?? Self.estimatedHeight(rowCount: store.popoverRows(on: day).count))
+                },
+                gap: CalendarMetrics.popoverGap,
+                margin: CalendarMetrics.popoverMargin)
+
+            ForEach(Array(days.enumerated()), id: \.element) { index, day in
+                let frame = frames[index]
+                DayPopoverView(day: day, rows: store.popoverRows(on: day))
+                    .frame(width: width)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .background {
+                        GeometryReader { geometry in
+                            Color.clear.preference(key: PopoverHeightKey.self, value: [day: geometry.size.height])
+                        }
+                    }
+                    .position(x: frame.midX, y: frame.midY)
             }
         }
+        .onPreferenceChange(PopoverHeightKey.self) { heights in
+            measuredHeights = heights
+        }
+    }
+
+    /// 描く前の高さの見積もり（見出し＋行。6 行以上は中でスクロールする高さ）
+    static func estimatedHeight(rowCount: Int) -> CGFloat {
+        let chrome: CGFloat = 24 + 20 + 6
+        switch rowCount {
+        case 0:
+            return chrome + 16
+        case 1...CalendarMetrics.popoverMaxVisibleRows:
+            return chrome + CGFloat(rowCount) * 32 + CGFloat(rowCount - 1) * CalendarMetrics.popoverRowSpacing
+        default:
+            return chrome + CalendarMetrics.popoverListHeight
+        }
+    }
+}
+
+/// 吹き出しの実際の高さを層へ渡す
+struct PopoverHeightKey: PreferenceKey {
+    static let defaultValue: [CalendarDay: CGFloat] = [:]
+
+    static func reduce(value: inout [CalendarDay: CGFloat], nextValue: () -> [CalendarDay: CGFloat]) {
+        value.merge(nextValue()) { _, new in new }
     }
 }
 
@@ -82,7 +117,7 @@ private struct DayPopoverRowView: View {
             Text(row.timeText)
                 .font(CalendarMetrics.popoverTimeFont)
                 .foregroundStyle(Theme.Colors.textSecondary)
-                .frame(width: 40, alignment: .leading)
+                .frame(width: CalendarMetrics.popoverTimeWidth, alignment: .leading)
             VStack(alignment: .leading, spacing: 1) {
                 Text(row.primary)
                     .font(CalendarMetrics.popoverPrimaryFont)
