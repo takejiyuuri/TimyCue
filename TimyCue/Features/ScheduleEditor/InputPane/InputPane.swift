@@ -124,24 +124,11 @@ private struct InlineEditor: View {
         @Bindable var store = store
         switch row {
         case .title:
-            TextField("予定名", text: $store.content.title)
-                .textFieldStyle(.roundedBorder)
-                .focused(focusedRow, equals: .title)
-                .submitLabel(.done)
-                .onAppear { focusedRow.wrappedValue = .title }
+            TitleEditor(focusedRow: focusedRow)
         case .location:
-            // 候補（前回の場所・よく使う場所・現在地など。§48）は入力の候補の段階で足す
-            TextField("場所", text: Binding(
-                get: { store.content.locationName ?? "" },
-                set: { store.content.locationName = $0.isEmpty ? nil : $0 }))
-                .textFieldStyle(.roundedBorder)
-                .focused(focusedRow, equals: .location)
-                .submitLabel(.done)
+            LocationEditor(focusedRow: focusedRow)
         case .arrivalTarget:
-            ChipRow(options: ScheduleEditorStore.arrivalTargetChoices.map(Optional.some) + [nil],
-                    label: { $0.map { "\($0)分前" } ?? "未設定" },
-                    isSelected: { store.content.metadata.arrivalTargetMinutes == $0 },
-                    onTap: { store.content.metadata.arrivalTargetMinutes = $0 })
+            ArrivalTargetEditor()
         case .transport:
             ChipRow(options: TransportMode.allCases,
                     label: \.displayName,
@@ -153,7 +140,7 @@ private struct InlineEditor: View {
                     isSelected: { store.content.metadata.route == $0 },
                     onTap: { store.content.metadata.route = $0 })
         case .notifications:
-            // 複数選べる。何も選ばなければ「通知なし」（§17）。予定開始○分前・カスタムは入力の段階で足す
+            // 複数選べる。何も選ばなければ「通知なし」（§17）
             VStack(alignment: .leading, spacing: Theme.Spacing.s) {
                 ChipRow(options: NotificationTiming.presets,
                         label: { $0 == .atDeparture ? "出発時" : "出発\($0.label)前" },
@@ -169,6 +156,7 @@ private struct InlineEditor: View {
                         label: { _ in "通知なし" },
                         isSelected: { _ in store.content.metadata.notifications.isOff },
                         onTap: { _ in store.content.metadata.notifications = .off })
+                CustomNotificationEditor()
             }
         case .repeatRule:
             // 毎日・毎週・隔週・毎月・カスタム（§54）は繰り返しの段階で足す
@@ -192,6 +180,197 @@ private struct InlineEditor: View {
             }
         case .end:
             EndEditor()
+        }
+    }
+}
+
+/// 予定名の編集と、過去の同名・似た名前の予定の候補（§47）。
+/// 候補を選ぶと予定名だけ入れ、場所・色・到着目標・移動手段は「この予定の設定も使う」を押したときだけ入れる（勝手にすべて確定しない）
+private struct TitleEditor: View {
+    var focusedRow: FocusState<InputRow?>.Binding
+    @Environment(ScheduleEditorStore.self) private var store
+    @State private var chosen: TitleSuggestion?
+
+    var body: some View {
+        @Bindable var store = store
+        VStack(alignment: .leading, spacing: Theme.Spacing.s) {
+            TextField("予定名", text: $store.content.title)
+                .textFieldStyle(.roundedBorder)
+                .focused(focusedRow, equals: .title)
+                .submitLabel(.done)
+                .onAppear { focusedRow.wrappedValue = .title }
+            ForEach(store.titleSuggestions()) { suggestion in
+                if suggestion.title != store.content.title || suggestion.locationName != store.content.locationName {
+                    Button {
+                        store.useTitle(of: suggestion)
+                        chosen = suggestion
+                    } label: {
+                        HStack(spacing: Theme.Spacing.s) {
+                            Image(systemName: "clock.arrow.circlepath")
+                                .foregroundStyle(Theme.Colors.textSecondary)
+                            Text(suggestion.title)
+                                .foregroundStyle(Theme.Colors.textPrimary)
+                            if let place = suggestion.locationName {
+                                Text(place)
+                                    .foregroundStyle(Theme.Colors.textSecondary)
+                                    .lineLimit(1)
+                            }
+                            Spacer(minLength: 0)
+                        }
+                        .font(EditorMetrics.chipFont)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            if let chosen, chosen.title == store.content.title {
+                Button("この予定の設定も使う（場所・色・到着目標・移動手段）") {
+                    store.useSettings(of: chosen)
+                    self.chosen = nil
+                }
+                .font(EditorMetrics.chipFont)
+                .buttonStyle(.bordered)
+            }
+        }
+    }
+}
+
+/// 場所の編集と候補（§48）：前回の場所・よく使う場所・最近使った場所・場所なし。
+/// 現在地と検索は移動時間の計算（第5段階）で足す
+private struct LocationEditor: View {
+    var focusedRow: FocusState<InputRow?>.Binding
+    @Environment(ScheduleEditorStore.self) private var store
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Theme.Spacing.s) {
+            TextField("場所", text: Binding(
+                get: { store.content.locationName ?? "" },
+                set: { store.content.locationName = $0.isEmpty ? nil : $0 }))
+                .textFieldStyle(.roundedBorder)
+                .focused(focusedRow, equals: .location)
+                .submitLabel(.done)
+            let candidates = store.placeCandidates()
+            if !candidates.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(candidates) { candidate in
+                        Button {
+                            store.choosePlace(candidate.name)
+                        } label: {
+                            HStack(spacing: Theme.Spacing.s) {
+                                Text(candidate.kind.label)
+                                    .font(EditorMetrics.inputLabelFont)
+                                    .foregroundStyle(Theme.Colors.textSecondary)
+                                    .frame(width: 56, alignment: .leading)
+                                Text(candidate.name)
+                                    .font(EditorMetrics.chipFont)
+                                    .foregroundStyle(Theme.Colors.textPrimary)
+                                    .lineLimit(1)
+                                Spacer(minLength: 0)
+                                if store.content.locationName == candidate.name {
+                                    Image(systemName: "checkmark")
+                                        .foregroundStyle(Theme.Colors.accent)
+                                }
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+            Button("場所なし") { store.choosePlace(nil) }
+                .font(EditorMetrics.chipFont)
+                .buttonStyle(.bordered)
+        }
+    }
+}
+
+/// 到着目標（§49）：5・10・15・20・30 分前・カスタム・未設定
+private struct ArrivalTargetEditor: View {
+    @Environment(ScheduleEditorStore.self) private var store
+    @State private var showsCustom = false
+
+    private enum Choice: Hashable {
+        case minutes(Int)
+        case custom
+        case unset
+    }
+
+    var body: some View {
+        let current = store.content.metadata.arrivalTargetMinutes
+        let isPreset = current.map { ScheduleEditorStore.arrivalTargetChoices.contains($0) } ?? true
+        VStack(alignment: .leading, spacing: Theme.Spacing.s) {
+            ChipRow(options: ScheduleEditorStore.arrivalTargetChoices.map(Choice.minutes) + [Choice.custom, Choice.unset],
+                    label: { choice in
+                        switch choice {
+                        case .minutes(let minutes): "\(minutes)分前"
+                        case .custom: isPreset ? "カスタム" : "\(current ?? 0)分前"
+                        case .unset: "未設定"
+                        }
+                    },
+                    isSelected: { choice in
+                        switch choice {
+                        case .minutes(let minutes): current == minutes && !showsCustom
+                        case .custom: showsCustom || !isPreset
+                        case .unset: current == nil && !showsCustom
+                        }
+                    },
+                    onTap: { choice in
+                        switch choice {
+                        case .minutes(let minutes):
+                            showsCustom = false
+                            store.content.metadata.arrivalTargetMinutes = minutes
+                        case .custom:
+                            showsCustom = true
+                            if current == nil { store.content.metadata.arrivalTargetMinutes = 10 }
+                        case .unset:
+                            showsCustom = false
+                            store.content.metadata.arrivalTargetMinutes = nil
+                        }
+                    })
+            if showsCustom, let minutes = current {
+                Stepper("到着目標 \(minutes)分前",
+                        value: Binding(get: { minutes }, set: { store.content.metadata.arrivalTargetMinutes = $0 }),
+                        in: ScheduleEditorStore.customArrivalRange)
+                    .font(EditorMetrics.chipFont)
+            }
+        }
+    }
+}
+
+/// 通知のカスタム（§17）：出発○分前・予定開始○分前を、好きな分で足す。足したものは押すと外せる
+private struct CustomNotificationEditor: View {
+    @Environment(ScheduleEditorStore.self) private var store
+    @State private var minutes = 15
+    @State private var basedOnStart = false
+
+    var body: some View {
+        let custom = store.content.metadata.notifications.timings
+            .filter { !NotificationTiming.presets.contains($0) }
+            .sorted { $0.label < $1.label }
+        VStack(alignment: .leading, spacing: Theme.Spacing.s) {
+            if !custom.isEmpty {
+                ChipRow(options: custom,
+                        label: { "\($0.fullLabel) ×" },
+                        isSelected: { _ in true },
+                        onTap: { store.content.metadata.notifications.timings.remove($0) })
+            }
+            HStack(spacing: Theme.Spacing.s) {
+                Picker("基準", selection: $basedOnStart) {
+                    Text("出発").tag(false)
+                    Text("予定開始").tag(true)
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 130)
+                Stepper("\(minutes)分前", value: $minutes, in: ScheduleEditorStore.customNotificationRange,
+                        step: ScheduleEditorStore.customMinuteStep)
+                    .font(EditorMetrics.chipFont)
+            }
+            Button("この通知を足す") {
+                let timing: NotificationTiming = basedOnStart ? .beforeStart(minutes: minutes) : .beforeDeparture(minutes: minutes)
+                store.content.metadata.notifications.timings.insert(timing)
+            }
+            .font(EditorMetrics.chipFont)
+            .buttonStyle(.bordered)
         }
     }
 }
