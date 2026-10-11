@@ -354,6 +354,21 @@ final class ScheduleEditorStore {
         return saved
     }
 
+    /// 編集中の予定を消す（仕様 §64。編集のときだけ）。消したら新規の状態に戻す
+    func deleteEditingEvent() throws {
+        guard case .edit(let id) = mode else { return }
+        let day = displayedDay
+        try repository.delete(id: id)
+        try metadataRepository.delete(for: id)
+        reloadEvents()
+        startNew(on: day)
+    }
+
+    /// 保存先を読み直す（カレンダーなど、ほかの画面で予定が変わったあと）
+    func refresh() {
+        reloadEvents()
+    }
+
     /// 未保存の変更を捨てて、始めた時の状態に戻す
     func discardChanges() {
         mode = baseline.mode

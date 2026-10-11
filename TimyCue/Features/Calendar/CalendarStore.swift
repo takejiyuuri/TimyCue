@@ -195,6 +195,11 @@ final class CalendarStore {
         path.append(.eventDetail(eventID))
     }
 
+    /// 予定を消したあと、その予定詳細を閉じる
+    func closeEventDetail(_ eventID: UUID) {
+        path.removeAll { $0 == .eventDetail(eventID) }
+    }
+
     // MARK: - 予定詳細
 
     func event(id: UUID) -> CalendarEvent? {

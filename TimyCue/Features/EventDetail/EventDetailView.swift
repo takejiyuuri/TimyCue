@@ -1,11 +1,13 @@
 import SwiftUI
 
 /// 予定詳細（v1.1・Q17）。見るだけの画面で、ここでは直接編集しない。
-/// 「編集」を押した時だけ 3 分割の予定編集画面へ移る（3 分割画面は第3段階で作るので、今は押せない）
+/// 「編集」を押した時だけ 3 分割の予定編集画面へ移る
 struct EventDetailView: View {
     let eventID: UUID
     @Environment(CalendarStore.self) private var store
+    @Environment(ScheduleEditorStore.self) private var editorStore
     @Environment(\.openURL) private var openURL
+    @State private var showsEditor = false
 
     var body: some View {
         Group {
@@ -23,10 +25,25 @@ struct EventDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                // 3 分割の予定編集画面（第3段階）ができたら、ここからつなぐ
-                Button("編集") {}
-                    .disabled(true)
+                Button("編集") { openEditor() }
+                    .disabled(store.event(id: eventID) == nil)
             }
+        }
+        .fullScreenCover(isPresented: $showsEditor) {
+            ScheduleEditorView(initialMonth: CalendarMonth(store.event(id: eventID)?.day ?? CalendarDay(Date())),
+                               onDeleted: { store.closeEventDetail(eventID) })
+                .environment(editorStore)
+                .environment(store)
+        }
+    }
+
+    private func openEditor() {
+        editorStore.refresh()
+        do {
+            try editorStore.startEditing(eventID: eventID)
+            showsEditor = true
+        } catch {
+            store.reload()
         }
     }
 

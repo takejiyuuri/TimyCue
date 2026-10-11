@@ -47,6 +47,11 @@ struct CalendarDay: Hashable, Comparable, Codable {
                     calendar: calendar)
     }
 
+    /// この日から other まで何日あるか（other が前なら負）
+    func days(to other: CalendarDay, calendar: Calendar = .timyCue) -> Int {
+        calendar.dateComponents([.day], from: date(calendar: calendar), to: other.date(calendar: calendar)).day ?? 0
+    }
+
     /// 日付タブなどに出す短い表記（例：10/12）
     var shortLabel: String { "\(month)/\(day)" }
 
