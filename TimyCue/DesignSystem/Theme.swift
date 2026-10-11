@@ -13,6 +13,8 @@ enum Theme {
         static let textPrimary = Color(hex: 0x3D3730)
         static let textSecondary = Color(hex: 0x8A8178)
         static let separator = Color(hex: 0xE9E1D4)
+        /// 今日の日付の後ろの淡いオレンジの丸（仕様 §20。仮）
+        static let todayCircle = Color(hex: 0xF4A96A, opacity: 0.35)
         /// 警告の黄色・赤は予定色とは別の意味（仕様 §4）
         static let warning = Color(hex: 0xE8B931)
         static let danger = Color(hex: 0xE0645A)
