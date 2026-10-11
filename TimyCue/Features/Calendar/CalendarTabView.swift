@@ -35,15 +35,20 @@ struct CalendarTabView: View {
                 ScheduleEditorView(initialMonth: request.month, onDeleted: { store.closeEventDetail(request.id) })
                     .environment(editorStore)
                     .environment(store)
+                    .environment(connection)
             }
         }
         .onAppear {
             store.updateToday()
             openForScreenshot()
         }
-        // カレンダーを見るときが、初めてカレンダー連携が必要になるとき。まだ求めていなければここで許可を求める（Q31。どの時点かは仮）
-        .task {
-            await connection.requestIfNeeded()
+        // 開いただけでは iOS の許可のダイアログを出さない。未連携のときだけ、使う理由と「カレンダーを連携」の案内を出す（Q38）
+        .overlay {
+            if connection.showsFirstGuidance {
+                CalendarGuidanceView(
+                    onConnect: { Task { await connection.connect() } },
+                    onLater: { connection.dismissGuidance() })
+            }
         }
         .fullScreenCover(item: $newEventDay) { day in
             ScheduleEditorView(initialMonth: CalendarMonth(day), onSaved: { saved in
@@ -54,6 +59,7 @@ struct CalendarTabView: View {
             })
             .environment(editorStore)
             .environment(store)
+            .environment(connection)
         }
     }
 

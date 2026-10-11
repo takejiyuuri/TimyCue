@@ -27,6 +27,7 @@ struct RootTabView: View {
     @State private var selection: RootTab = RootTabView.initialTab
     @Environment(ScheduleEditorStore.self) private var editorStore
     @Environment(CalendarStore.self) private var calendarStore
+    @Environment(CalendarConnection.self) private var connection
     @State private var showsEditorForScreenshot = false
 
     var body: some View {
@@ -43,6 +44,7 @@ struct RootTabView: View {
             ScheduleEditorView(initialMonth: CalendarMonth(CalendarDay(Date())))
                 .environment(editorStore)
                 .environment(calendarStore)
+                .environment(connection)
         }
     }
 

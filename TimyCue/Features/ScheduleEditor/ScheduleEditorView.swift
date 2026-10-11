@@ -13,11 +13,13 @@ struct ScheduleEditorView: View {
 
     @Environment(ScheduleEditorStore.self) private var store
     @Environment(CalendarStore.self) private var calendarStore
+    @Environment(CalendarConnection.self) private var connection
     @Environment(\.dismiss) private var dismiss
 
     @FocusState private var focusedRow: InputRow?
     @State private var confirmsDiscard = false
     @State private var confirmsDelete = false
+    @State private var showsGuidance = false
 
     var body: some View {
         GeometryReader { geometry in
@@ -48,6 +50,24 @@ struct ScheduleEditorView: View {
         .confirmationDialog("保存していない変更があります", isPresented: $confirmsDiscard, titleVisibility: .visible) {
             Button("変更を破棄して閉じる", role: .destructive) { close() }
             Button("編集を続ける", role: .cancel) {}
+        }
+        // 初回の案内を「あとで」にしていたら、新しい予定を保存するときにもう一度だけ案内する（Q38）
+        .sheet(isPresented: $showsGuidance) {
+            CalendarGuidanceView(
+                onConnect: {
+                    showsGuidance = false
+                    Task {
+                        await connection.connect()
+                        performSave()
+                    }
+                },
+                onLater: {
+                    connection.dismissGuidance()
+                    showsGuidance = false
+                    performSave()
+                },
+                laterTitle: "連携しないで保存")
+            .presentationDetents([.medium])
         }
         .confirmationDialog("この予定を削除しますか？", isPresented: $confirmsDelete, titleVisibility: .visible) {
             Button("予定を削除", role: .destructive) { deleteEvent() }
@@ -80,8 +100,21 @@ struct ScheduleEditorView: View {
         .background(Theme.Colors.surface)
     }
 
-    /// 保存して元の画面へ戻る（Q22）。足りないものがあれば store が該当の行を開いて知らせ、閉じない（§46）
+    /// 保存ボタン。足りないものがなく、新しい予定を作るときで、まだカレンダーを連携していなければ、先に案内する（Q38）
     private func save() {
+        let isNew: Bool = {
+            if case .edit = store.mode { return false }
+            return true
+        }()
+        if isNew && store.saveIssues.isEmpty && connection.showsGuidanceBeforeSaving {
+            showsGuidance = true
+            return
+        }
+        performSave()
+    }
+
+    /// 保存して元の画面へ戻る（Q22）。足りないものがあれば store が該当の行を開いて知らせ、閉じない（§46）
+    private func performSave() {
         let saved: [CalendarEvent]
         do {
             saved = try store.save()

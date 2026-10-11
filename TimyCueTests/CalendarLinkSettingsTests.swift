@@ -1,3 +1,4 @@
+import EventKit
 import XCTest
 @testable import TimyCue
 
@@ -95,5 +96,53 @@ final class CalendarLinkSettingsTests: XCTestCase {
         let old = try JSONDecoder().decode(CalendarEvent.self, from: JSONSerialization.data(withJSONObject: json))
         XCTAssertNil(old.calendarID)
         XCTAssertEqual(old.title, "A社")
+    }
+
+    // MARK: - 案内（Q38）
+
+    @MainActor
+    func testGuidanceShownOnceThenOnceMoreBeforeSavingThenNotAgain() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let local = FileEventRepository(file: JSONFile(url: directory.appendingPathComponent("events.json"), empty: []))
+        let connection = CalendarConnection(
+            eventStore: EKEventStore(),
+            switchable: SwitchableEventRepository(local),
+            localEvents: local,
+            metadata: InMemoryEventMetadataRepository(),
+            preferencesFile: JSONFile(url: directory.appendingPathComponent("prefs.json"), empty: CalendarPreferences()),
+            onChange: { _, _ in })
+        guard connection.state == .notAsked else { throw XCTSkip("このシミュレータではカレンダーの許可がもう決まっている") }
+
+        XCTAssertTrue(connection.showsFirstGuidance, "初回は理由と「カレンダーを連携」を案内する（開いただけで許可のダイアログは出さない）")
+        XCTAssertFalse(connection.showsGuidanceBeforeSaving)
+
+        connection.dismissGuidance()
+        XCTAssertFalse(connection.showsFirstGuidance)
+        XCTAssertTrue(connection.showsGuidanceBeforeSaving, "「あとで」にしたら、新しい予定を保存するときにもう一度案内する")
+
+        connection.dismissGuidance()
+        XCTAssertFalse(connection.showsFirstGuidance)
+        XCTAssertFalse(connection.showsGuidanceBeforeSaving, "何度も自分からは案内しない")
+    }
+
+    @MainActor
+    func testSampleDataNeverAsks() {
+        let connection = CalendarConnection(
+            eventStore: EKEventStore(),
+            switchable: SwitchableEventRepository(InMemoryEventRepository()),
+            localEvents: nil,
+            metadata: InMemoryEventMetadataRepository(),
+            preferencesFile: JSONFile(url: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString), empty: CalendarPreferences()),
+            onChange: { _, _ in })
+        XCTAssertFalse(connection.isLive)
+        XCTAssertFalse(connection.showsFirstGuidance, "見本の予定で動いているときは案内も出さず、つながない（Q34）")
+    }
+
+    func testOldPreferencesFileStillLoads() throws {
+        let json = #"{"hiddenCalendarIDs":["jp"]}"#
+        let preferences = try JSONDecoder().decode(CalendarPreferences.self, from: Data(json.utf8))
+        XCTAssertNil(preferences.guidanceDismissCount)
+        XCTAssertFalse(preferences.isShown("jp"))
     }
 }

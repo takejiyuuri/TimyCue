@@ -64,13 +64,31 @@ final class CalendarConnection {
         }
     }
 
-    /// TimyCue で初めてカレンダー連携が必要になったとき（Just-in-Time）。まだ求めていなければ許可を求める（Q31）
-    func requestIfNeeded() async {
-        guard state == .notAsked, localEvents != nil else { return }
-        await connect()
+    // MARK: - 案内（Q38）
+
+    /// 本物の保存先で動いているか。DEBUG の見本の予定ではつながず、案内も出さない
+    var isLive: Bool { localEvents != nil }
+
+    /// 初回の案内（「カレンダーを連携すると、予定から出発時刻を計算できます」と「カレンダーを連携」）を出すか。
+    /// まだ許可を求めておらず、案内を一度も「あとで」にしていないとき（Q38）
+    var showsFirstGuidance: Bool {
+        isLive && state == .notAsked && (preferences.guidanceDismissCount ?? 0) == 0
     }
 
-    /// 許可を求めてつなぐ（設定 ＞ カレンダー連携 からも）
+    /// 初回の案内を「あとで」にしたあと、次に Apple カレンダーが実際に必要になる操作（新しい予定の保存）で、もう一度だけ案内するか（Q38。
+    /// 二度目も「あとで」なら、それ以上は自分からは案内しない。設定 ＞ カレンダー連携 からはいつでもつなげる）
+    var showsGuidanceBeforeSaving: Bool {
+        isLive && state == .notAsked && (preferences.guidanceDismissCount ?? 0) == 1
+    }
+
+    /// 案内を「あとで」にする
+    func dismissGuidance() {
+        preferences.guidanceDismissCount = (preferences.guidanceDismissCount ?? 0) + 1
+        savePreferences()
+    }
+
+    /// 「カレンダーを連携」を押したとき。ここで初めて iOS の許可のダイアログを出す（Q38）。
+    /// 自分から何度も出そうとはしない。一度拒否されたら iPhone の設定から許可してもらう
     func connect() async {
         guard localEvents != nil else { return }
         do {

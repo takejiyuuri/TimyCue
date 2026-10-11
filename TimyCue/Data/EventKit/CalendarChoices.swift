@@ -19,6 +19,8 @@ struct CalendarPreferences: Codable, Equatable {
     var defaultCalendarID: String?
     /// 読み込まないカレンダー。初めは何も外さない（参照できるカレンダーはすべて読み込む。Q33）
     var hiddenCalendarIDs: Set<String> = []
+    /// 「カレンダーを連携」の案内を「あとで」にした回数（Q38）。古いファイルにはないので省略できる
+    var guidanceDismissCount: Int?
 
     func isShown(_ calendarID: String) -> Bool {
         !hiddenCalendarIDs.contains(calendarID)

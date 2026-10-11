@@ -70,12 +70,12 @@ struct CalendarSettingsView: View {
             Label("つないでいます", systemImage: "checkmark.circle.fill")
                 .foregroundStyle(Theme.Colors.textPrimary)
         case .notAsked:
-            Button("Apple カレンダーとつなぐ") {
+            Button("カレンダーを連携") {
                 Task { await connection.connect() }
             }
         case .denied:
             VStack(alignment: .leading, spacing: Theme.Spacing.s) {
-                Text("カレンダーへのアクセスが許可されていません。予定は TimyCue の中に保存しています。")
+                Text("カレンダーへのアクセスが許可されていません。iPhone の設定から許可してください。それまで予定は TimyCue の中に保存します。")
                     .font(.footnote)
                     .foregroundStyle(Theme.Colors.textSecondary)
                 Button("設定アプリで許可する") {

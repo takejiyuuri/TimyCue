@@ -6,6 +6,7 @@ struct DayTimelineView: View {
     let day: CalendarDay
     @Environment(CalendarStore.self) private var store
     @Environment(ScheduleEditorStore.self) private var editorStore
+    @Environment(CalendarConnection.self) private var connection
     /// 「＋」で開いた新規の 3 分割画面（Q21）。この画面は残るので、ズームの倍率もそのまま（Q22）
     @State private var showsNewEvent = false
 
@@ -112,6 +113,7 @@ struct DayTimelineView: View {
             })
             .environment(editorStore)
             .environment(store)
+            .environment(connection)
         }
     }
 }
