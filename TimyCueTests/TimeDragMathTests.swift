@@ -38,7 +38,7 @@ final class TimeDragMathTests: XCTestCase {
         let store = ScheduleEditorStore(repository: InMemoryEventRepository(), metadataRepository: InMemoryEventMetadataRepository())
         store.startNew(on: day)
         store.setStartMinute(14 * 60)
-        // 左のハンドルで 75 分にする → 右の終了の行も同じ（Q24）
+        // 左のハンドルを伸ばす（14:20 から 75 分ぶん下へ）→ 右の終了の行も同じ値（Q24）
         store.setEndMinute(TimeDragMath.endMinute(afterDragging: 55, from: 14 * 60 + 20, start: 14 * 60, hourHeight: hourHeight), on: day)
         XCTAssertEqual(store.durationMinutes(on: day), 95)
         XCTAssertEqual(store.valueText(for: .end), "15:35")
