@@ -7,6 +7,10 @@ enum TimelineMetrics {
     static let hourHeight: CGFloat = 60
     /// ピンチで変えられる倍率の範囲（仕様 §27）
     static let zoomRange: ClosedRange<CGFloat> = 0.6...4
+    /// 0:00 の文字が上で切れないための余白
+    static let topInset: CGFloat = 10
+    /// ピンチの中心を合わせるための目印の間隔（分）
+    static let pinchMarkerMinutes = 5
     /// 左の時刻の欄の幅
     static let hourLabelWidth: CGFloat = 44
     static let hourLabelFont = Font.system(size: 11, weight: .medium).monospacedDigit()

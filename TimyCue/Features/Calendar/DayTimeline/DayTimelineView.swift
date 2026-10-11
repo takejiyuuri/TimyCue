@@ -1,13 +1,19 @@
 import SwiftUI
 
 /// 1 日タイムライン（仕様 §25〜§30）。カレンダーで予定を見るための画面で、ここでは編集しない。
+/// 予定ブロックを押すと予定詳細を開く（Q17）
 struct DayTimelineView: View {
     let day: CalendarDay
     @Environment(CalendarStore.self) private var store
 
     /// ピンチで変えた倍率。保存せず、開き直したら標準の倍率に戻る（仕様 §27）
     @State private var zoom: CGFloat = 1
+    /// ピンチを始めたときの倍率・指の高さ・指の下にあった時刻（Q16：指の位置を中心に伸び縮みさせる）
     @State private var pinchBase: CGFloat?
+    @State private var pinchFingerY: CGFloat = 0
+    @State private var pinchMinute: Double?
+    /// タイムラインの中身の上端が、スクロール画面の上からどれだけずれているか（上へスクロールすると負）
+    @State private var contentMinY: CGFloat = 0
     /// 現在時刻の線が画面の中に見えているか（仕様 §28）
     @State private var isNowVisible = true
     /// 現在時刻。開いている間、30 秒ごとに更新する
@@ -20,6 +26,11 @@ struct DayTimelineView: View {
         let events = store.timedEvents(on: day)
         let allDay = store.allDayEvents(on: day)
         let colors = Dictionary(uniqueKeysWithValues: (events + allDay).map { ($0.id, store.color(for: $0)) })
+        let hourHeight = TimelineMetrics.hourHeight * zoom
+        let placements = TimelineLayout.placements(
+            for: events,
+            minimumVisualMinutes: TimelineLayout.minimumVisualMinutes(blockHeight: Double(TimelineMetrics.noEndBlockHeight),
+                                                                     hourHeight: Double(hourHeight)))
 
         VStack(spacing: 0) {
             if !allDay.isEmpty {
@@ -29,7 +40,7 @@ struct DayTimelineView: View {
                 ScrollViewReader { proxy in
                     ScrollView {
                         DayTimelineCanvas(events: events,
-                                          placements: TimelineLayout.placements(for: events),
+                                          placements: placements,
                                           colors: colors,
                                           zoom: zoom,
                                           width: outer.size.width,
@@ -39,19 +50,13 @@ struct DayTimelineView: View {
                     .onPreferenceChange(NowLineYKey.self) { y in
                         isNowVisible = y.map { $0 >= 0 && $0 <= outer.size.height } ?? true
                     }
+                    .onPreferenceChange(TimelineContentMinYKey.self) { minY in
+                        contentMinY = minY
+                    }
+                    .simultaneousGesture(pinchGesture(proxy: proxy, viewportHeight: outer.size.height))
                     .overlay(alignment: .bottomTrailing) {
                         if isToday && !isNowVisible {
-                            Button {
-                                withAnimation { proxy.scrollTo(TimelineAnchor.now, anchor: .center) }
-                            } label: {
-                                Label("今へ", systemImage: "arrow.uturn.down")
-                                    .font(.system(size: 14, weight: .semibold))
-                                    .padding(.horizontal, 14)
-                                    .padding(.vertical, 8)
-                                    .background(Capsule().fill(Theme.Colors.accent))
-                                    .foregroundStyle(.white)
-                            }
-                            .padding(16)
+                            nowButton(proxy: proxy)
                         }
                     }
                     .onAppear {
@@ -60,16 +65,6 @@ struct DayTimelineView: View {
                     }
                 }
             }
-            .simultaneousGesture(
-                MagnifyGesture()
-                    .onChanged { value in
-                        let base = pinchBase ?? zoom
-                        if pinchBase == nil { pinchBase = zoom }
-                        zoom = min(max(base * value.magnification, TimelineMetrics.zoomRange.lowerBound),
-                                   TimelineMetrics.zoomRange.upperBound)
-                    }
-                    .onEnded { _ in pinchBase = nil }
-            )
         }
         .background(Theme.Colors.background.ignoresSafeArea())
         .task {
@@ -83,11 +78,65 @@ struct DayTimelineView: View {
     }
 }
 
+extension DayTimelineView {
+    /// 縦のピンチで拡大・縮小する。つまみ始めに指の下にあった時刻を、指の高さに保つ（仕様 §27・Q16）
+    private func pinchGesture(proxy: ScrollViewProxy, viewportHeight: CGFloat) -> some Gesture {
+        MagnifyGesture()
+            .onChanged { value in
+                if pinchBase == nil {
+                    pinchBase = zoom
+                    pinchFingerY = value.startLocation.y
+                    pinchMinute = TimelineLayout.minute(atContentY: Double(value.startLocation.y - contentMinY),
+                                                        hourHeight: Double(TimelineMetrics.hourHeight * zoom),
+                                                        topInset: Double(TimelineMetrics.topInset))
+                }
+                let base = pinchBase ?? zoom
+                zoom = min(max(base * value.magnification, TimelineMetrics.zoomRange.lowerBound),
+                           TimelineMetrics.zoomRange.upperBound)
+                guard let minute = pinchMinute, viewportHeight > 0 else { return }
+                let marker = TimelineAnchor.marker(nearest: minute)
+                let anchor = UnitPoint(x: 0.5, y: min(max(pinchFingerY / viewportHeight, 0), 1))
+                // 倍率を変えたあとの並びで合わせるため、次の描画で動かす
+                DispatchQueue.main.async {
+                    proxy.scrollTo(marker, anchor: anchor)
+                }
+            }
+            .onEnded { _ in
+                pinchBase = nil
+                pinchMinute = nil
+            }
+    }
+
+    /// 現在時刻の線が画面の外にあるときの「今へ」（仕様 §28）
+    private func nowButton(proxy: ScrollViewProxy) -> some View {
+        Button {
+            withAnimation { proxy.scrollTo(TimelineAnchor.now, anchor: .center) }
+        } label: {
+            Label("今へ", systemImage: "arrow.uturn.down")
+                .font(.system(size: 14, weight: .semibold))
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .background(Capsule().fill(Theme.Colors.accent))
+                .foregroundStyle(.white)
+        }
+        .padding(16)
+    }
+}
+
 /// スクロールで移るときの目印
 enum TimelineAnchor {
     static let now = "now"
 
     static func hour(_ hour: Int) -> String { "hour-\(min(max(hour, 0), 23))" }
+
+    /// ピンチの中心を合わせる目印（TimelineMetrics.pinchMarkerMinutes 分ごと）
+    static func marker(_ minute: Int) -> String { "minute-\(minute)" }
+
+    static func marker(nearest minute: Double) -> String {
+        let step = Double(TimelineMetrics.pinchMarkerMinutes)
+        let rounded = Int((minute / step).rounded()) * TimelineMetrics.pinchMarkerMinutes
+        return marker(min(max(rounded, 0), MinuteOfDay.minutesPerDay))
+    }
 }
 
 /// 現在時刻の線の、スクロール画面の中での高さの位置
@@ -96,6 +145,15 @@ struct NowLineYKey: PreferenceKey {
 
     static func reduce(value: inout CGFloat?, nextValue: () -> CGFloat?) {
         value = nextValue() ?? value
+    }
+}
+
+/// タイムラインの中身の上端の、スクロール画面の中での位置
+struct TimelineContentMinYKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
     }
 }
 
@@ -108,13 +166,12 @@ private struct DayTimelineCanvas: View {
     let width: CGFloat
     /// 今日なら現在時刻（分）。ほかの日は nil
     let nowMinute: MinuteOfDay?
+    @Environment(CalendarStore.self) private var store
 
-    /// 0:00 の文字が上で切れないための余白
-    private let topInset: CGFloat = 10
     private var hourHeight: CGFloat { TimelineMetrics.hourHeight * zoom }
 
     private func y(_ minute: MinuteOfDay) -> CGFloat {
-        topInset + CGFloat(minute) / 60 * hourHeight
+        TimelineMetrics.topInset + CGFloat(minute) / 60 * hourHeight
     }
 
     var body: some View {
@@ -128,15 +185,26 @@ private struct DayTimelineCanvas: View {
                 }
                 HourRowView(hour: 24, height: 0)
             }
-            .padding(.top, topInset)
+            .padding(.top, TimelineMetrics.topInset)
+
+            // ピンチの中心を合わせるための、見えない目印（Q16）
+            ForEach(Array(stride(from: 0, through: MinuteOfDay.minutesPerDay, by: TimelineMetrics.pinchMarkerMinutes)), id: \.self) { minute in
+                Color.clear
+                    .frame(width: 1, height: 1)
+                    .alignmentGuide(.top) { _ in -y(minute) }
+                    .id(TimelineAnchor.marker(minute))
+            }
 
             ForEach(events) { event in
                 let placement = placements[event.id] ?? TimelinePlacement(column: 0, columnCount: 1)
                 let columnWidth = laneWidth / CGFloat(max(placement.columnCount, 1))
+                // 終了時刻のない予定は低い固定の高さ。見た目だけで、終了時刻としては扱わない（Q15）
                 let height = event.durationMinutes.map { max(CGFloat($0) / 60 * hourHeight, TimelineMetrics.noEndBlockHeight) }
                     ?? TimelineMetrics.noEndBlockHeight
                 EventBlockView(event: event, color: colors[event.id] ?? .orange, height: height)
                     .frame(width: max(columnWidth - TimelineMetrics.blockColumnGap, 0), height: height)
+                    .contentShape(Rectangle())
+                    .onTapGesture { store.openEventDetail(event.id) }
                     .alignmentGuide(.leading) { _ in -(TimelineMetrics.hourLabelWidth + columnWidth * CGFloat(placement.column)) }
                     .alignmentGuide(.top) { _ in -y(event.startMinute) }
             }
@@ -146,9 +214,16 @@ private struct DayTimelineCanvas: View {
                     .frame(width: width)
                     .alignmentGuide(.top) { dimensions in -(y(nowMinute) - dimensions.height / 2) }
                     .id(TimelineAnchor.now)
+                    .allowsHitTesting(false)
             }
         }
-        .frame(width: width, height: y(24 * 60) + topInset, alignment: .topLeading)
+        .frame(width: width, height: y(24 * 60) + TimelineMetrics.topInset, alignment: .topLeading)
+        .background {
+            GeometryReader { geometry in
+                Color.clear.preference(key: TimelineContentMinYKey.self,
+                                       value: geometry.frame(in: .named(DayTimelineView.scrollSpace)).minY)
+            }
+        }
     }
 }
 
@@ -185,12 +260,6 @@ private struct EventBlockView: View {
     let color: EventColor
     let height: CGFloat
 
-    private var timeText: String {
-        let start = TimeText.hourMinute(event.startMinute)
-        guard let end = event.endMinute else { return start }
-        return "\(start)–\(TimeText.hourMinute(end))"
-    }
-
     var body: some View {
         HStack(spacing: 0) {
             EventPalette.color(for: color)
@@ -201,7 +270,7 @@ private struct EventBlockView: View {
                     .foregroundStyle(Theme.Colors.textPrimary)
                     .lineLimit(height < 40 ? 1 : 2)
                 if height >= 40 {
-                    Text(timeText)
+                    Text(CalendarStore.timeText(for: event))
                         .font(TimelineMetrics.blockTimeFont)
                         .foregroundStyle(Theme.Colors.textSecondary)
                         .lineLimit(1)
@@ -244,6 +313,7 @@ private struct NowLineView: View {
 private struct AllDayBandView: View {
     let events: [CalendarEvent]
     let colors: [UUID: EventColor]
+    @Environment(CalendarStore.self) private var store
 
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
@@ -268,6 +338,8 @@ private struct AllDayBandView: View {
                         .padding(.horizontal, 10)
                         .padding(.vertical, 5)
                         .background(Capsule().fill(color.opacity(TimelineMetrics.blockFillOpacity)))
+                        .contentShape(Capsule())
+                        .onTapGesture { store.openEventDetail(event.id) }
                     }
                 }
                 .padding(.horizontal, 6)

@@ -68,6 +68,10 @@ workflows:
           xcrun simctl launch --terminate-running-process "$SIM_UDID" io.github.takejiyuuri.timycue -TimyCueTab calendar -TimyCueTimelineDay 0
           sleep 4
           xcrun simctl io "$SIM_UDID" screenshot "build/screenshots/timeline.png"
+          # 予定詳細（今日の最初の時間指定の予定）
+          xcrun simctl launch --terminate-running-process "$SIM_UDID" io.github.takejiyuuri.timycue -TimyCueTab calendar -TimyCueDetailOfFirstEventToday YES
+          sleep 4
+          xcrun simctl io "$SIM_UDID" screenshot "build/screenshots/event-detail.png"
     artifacts:
       - build/screenshots/*.png
       - build/test.log
