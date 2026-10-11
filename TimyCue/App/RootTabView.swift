@@ -67,7 +67,8 @@ struct RootTabView: View {
     private func screen(for tab: RootTab) -> some View {
         switch tab {
         case .calendar: CalendarTabView()
-        case .home, .settings: PlaceholderScreen(title: tab.title)
+        case .settings: SettingsTabView()
+        case .home: PlaceholderScreen(title: tab.title)
         }
     }
 

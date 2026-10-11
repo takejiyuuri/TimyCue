@@ -62,11 +62,6 @@ final class FileEventRepository: EventRepository {
         try file.save(events)
     }
 
-    /// 全部消す（Apple カレンダーへ移したあと）
-    func removeAll() throws {
-        events = []
-        try file.save(events)
-    }
 }
 
 /// TimyCue だけが使う情報を、端末の中に保存する（仕様 §68・§84）
@@ -108,4 +103,42 @@ final class SwitchableEventRepository: EventRepository {
     func insert(_ events: [CalendarEvent]) throws { try current.insert(events) }
     func update(_ event: CalendarEvent) throws { try current.update(event) }
     func delete(id: UUID) throws { try current.delete(id: id) }
+    func ensureLoaded(from start: CalendarDay, to end: CalendarDay) { current.ensureLoaded(from: start, to: end) }
+}
+
+/// Apple カレンダーとつないだあとの保存先。Apple カレンダーの予定と、つなぐ前から TimyCue の中にあった予定の両方を見せる。
+/// つないでも TimyCue の中の予定を勝手に Apple カレンダーへ移したり複製したりしない（Q34）。
+/// 新しく作る予定は Apple カレンダーへ。直す・消すは、その予定がある方で行う
+final class CombinedEventRepository: EventRepository {
+    private let primary: EventRepository
+    private let local: EventRepository
+
+    init(primary: EventRepository, local: EventRepository) {
+        self.primary = primary
+        self.local = local
+    }
+
+    func allEvents() -> [CalendarEvent] { primary.allEvents() + local.allEvents() }
+    func insert(_ events: [CalendarEvent]) throws { try primary.insert(events) }
+
+    func update(_ event: CalendarEvent) throws {
+        if local.allEvents().contains(where: { $0.id == event.id }) {
+            try local.update(event)
+        } else {
+            try primary.update(event)
+        }
+    }
+
+    func delete(id: UUID) throws {
+        if local.allEvents().contains(where: { $0.id == id }) {
+            try local.delete(id: id)
+        } else {
+            try primary.delete(id: id)
+        }
+    }
+
+    func ensureLoaded(from start: CalendarDay, to end: CalendarDay) {
+        primary.ensureLoaded(from: start, to: end)
+        local.ensureLoaded(from: start, to: end)
+    }
 }

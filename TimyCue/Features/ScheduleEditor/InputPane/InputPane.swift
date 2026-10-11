@@ -180,6 +180,12 @@ private struct InlineEditor: View {
             }
         case .end:
             EndEditor()
+        case .calendar:
+            // その予定だけ保存先を変える（Q32）
+            ChipRow(options: store.writableCalendars,
+                    label: \.title,
+                    isSelected: { $0.id == (store.content.calendarID ?? store.defaultCalendarID) },
+                    onTap: { store.content.calendarID = $0.id })
         }
     }
 }

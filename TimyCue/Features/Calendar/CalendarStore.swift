@@ -79,6 +79,7 @@ final class CalendarStore {
         let initialTop = CalendarWeek(containing: CalendarMonth(today).firstDay)
         weeks = Self.weeks(around: CalendarWeek(containing: today))
         topWeekID = initialTop.id
+        loadWeeks()
         reload()
     }
 
@@ -94,6 +95,7 @@ final class CalendarStore {
 
     /// 予定を読み直す（予定を保存したあとなど）
     func reload() {
+        loadWeeks()
         metadataByEventID = metadataRepository.allMetadata()
         eventsByDay = Dictionary(grouping: repository.allEvents(), by: \.day)
             .mapValues { $0.sorted(by: Self.displayOrder) }
@@ -123,6 +125,8 @@ final class CalendarStore {
         let limit = CalendarWeek(containing: today).adding(weeks: -Self.maxWeeksFromToday)
         let added = (1...Self.weeksPerExtension).map { first.adding(weeks: -$0) }.filter { $0 >= limit }.reversed()
         weeks.insert(contentsOf: added, at: 0)
+        loadWeeks()
+        reload()
     }
 
     func extendAfter() {
@@ -130,6 +134,14 @@ final class CalendarStore {
         let limit = CalendarWeek(containing: today).adding(weeks: Self.maxWeeksFromToday)
         let added = (1...Self.weeksPerExtension).map { last.adding(weeks: $0) }.filter { $0 <= limit }
         weeks.append(contentsOf: added)
+        loadWeeks()
+        reload()
+    }
+
+    /// 並べている週の範囲の予定を読み込んでおく（Apple カレンダーは必要な範囲だけ読む。Q35）
+    private func loadWeeks() {
+        guard let first = weeks.first, let last = weeks.last else { return }
+        repository.ensureLoaded(from: first.start, to: last.lastDay)
     }
 
     private static func weeks(around center: CalendarWeek) -> [CalendarWeek] {

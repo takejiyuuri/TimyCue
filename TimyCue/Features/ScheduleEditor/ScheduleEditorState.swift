@@ -35,6 +35,8 @@ enum InputRow: CaseIterable, Equatable {
     case repeatRule
     case color
     case end
+    /// 保存先の Apple カレンダー。書き込めるカレンダーが 2 つ以上あるときだけ出す（Q32）
+    case calendar
 
     var label: String {
         switch self {
@@ -47,6 +49,7 @@ enum InputRow: CaseIterable, Equatable {
         case .repeatRule: "繰り返し"
         case .color: "色"
         case .end: "終了"
+        case .calendar: "カレンダー"
         }
     }
 }

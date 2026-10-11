@@ -36,9 +36,10 @@ struct TimyCueApp: App {
             switchable: switchable,
             localEvents: localEvents,
             metadata: metadata,
-            onChange: {
+            onChange: { writable, defaultCalendarID in
                 calendar.reload()
                 editor.refresh()
+                editor.setCalendars(writable, defaultCalendarID: defaultCalendarID)
             }))
     }
 

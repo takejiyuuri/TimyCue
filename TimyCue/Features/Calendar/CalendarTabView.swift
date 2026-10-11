@@ -6,6 +6,7 @@ import SwiftUI
 struct CalendarTabView: View {
     @Environment(CalendarStore.self) private var store
     @Environment(ScheduleEditorStore.self) private var editorStore
+    @Environment(CalendarConnection.self) private var connection
     /// 「＋」で開いた新規の 3 分割画面（Q21）
     @State private var newEventDay: CalendarDay?
 
@@ -13,8 +14,6 @@ struct CalendarTabView: View {
         @Bindable var store = store
         NavigationStack(path: $store.path) {
             VStack(spacing: 0) {
-                // Apple カレンダーとつなぐ（仮の置き場所。§79・§81）
-                CalendarConnectionBanner()
                 CalendarHeaderView(year: store.stickyMonth.yearLabel)
                     .contentShape(Rectangle())
                     .onTapGesture { store.closeAllPopovers() }
@@ -41,6 +40,10 @@ struct CalendarTabView: View {
         .onAppear {
             store.updateToday()
             openForScreenshot()
+        }
+        // カレンダーを見るときが、初めてカレンダー連携が必要になるとき。まだ求めていなければここで許可を求める（Q31。どの時点かは仮）
+        .task {
+            await connection.requestIfNeeded()
         }
         .fullScreenCover(item: $newEventDay) { day in
             ScheduleEditorView(initialMonth: CalendarMonth(day), onSaved: { saved in

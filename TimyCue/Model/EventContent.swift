@@ -9,6 +9,8 @@ struct EventContent: Equatable {
     /// Apple カレンダーのメモ。入力欄には出さないが、編集しても消さない（仕様 §55）
     var notes = ""
     var metadata = TimyCueEventMetadata()
+    /// 保存先の Apple カレンダー。nil は既定の保存先（Q32）
+    var calendarID: String?
 
     init() {}
 
@@ -17,6 +19,7 @@ struct EventContent: Equatable {
         locationName = event.locationName
         repeatRule = event.repeatRule
         notes = event.notes
+        calendarID = event.calendarID
         self.metadata = metadata
     }
 
@@ -43,6 +46,7 @@ struct EventContent: Equatable {
                       isAllDay: isAllDay,
                       repeatRule: repeatRule,
                       notes: notes,
-                      source: source)
+                      source: source,
+                      calendarID: calendarID)
     }
 }
