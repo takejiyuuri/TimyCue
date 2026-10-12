@@ -96,6 +96,9 @@ struct EventKitLinks: Codable, Equatable {
     var keys: [UUID: String] = [:]
     /// 終了未設定で、仮の 10 分で保存した予定（§69）
     var endUnset: Set<UUID> = []
+    /// 繰り返し予定のシリーズ（Apple カレンダーの予定の識別子）→ シリーズ共通の設定を保存する id（追加仕様書 §2.7.1）。
+    /// 古いファイルにはないので省略できる
+    var seriesIDs: [String: UUID]?
 
     func id(forKey key: String) -> UUID? {
         keys.first { $0.value == key }?.key

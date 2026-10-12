@@ -14,6 +14,8 @@ protocol EventRepository: AnyObject {
     func delete(id: UUID, scope: RecurrenceScope) throws
     /// その予定と同じ繰り返しの、読み込んである回の id（範囲が「これ以降」ならその回から後、「すべて」なら全部。その予定自身も含む）
     func occurrenceIDs(sameSeriesAs id: UUID, scope: RecurrenceScope) -> [UUID]
+    /// 繰り返し予定のシリーズ全体の共通設定を保存する id（追加仕様書 §2.7.1）。繰り返しでない・繰り返しを持たない保存先では nil
+    func seriesID(of eventID: UUID) -> UUID?
 }
 
 extension EventRepository {
@@ -22,6 +24,7 @@ extension EventRepository {
     func update(_ event: CalendarEvent, scope: RecurrenceScope) throws { try update(event) }
     func delete(id: UUID, scope: RecurrenceScope) throws { try delete(id: id) }
     func occurrenceIDs(sameSeriesAs id: UUID, scope: RecurrenceScope) -> [UUID] { [id] }
+    func seriesID(of eventID: UUID) -> UUID? { nil }
 }
 
 /// TimyCue だけが使う情報の読み書き（仕様 §84）。Apple カレンダーの予定とは別に保存する（仕様 §68）。

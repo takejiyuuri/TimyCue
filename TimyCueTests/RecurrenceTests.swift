@@ -107,6 +107,99 @@ final class RecurrenceTests: XCTestCase {
         XCTAssertEqual(repository.deletedScopes, [.allEvents], "削除も同じ 3 択（§64・Q44）")
     }
 
+    // MARK: - 個別上書き（追加仕様書 §2.7.1・Q53）
+
+    func testThisOnlyRecordsChangedFieldsAsOverrides() {
+        var before = TimyCueEventMetadata()
+        before.arrivalTargetMinutes = 10
+        var after = before
+        after.arrivalTargetMinutes = 30
+        let result = RecurringMetadata.thisOnly(before: before, after: after)
+        XCTAssertEqual(result.arrivalTargetMinutes, 30)
+        XCTAssertEqual(result.overriddenFields, [.arrivalTarget], "変えた項目だけを個別上書きとして記録する")
+
+        var again = result
+        again.transport = .walk
+        XCTAssertEqual(RecurringMetadata.thisOnly(before: result, after: again).overriddenFields, [.arrivalTarget, .transport],
+                       "前に上書きした項目の印は残る")
+    }
+
+    func testSeriesChangeKeepsOtherOccurrencesOverridesButClearsTheEditedOne() {
+        var overridden = TimyCueEventMetadata()
+        overridden.arrivalTargetMinutes = 30
+        overridden.overriddenFields = [.arrivalTarget]
+        var newValues = TimyCueEventMetadata()
+        newValues.arrivalTargetMinutes = 15
+
+        let other = RecurringMetadata.series(target: overridden, changed: [.arrivalTarget], newValues: newValues, isEditedOccurrence: false)
+        XCTAssertEqual(other.arrivalTargetMinutes, 30, "ほかの回で個別に変えた項目は、値が違うからではなく履歴があるから残す")
+        XCTAssertEqual(other.overriddenFields, [.arrivalTarget])
+
+        let edited = RecurringMetadata.series(target: overridden, changed: [.arrivalTarget], newValues: newValues, isEditedOccurrence: true)
+        XCTAssertEqual(edited.arrivalTargetMinutes, 15)
+        XCTAssertTrue(edited.overriddenFields.isEmpty, "上書きしていた回そのものを「これ以降／すべて」で変えたら、共通に戻す")
+    }
+
+    func testOverrideKeptEvenWhenValueMatchesTheOldCommon() {
+        // 個別に変えたあと、たまたま共通と同じ値に戻しても「変えた履歴」は残る（値の比較で推測しない）
+        var common = TimyCueEventMetadata()
+        common.arrivalTargetMinutes = 10
+        var occurrence = common
+        occurrence.overriddenFields = [.arrivalTarget]
+        var newValues = common
+        newValues.arrivalTargetMinutes = 20
+        let result = RecurringMetadata.series(target: occurrence, changed: [.arrivalTarget], newValues: newValues, isEditedOccurrence: false)
+        XCTAssertEqual(result.arrivalTargetMinutes, 10)
+    }
+
+    func testOldMetadataWithoutOverridesStillLoads() throws {
+        // 個別上書きのない情報は "overrides" を書かない（前の版のファイルと同じ形）
+        let encoded = try JSONEncoder().encode(TimyCueEventMetadata())
+        XCTAssertFalse(String(decoding: encoded, as: UTF8.self).contains("overrides"))
+        XCTAssertTrue(try JSONDecoder().decode(TimyCueEventMetadata.self, from: encoded).overriddenFields.isEmpty)
+    }
+
+    @MainActor
+    func testEditorKeepsPerOccurrenceOverridesThroughSeriesEdits() throws {
+        let first = CalendarEvent(day: day, startMinute: 600, title: "朝会", repeatRule: .weekly, source: .appleCalendar)
+        let second = CalendarEvent(day: day.adding(days: 7), startMinute: 600, title: "朝会", repeatRule: .weekly, source: .appleCalendar)
+        let third = CalendarEvent(day: day.adding(days: 14), startMinute: 600, title: "朝会", repeatRule: .weekly, source: .appleCalendar)
+        let repository = ScopeRecordingRepository(events: [first, second, third])
+        let metadata = InMemoryEventMetadataRepository()
+        let store = ScheduleEditorStore(repository: repository, metadataRepository: metadata)
+
+        // 2 回目だけ到着目標を 30 分に
+        try store.startEditing(eventID: second.id)
+        store.content.metadata.arrivalTargetMinutes = 30
+        try store.save(scope: .thisEvent)
+        XCTAssertEqual(metadata.allMetadata()[second.id]?.overriddenFields, [.arrivalTarget])
+        XCTAssertNil(metadata.allMetadata()[third.id]?.arrivalTargetMinutes, "「この予定のみ」はほかの回を変えない")
+
+        // 1 回目から「すべて」で到着目標を 15 分・移動手段を徒歩に
+        try store.startEditing(eventID: first.id)
+        store.content.metadata.arrivalTargetMinutes = 15
+        store.content.metadata.transport = .walk
+        try store.save(scope: .allEvents)
+        let afterSeries = metadata.allMetadata()
+        XCTAssertEqual(afterSeries[first.id]?.arrivalTargetMinutes, 15)
+        XCTAssertEqual(afterSeries[third.id]?.arrivalTargetMinutes, 15)
+        XCTAssertEqual(afterSeries[second.id]?.arrivalTargetMinutes, 30, "個別に変えた到着目標は残す")
+        XCTAssertEqual(afterSeries[second.id]?.transport, .walk, "個別に変えていない項目は共通の変更を受ける")
+        let seriesID = try XCTUnwrap(repository.seriesID(of: first.id))
+        XCTAssertEqual(afterSeries[seriesID]?.arrivalTargetMinutes, 15, "シリーズ共通の設定も更新する")
+        XCTAssertNil(afterSeries[seriesID]?.overrides)
+
+        // 2 回目から「これ以降」で到着目標を 20 分に：その回の上書きは解除し、共通にする
+        try store.startEditing(eventID: second.id)
+        store.content.metadata.arrivalTargetMinutes = 20
+        try store.save(scope: .futureEvents)
+        let afterFuture = metadata.allMetadata()
+        XCTAssertEqual(afterFuture[second.id]?.arrivalTargetMinutes, 20)
+        XCTAssertTrue(afterFuture[second.id]?.overriddenFields.isEmpty ?? false)
+        XCTAssertEqual(afterFuture[third.id]?.arrivalTargetMinutes, 20)
+        XCTAssertEqual(afterFuture[first.id]?.arrivalTargetMinutes, 15, "「これ以降」は前の回を変えない")
+    }
+
     @MainActor
     func testRepeatIsOnlyAvailableWhenConnected() {
         let store = ScheduleEditorStore(repository: InMemoryEventRepository(), metadataRepository: InMemoryEventMetadataRepository())
@@ -120,6 +213,7 @@ final class RecurrenceTests: XCTestCase {
 /// 範囲つきの変更・削除を記録するだけの保存先（テスト用）。同じ予定名の予定を、同じ繰り返しの回とみなす
 private final class ScopeRecordingRepository: EventRepository {
     private var events: [CalendarEvent]
+    private var seriesIDs: [String: UUID] = [:]
     private(set) var updatedScopes: [RecurrenceScope] = []
     private(set) var deletedScopes: [RecurrenceScope] = []
 
@@ -145,5 +239,13 @@ private final class ScopeRecordingRepository: EventRepository {
     func occurrenceIDs(sameSeriesAs id: UUID, scope: RecurrenceScope) -> [UUID] {
         guard scope != .thisEvent, let event = events.first(where: { $0.id == id }) else { return [id] }
         return events.filter { $0.title == event.title && (scope == .allEvents || $0.day >= event.day) }.map(\.id)
+    }
+
+    func seriesID(of eventID: UUID) -> UUID? {
+        guard let event = events.first(where: { $0.id == eventID }), event.repeatRule.isRepeating else { return nil }
+        if let existing = seriesIDs[event.title] { return existing }
+        let created = UUID()
+        seriesIDs[event.title] = created
+        return created
     }
 }

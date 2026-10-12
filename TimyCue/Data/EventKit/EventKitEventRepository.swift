@@ -110,11 +110,8 @@ final class EventKitEventRepository: EventRepository {
     private func merge(_ fetched: [FetchedEvent], ranges: [ClosedRange<CalendarDay>], replacingAll: Bool) {
         let known = metadata.allMetadata()
         var newMetadata: [UUID: TimyCueEventMetadata] = [:]
-        // 繰り返しのまだ見ていない回は、同じ繰り返しのほかの回の TimyCue の情報（到着目標など）を引き継ぐ
-        var seriesMetadata: [String: TimyCueEventMetadata] = [:]
-        for (id, key) in links.keys {
-            if let info = known[id] { seriesMetadata[EventKitMapping.parseLinkKey(key).itemIdentifier] = info }
-        }
+        // 繰り返しのまだ見ていない回は、シリーズ共通の設定（到着目標など）を使う。個別上書きは引き継がない（追加仕様書 §2.7.1）
+        let seriesIDs = links.seriesIDs ?? [:]
         var linksChanged = false
         var events: [CalendarEvent] = []
         for item in fetched {
@@ -129,8 +126,11 @@ final class EventKitEventRepository: EventRepository {
             }
             // 初めて見る Apple カレンダーの予定は、元のカレンダーの色を初期候補にする（§53）
             if known[id] == nil && newMetadata[id] == nil {
-                if let series = seriesMetadata[EventKitMapping.parseLinkKey(item.key).itemIdentifier] {
-                    newMetadata[id] = series
+                let parsed = EventKitMapping.parseLinkKey(item.key)
+                if parsed.occurrenceDate != nil,
+                   let seriesID = seriesIDs[parsed.itemIdentifier], var common = known[seriesID] {
+                    common.overrides = nil
+                    newMetadata[id] = common
                 } else {
                     var info = TimyCueEventMetadata()
                     info.color = item.calendarColor
@@ -292,6 +292,20 @@ final class EventKitEventRepository: EventRepository {
         }
         try linksFile.save(links)
         cache.removeAll { removed.contains($0.id) }
+    }
+
+    /// 繰り返し予定のシリーズ共通の設定を保存する id。初めて聞かれたシリーズには作って覚える（追加仕様書 §2.7.1）
+    func seriesID(of eventID: UUID) -> UUID? {
+        guard let key = links.keys[eventID] else { return nil }
+        let parsed = EventKitMapping.parseLinkKey(key)
+        guard parsed.occurrenceDate != nil else { return nil }
+        if let existing = links.seriesIDs?[parsed.itemIdentifier] { return existing }
+        let created = UUID()
+        var ids = links.seriesIDs ?? [:]
+        ids[parsed.itemIdentifier] = created
+        links.seriesIDs = ids
+        try? linksFile.save(links)
+        return created
     }
 
     /// 同じ繰り返しの、読み込んである回の id（「これ以降」ならその回から後、「すべて」なら全部。その予定自身も含む）

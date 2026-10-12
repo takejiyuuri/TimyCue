@@ -378,13 +378,20 @@ final class ScheduleEditorStore {
         }
 
         let saved: [CalendarEvent]
-        /// TimyCue の情報（到着目標など）を保存する予定。繰り返しの「これ以降」「すべて」なら、読み込んである同じ繰り返しの回にも
-        var metadataTargets: [UUID] = []
+        /// 保存する TimyCue の情報（到着目標など）。繰り返しはシリーズ共通の設定と回ごとの個別上書きを分ける（追加仕様書 §2.7.1・Q53）
+        var entries: [UUID: TimyCueEventMetadata] = [:]
         switch mode {
         case .new, .copy:
             saved = draftEvents
             try repository.insert(saved)
-            metadataTargets = saved.map(\.id)
+            var common = content.metadata
+            common.overrides = nil
+            for event in saved {
+                entries[event.id] = common
+                if event.repeatRule.isRepeating, let seriesID = repository.seriesID(of: event.id) {
+                    entries[seriesID] = common
+                }
+            }
         case .edit(let id):
             guard let original = events.first(where: { $0.id == id }),
                   let day = selectedDays.first,
@@ -397,13 +404,43 @@ final class ScheduleEditorStore {
                                             durationMinutes: durationMinutes(on: day),
                                             isAllDay: original.isAllDay,
                                             source: original.source)
-            let effectiveScope: RecurrenceScope = original.repeatRule.isRepeating ? scope : .thisEvent
-            metadataTargets = repository.occurrenceIDs(sameSeriesAs: id, scope: effectiveScope)
+            let isRecurring = original.repeatRule.isRepeating
+            let effectiveScope: RecurrenceScope = isRecurring ? scope : .thisEvent
+            let before = metadataByEventID[id] ?? TimyCueEventMetadata()
+            let changed = before.changedFields(to: content.metadata)
+            let targets = repository.occurrenceIDs(sameSeriesAs: id, scope: effectiveScope)
+            let oldCommon = repository.seriesID(of: id).flatMap { metadataByEventID[$0] }
             try repository.update(updated, scope: effectiveScope)
             saved = [updated]
+
+            if !isRecurring {
+                entries[id] = content.metadata
+            } else if effectiveScope == .thisEvent {
+                entries[id] = RecurringMetadata.thisOnly(before: before, after: content.metadata)
+                // 共通設定がまだない（前の版で作った）繰り返しは、変える前の設定を共通設定として残す
+                if oldCommon == nil, let seriesID = repository.seriesID(of: id) {
+                    var common = before
+                    common.overrides = nil
+                    entries[seriesID] = common
+                }
+            } else {
+                var fallback = before
+                fallback.overrides = nil
+                for target in Set(targets + [id]) {
+                    entries[target] = RecurringMetadata.series(target: metadataByEventID[target] ?? fallback,
+                                                               changed: changed,
+                                                               newValues: content.metadata,
+                                                               isEditedOccurrence: target == id)
+                }
+                // 「これ以降」で Apple 側の繰り返しが分かれると、シリーズの id も新しくなる（前の回は前の共通設定のまま）
+                if let seriesID = repository.seriesID(of: id) {
+                    entries[seriesID] = RecurringMetadata.updatedCommon(oldCommon ?? fallback,
+                                                                        changed: changed,
+                                                                        newValues: content.metadata)
+                }
+            }
         }
-        try metadataRepository.saveAll(Dictionary(metadataTargets.map { ($0, content.metadata) },
-                                                  uniquingKeysWith: { first, _ in first }))
+        try metadataRepository.saveAll(entries)
 
         reloadEvents()
         showsSaveIssue = false
