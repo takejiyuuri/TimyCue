@@ -23,29 +23,25 @@ enum CalendarMetrics {
     static let weekdayHeaderHeight: CGFloat = 28
     static let horizontalPadding: CGFloat = 4
 
-    /// 画面上部の年（Q20）
+    /// 画面上部の年（Q20。2026-10-12 から真ん中に置く）
     static let yearFont = Font.system(size: 17, weight: .semibold)
     static let yearHeaderHeight: CGFloat = 30
-    /// 左端の月表示列（Q18：日付セルを圧迫しない最小の幅）
-    static let monthColumnWidth: CGFloat = 30
-    static let monthLabelFont = Font.system(size: 12, weight: .semibold)
-    static let monthLabelTopPadding: CGFloat = 6
-    /// 一番上の月の固定表示の高さ（Q19）
-    static let stickyMonthHeight: CGFloat = 26
+    /// その月の 1 日のセルに出す「10/」（2026-10-12 ユーザー決定。日付の数字より大きめ）
+    static let monthStartFont = Font.system(size: 16, weight: .bold)
 
-    /// 日付吹き出し（仕様 §22）
-    static let popoverMaxWidth: CGFloat = 280
-    static let popoverWidthRatio: CGFloat = 0.66
+    /// 日付吹き出し（仕様 §22。2026-10-12 デザインの指摘で少し大きく）
+    static let popoverMaxWidth: CGFloat = 300
+    static let popoverWidthRatio: CGFloat = 0.72
     /// これより多いと吹き出しの中を縦スクロールにする
     static let popoverMaxVisibleRows = 5
     static let popoverListHeight: CGFloat = 190
     static let popoverRowSpacing: CGFloat = 8
     static let popoverGap: CGFloat = 4
     static let popoverMargin: CGFloat = 8
-    static let popoverTitleFont = Font.system(size: 15, weight: .semibold)
-    static let popoverPrimaryFont = Font.system(size: 14, weight: .medium)
-    static let popoverSecondaryFont = Font.system(size: 12)
-    static let popoverTimeFont = Font.system(size: 12, weight: .medium).monospacedDigit()
+    static let popoverTitleFont = Font.system(size: 16, weight: .semibold)
+    static let popoverPrimaryFont = Font.system(size: 15, weight: .medium)
+    static let popoverSecondaryFont = Font.system(size: 13)
+    static let popoverTimeFont = Font.system(size: 13, weight: .medium).monospacedDigit()
     /// 時刻の欄の幅（「10:00–11:30」が入る幅。Q12）
-    static let popoverTimeWidth: CGFloat = 78
+    static let popoverTimeWidth: CGFloat = 86
 }

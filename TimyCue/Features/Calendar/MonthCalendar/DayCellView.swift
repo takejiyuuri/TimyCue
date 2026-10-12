@@ -15,6 +15,8 @@ struct DayCellView: View {
     let summary: DayCellSummary
     let isToday: Bool
     let isOpen: Bool
+    /// 見ている月（画面の真ん中の月）以外の日。見た目だけ薄くする（押せることや予定の出し方は変えない）
+    var isOutsideFocusMonth = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
@@ -23,6 +25,7 @@ struct DayCellView: View {
                 .padding(.horizontal, 2)
             Spacer(minLength: 0)
         }
+        .opacity(isOutsideFocusMonth ? Theme.Colors.outsideMonthOpacity : 1)
         .frame(maxWidth: .infinity, minHeight: CalendarMetrics.cellHeight, maxHeight: CalendarMetrics.cellHeight, alignment: .top)
         .clipped()
         .overlay {
@@ -37,19 +40,29 @@ struct DayCellView: View {
         }
     }
 
-    /// 日付の数字。今日は後ろに淡いオレンジの丸（仕様 §20）
+    /// 日付の数字。今日は後ろに淡いオレンジの丸（仕様 §20）。土曜は淡い青、日曜は淡い赤。
+    /// その月の 1 日は「10/1」のように、前に大きめの「10/」を付けて月の変わり目を示す（2026-10-12 ユーザー決定）
     private var dayNumber: some View {
-        Text("\(day.day)")
-            .font(CalendarMetrics.dayNumberFont)
-            .foregroundStyle(Theme.Colors.textPrimary)
-            .frame(width: CalendarMetrics.todayCircleSize, height: CalendarMetrics.todayCircleSize)
-            .background {
-                if isToday {
-                    Circle().fill(Theme.Colors.todayCircle)
-                }
+        let color = Theme.Colors.weekdayText(day.weekdayIndexFromMonday(), normal: Theme.Colors.textPrimary)
+        return HStack(alignment: .firstTextBaseline, spacing: 0) {
+            if day.day == 1 {
+                Text(verbatim: "\(day.month)/")
+                    .font(CalendarMetrics.monthStartFont)
+                    .foregroundStyle(color)
+                    .fixedSize()
             }
-            .frame(maxWidth: .infinity)
-            .padding(.top, 2)
+            Text(verbatim: "\(day.day)")
+                .font(CalendarMetrics.dayNumberFont)
+                .foregroundStyle(color)
+                .frame(width: CalendarMetrics.todayCircleSize, height: CalendarMetrics.todayCircleSize)
+                .background {
+                    if isToday {
+                        Circle().fill(Theme.Colors.todayCircle)
+                    }
+                }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 2)
     }
 }
 

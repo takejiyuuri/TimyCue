@@ -36,14 +36,14 @@ struct DateCalendarPane: View {
     }
 }
 
-/// 下カレンダーの曜日（月〜日）
+/// 下カレンダーの曜日（月〜日）。土曜は淡い青、日曜は淡い赤（月カレンダーと同じ。2026-10-12 デザインの指摘）
 private struct EditorWeekdayHeader: View {
     var body: some View {
         HStack(spacing: 0) {
-            ForEach(Weekday.symbols, id: \.self) { symbol in
+            ForEach(Array(Weekday.symbols.enumerated()), id: \.offset) { index, symbol in
                 Text(symbol)
                     .font(EditorMetrics.calendarWeekdayFont)
-                    .foregroundStyle(Theme.Colors.textSecondary)
+                    .foregroundStyle(Theme.Colors.weekdayText(index, normal: Theme.Colors.textSecondary))
                     .frame(maxWidth: .infinity)
             }
         }
@@ -147,9 +147,11 @@ private struct EditorDayCell: View {
 
     var body: some View {
         VStack(spacing: EditorMetrics.eventDotSpacing) {
-            Text("\(day.day)")
+            Text(verbatim: "\(day.day)")
                 .font(EditorMetrics.calendarDayFont)
-                .foregroundStyle(isSelected ? Color.white : Theme.Colors.textPrimary)
+                .foregroundStyle(isSelected
+                                 ? Color.white
+                                 : Theme.Colors.weekdayText(day.weekdayIndexFromMonday(), normal: Theme.Colors.textPrimary))
                 .frame(width: EditorMetrics.selectedCircleSize, height: EditorMetrics.selectedCircleSize)
                 .background {
                     if isSelected {
