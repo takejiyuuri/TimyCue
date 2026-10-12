@@ -120,9 +120,20 @@ struct EditorCalendarAxis: Equatable {
         min(max(offset, -Self.maxOffset), Self.maxOffset)
     }
 
-    /// いちばん上に見えている月。上の年の表示はこの月の年（次の年の 1 月が上に来たら変わる）
+    /// いちばん上の固定の年月に出す月。下から上がってきた月帯がいちばん上（固定の年月の位置）に重なったら次の月へ、
+    /// 上へ戻して月帯がいちばん上を下へ抜けたら前の月へ戻る（2026-10-13 ユーザー決定）
     func topMonth(at offset: Double) -> CalendarMonth {
         month(at: offset)
+    }
+
+    /// いちばん上に固定して出す年月（例：2026年　10月）
+    static func headerText(for month: CalendarMonth) -> String {
+        "\(month.year)年　\(month.month)月"
+    }
+
+    /// 月の境目に入れる月帯の文字。1 月だけは年も出す（例：11月、2027年 1月）
+    static func bandText(for month: CalendarMonth) -> String {
+        month.month == 1 ? "\(month.year)年 1月" : month.monthLabel
     }
 
     // MARK: - 行

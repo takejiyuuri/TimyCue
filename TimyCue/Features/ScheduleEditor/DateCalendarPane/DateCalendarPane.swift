@@ -1,7 +1,8 @@
 import SwiftUI
 
 /// 3 分割画面の下の日付カレンダー（2026-10-13 ユーザー決定「3 分割画面のカレンダー」）。
-/// 曜日の上の真ん中に年。月ごとに区切り、月の初めに 1 行空けて月を出す（月をまたぐ週は 2 行に分ける）。
+/// いちばん上の真ん中に年月（例：2026年　10月）を固定。月ごとに区切り、月の初めに 1 行空けて月帯を出す（月をまたぐ週は 2 行に分ける）。
+/// 月帯がいちばん上に重なったら、上の年月が切り替わる。
 /// 見える高さは日付の行 6 行ぶん（月の行は別）。左右にスクロールバーを置き、どちらをなぞってもカレンダーが動く。
 /// カレンダー本体は指で縦スクロールさせない。本体：タップで 1 日選択／解除、指でなぞると複数日選択（仕様 §34）
 struct DateCalendarPane: View {
@@ -23,8 +24,8 @@ struct DateCalendarPane: View {
             HStack(spacing: 0) {
                 CalendarScrollBar(axis: axis, offset: $offset, rowHeight: rowHeight)
                 VStack(spacing: 0) {
-                    // 年は曜日の上の真ん中。いちばん上に見えている月の年（次の年の 1 月が上に来たら変わる）
-                    Text(verbatim: axis.topMonth(at: offset).yearLabel)
+                    // 年月は曜日の上の真ん中に固定。月帯がいちばん上に重なったら次の月へ、下へ抜けたら前の月へ（2026-10-13）
+                    Text(verbatim: EditorCalendarAxis.headerText(for: axis.topMonth(at: offset)))
                         .font(EditorMetrics.calendarYearFont)
                         .foregroundStyle(Theme.Colors.textPrimary)
                         .frame(maxWidth: .infinity)
@@ -134,12 +135,12 @@ private extension EditorCalendarAxis.PlacedLine {
     }
 }
 
-/// 月の初めに 1 行空けて出す月（2026-10-13 ユーザー決定）
+/// 月の初めに 1 行空けて出す月帯。1 月だけは年も出す（2026-10-13 ユーザー決定）
 private struct EditorMonthRow: View {
     let month: CalendarMonth
 
     var body: some View {
-        Text(month.monthLabel)
+        Text(verbatim: EditorCalendarAxis.bandText(for: month))
             .font(EditorMetrics.calendarMonthFont)
             .foregroundStyle(Theme.Colors.textPrimary)
             .padding(.horizontal, Theme.Spacing.s)

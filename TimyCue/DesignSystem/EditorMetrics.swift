@@ -63,7 +63,7 @@ enum EditorMetrics {
     /// 月の初めに空ける、月を出す行の高さ（日付の行を 1 として）。仮の値（実機で決める）
     static let calendarMonthRowRatio: Double = 0.6
     static let calendarMonthFont = Font.system(size: 12, weight: .semibold)
-    /// 曜日の上に出す年
+    /// いちばん上（曜日の上）に固定して出す年月（例：2026年　10月）
     static let calendarYearHeight: CGFloat = 20
     static let calendarYearFont = Font.system(size: 12, weight: .semibold).monospacedDigit()
     static let calendarDayFont = Font.system(size: 14, weight: .medium).monospacedDigit()

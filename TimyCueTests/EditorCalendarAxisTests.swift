@@ -58,11 +58,24 @@ final class EditorCalendarAxisTests: XCTestCase {
         XCTAssertTrue(lines.allSatisfy { $0.top < 4.75 + 6 && $0.top + $0.height > 4.75 })
     }
 
+    func testHeaderAndBandTexts() {
+        XCTAssertEqual(EditorCalendarAxis.headerText(for: october), "2026年　10月", "いちばん上に年月を固定して出す")
+        XCTAssertEqual(EditorCalendarAxis.bandText(for: november), "11月", "月の境目の月帯")
+        XCTAssertEqual(EditorCalendarAxis.bandText(for: CalendarMonth(year: 2027, month: 1)), "2027年 1月", "1 月の月帯だけは年も出す")
+    }
+
+    func testHeaderSwitchesWhenTheMonthBandReachesTheTop() {
+        let top = axis.top(of: november)
+        XCTAssertEqual(axis.topMonth(at: top - 0.01), october, "11 月の月帯がまだ下にある間は 10 月")
+        XCTAssertEqual(axis.topMonth(at: top), november, "11 月の月帯がいちばん上に重なったら 11 月へ")
+        XCTAssertEqual(axis.topMonth(at: top + 0.3), november)
+    }
+
     func testYearChangesWhenJanuaryReachesTheTop() {
         let january = CalendarMonth(year: 2027, month: 1)
         let top = axis.top(of: january)
-        XCTAssertEqual(axis.topMonth(at: top).year, 2027, "1 月が上に来たら年が変わる（ハプティクスの合図）")
-        XCTAssertEqual(axis.topMonth(at: top - 0.1).year, 2026)
+        XCTAssertEqual(axis.topMonth(at: top).year, 2027, "1 月の月帯が上に重なったら年が変わる（ハプティクスの合図）")
+        XCTAssertEqual(axis.topMonth(at: top - 0.1).year, 2026, "上へ戻して 1 月の月帯が下へ抜けたら前の年へ")
         XCTAssertEqual(axis.topMonth(at: axis.top(of: CalendarMonth(year: 2025, month: 12))).year, 2025, "前の年へもたどれる")
     }
 
