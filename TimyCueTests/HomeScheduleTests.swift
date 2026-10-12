@@ -42,4 +42,26 @@ final class HomeScheduleTests: XCTestCase {
         XCTAssertEqual(HomeSchedule.countdownText(from: now, to: at(today.adding(days: 2), 9 * 60)), "",
                        "1 日以上先は日付と時刻だけ")
     }
+
+    // MARK: - 追加仕様書 §5.1・§5.2
+
+    func testStartedNoticeForAboutThreeMinutesThenNextEvent() {
+        let meeting = CalendarEvent(day: today, startMinute: 10 * 60, title: "会議")
+        let lunch = CalendarEvent(day: today, startMinute: 12 * 60, title: "昼食")
+        let events = [meeting, lunch]
+        XCTAssertEqual(HomeSchedule.main(in: events, now: at(today, 9 * 60 + 59)), .upcoming(meeting))
+        XCTAssertEqual(HomeSchedule.main(in: events, now: at(today, 10 * 60)), .started(meeting),
+                       "開始時刻には「予定時刻になりました」")
+        XCTAssertEqual(HomeSchedule.main(in: events, now: at(today, 10 * 60 + 2)), .started(meeting), "約 3 分出す")
+        XCTAssertEqual(HomeSchedule.main(in: events, now: at(today, 10 * 60 + 3)), .upcoming(lunch),
+                       "そのあとは主表示から外して次の予定へ")
+        let allDay = CalendarEvent(day: today, startMinute: 0, title: "休み", isAllDay: true)
+        XCTAssertNil(HomeSchedule.main(in: [allDay], now: at(today, 0)), "終日の予定は対象にしない")
+    }
+
+    func testQuietWhenSixtyMinutesOrMoreAway() {
+        let now = at(today, 9 * 60)
+        XCTAssertTrue(HomeSchedule.isQuiet(now: now, start: at(today, 10 * 60)), "60 分以上先は静かに出す")
+        XCTAssertFalse(HomeSchedule.isQuiet(now: now, start: at(today, 9 * 60 + 59)))
+    }
 }

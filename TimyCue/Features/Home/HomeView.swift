@@ -24,7 +24,7 @@ struct HomeView: View {
         TimelineView(.periodic(from: .now, by: 30)) { context in
             let now = context.date
             let events = store.loadedEvents
-            let next = HomeSchedule.nextEvent(in: events, now: now)
+            let main = HomeSchedule.main(in: events, now: now)
             ScrollView {
                 VStack(alignment: .leading, spacing: Theme.Spacing.l) {
                     Text(dateTitle(now))
@@ -36,8 +36,8 @@ struct HomeView: View {
                         duplicateNotice
                     }
 
-                    if let next {
-                        nextEventSection(next, now: now)
+                    if let main {
+                        nextEventSection(main, now: now)
                     } else {
                         Text(HomeSchedule.hasOnlyAllDayToday(in: events, now: now)
                              ? "今日は時間指定の予定はありません"
@@ -48,7 +48,7 @@ struct HomeView: View {
 
                     if connection.state != .connected {
                         setupCard
-                    } else if next == nil {
+                    } else if main == nil {
                         registerButton
                     }
                 }
@@ -90,14 +90,28 @@ struct HomeView: View {
 
     // MARK: - 次の予定
 
-    private func nextEventSection(_ event: CalendarEvent, now: Date) -> some View {
+    private func nextEventSection(_ main: HomeSchedule.Main, now: Date) -> some View {
+        let event = main.event
         let start = HomeSchedule.startDate(of: event)
-        let countdown = HomeSchedule.countdownText(from: now, to: start)
+        let isStarted: Bool = {
+            if case .started = main { return true }
+            return false
+        }()
+        // 60 分以上先は大きな「あと○分」にせず、静かに出す（追加仕様書 §5.2）
+        let countdown = isStarted || HomeSchedule.isQuiet(now: now, start: start)
+            ? "" : HomeSchedule.countdownText(from: now, to: start)
         return VStack(alignment: .leading, spacing: Theme.Spacing.s) {
             VStack(alignment: .leading, spacing: 6) {
-                Text("次の予定")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(Theme.Colors.textSecondary)
+                if isStarted {
+                    // 開始時刻から約 3 分（§5.1）
+                    Text("予定時刻になりました")
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(Theme.Colors.accent)
+                } else {
+                    Text("次の予定")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(Theme.Colors.textSecondary)
+                }
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Circle()
                         .fill(EventPalette.color(for: store.color(for: event)))
