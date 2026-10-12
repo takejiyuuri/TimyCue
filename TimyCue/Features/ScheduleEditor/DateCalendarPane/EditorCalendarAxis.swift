@@ -180,9 +180,31 @@ struct EditorCalendarAxis: Equatable {
 
     // MARK: - 左右のバーでなぞって動かす（2026-10-13 ユーザー決定）
 
-    /// なぞった分だけ動かす。指と同じ向きにカレンダーが動く（上へなぞると先の月が下から出てくる）。慣性はつけない
-    static func offset(afterDragging translation: Double, from start: Double, rowHeight: Double, speed: Double) -> Double {
+    /// なぞっている間は、指と同じ向き・同じだけ動く（上へなぞると先の月が下から出てくる）
+    static func offset(afterDragging translation: Double, from start: Double, rowHeight: Double) -> Double {
         guard rowHeight > 0 else { return start }
-        return start - translation / rowHeight * speed
+        return start - translation / rowHeight
+    }
+
+    /// 指を離したときの速さ（行／秒。指と同じ向き）
+    static func velocity(fromDragVelocity velocity: Double, rowHeight: Double) -> Double {
+        rowHeight > 0 ? -velocity / rowHeight : 0
+    }
+
+    /// 指を離したあとは、iPhone のふつうのスクロールと同じ減り方で滑る（1 ミリ秒ごとに 0.998 倍）
+    static let decelerationRate = 0.998
+    /// これより遅くなったら止める（行／秒）
+    static let inertiaStopVelocity = 0.05
+
+    /// 滑っている間の 1 こま：seconds の間に動く量と、そのあとの速さ
+    static func inertiaStep(velocity: Double, seconds: Double) -> (moved: Double, velocity: Double) {
+        let factor = pow(decelerationRate, max(0, seconds) * 1000)
+        let moved = velocity * (factor - 1) / (1000 * log(decelerationRate))
+        return (moved, velocity * factor)
+    }
+
+    /// 滑りきるまでに動く量
+    static func inertiaDistance(velocity: Double) -> Double {
+        velocity / (-1000 * log(decelerationRate))
     }
 }

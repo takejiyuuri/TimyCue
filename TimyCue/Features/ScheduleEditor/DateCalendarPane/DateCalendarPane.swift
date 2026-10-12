@@ -9,8 +9,8 @@ struct DateCalendarPane: View {
     @Environment(ScheduleEditorStore.self) private var store
 
     @State private var axis: EditorCalendarAxis
-    /// いちばん上に見えている所（日付の行の高さを 1 とした位置）
-    @State private var offset: Double = 0
+    /// いちばん上に見えている所と、左右のバーでの動き
+    @State private var scroller = EditorCalendarScroller()
 
     init(initialMonth: CalendarMonth) {
         _axis = State(initialValue: EditorCalendarAxis(around: initialMonth,
@@ -21,8 +21,9 @@ struct DateCalendarPane: View {
         GeometryReader { geometry in
             let gridHeight = max(geometry.size.height - EditorMetrics.calendarYearHeight - EditorMetrics.calendarWeekdayHeight, 1)
             let rowHeight = gridHeight / EditorMetrics.calendarVisibleWeeks
+            let offset = scroller.offset
             HStack(spacing: 0) {
-                CalendarScrollBar(axis: axis, offset: $offset, rowHeight: rowHeight)
+                CalendarScrollBar(axis: axis, scroller: scroller, rowHeight: rowHeight)
                 VStack(spacing: 0) {
                     // 年月は曜日の上の真ん中に固定。月帯がいちばん上に重なったら次の月へ、下へ抜けたら前の月へ（2026-10-13）
                     Text(verbatim: EditorCalendarAxis.headerText(for: axis.topMonth(at: offset)))
@@ -33,12 +34,13 @@ struct DateCalendarPane: View {
                     EditorWeekdayHeader()
                     DateGrid(axis: axis, offset: offset, rowHeight: rowHeight)
                 }
-                CalendarScrollBar(axis: axis, offset: $offset, rowHeight: rowHeight)
+                CalendarScrollBar(axis: axis, scroller: scroller, rowHeight: rowHeight)
             }
         }
         .background(Theme.Colors.surface)
         // 年が変わった時だけ軽く振動する。月が変わるたびには振動させない（v1.1「ハプティクス」）
-        .sensoryFeedback(.impact(weight: .light), trigger: axis.topMonth(at: offset).year)
+        .sensoryFeedback(.impact(weight: .light), trigger: axis.topMonth(at: scroller.offset).year)
+        .onDisappear { scroller.stopInertia() }
     }
 }
 
@@ -135,7 +137,7 @@ private extension EditorCalendarAxis.PlacedLine {
     }
 }
 
-/// 月の初めに 1 行空けて出す月帯。1 月だけは年も出す（2026-10-13 ユーザー決定）。文字の左寄せは仮（未確定）
+/// 月の初めに 1 行空けて出す月帯。高さは日付の行の半分くらい、文字は真ん中。1 月だけは年も出す（2026-10-13 ユーザー決定）
 private struct EditorMonthRow: View {
     let month: CalendarMonth
 
@@ -143,8 +145,7 @@ private struct EditorMonthRow: View {
         Text(verbatim: EditorCalendarAxis.bandText(for: month))
             .font(EditorMetrics.calendarMonthFont)
             .foregroundStyle(Theme.Colors.textPrimary)
-            .padding(.horizontal, Theme.Spacing.s)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
             .overlay(alignment: .bottom) {
                 Theme.Colors.separator.frame(height: 1)
             }
@@ -178,18 +179,15 @@ private struct EditorWeekRow: View {
 }
 
 /// 左右に置くスクロールバー（2026-10-13 ユーザー決定）。月や数字は出さず、バーだとわかる色とマーク（上下の矢印とつまみ）だけ。
-/// なぞるとカレンダーが動く。左右どちらでも同じように動く。動く量・慣性の有無は未確定（今は指と同じ向き・同じだけ、慣性なし。仮）
+/// なぞっている間は指と同じだけ動き、離したら iPhone のふつうのスクロールのように滑って止まる。左右どちらでも同じように動く
 private struct CalendarScrollBar: View {
     let axis: EditorCalendarAxis
-    @Binding var offset: Double
+    let scroller: EditorCalendarScroller
     let rowHeight: CGFloat
-
-    /// なぞり始めた時の位置
-    @State private var dragStart: Double?
 
     var body: some View {
         RoundedRectangle(cornerRadius: EditorMetrics.scrollBarCornerRadius)
-            .fill(dragStart == nil ? Theme.Colors.scrollBarTrack : Theme.Colors.scrollBarTrackActive)
+            .fill(scroller.isDragging ? Theme.Colors.scrollBarTrackActive : Theme.Colors.scrollBarTrack)
             .overlay {
                 VStack(spacing: 0) {
                     Image(systemName: "chevron.up")
@@ -210,14 +208,11 @@ private struct CalendarScrollBar: View {
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { value in
-                        let start = dragStart ?? offset
-                        dragStart = start
-                        offset = axis.clamp(EditorCalendarAxis.offset(afterDragging: Double(value.translation.height),
-                                                                      from: start,
-                                                                      rowHeight: Double(rowHeight),
-                                                                      speed: EditorMetrics.scrollBarDragSpeed))
+                        scroller.drag(translation: Double(value.translation.height), rowHeight: Double(rowHeight), axis: axis)
                     }
-                    .onEnded { _ in dragStart = nil }
+                    .onEnded { value in
+                        scroller.endDrag(velocity: Double(value.velocity.height), rowHeight: Double(rowHeight), axis: axis)
+                    }
             )
             .accessibilityLabel("カレンダーを上下に動かす")
     }

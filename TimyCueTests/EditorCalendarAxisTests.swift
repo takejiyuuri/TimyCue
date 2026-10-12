@@ -80,10 +80,29 @@ final class EditorCalendarAxisTests: XCTestCase {
     }
 
     func testDraggingTheScrollBarMovesWithTheFinger() {
-        XCTAssertEqual(EditorCalendarAxis.offset(afterDragging: -80, from: 2, rowHeight: 40, speed: 1), 4,
-                       "上へなぞると、先の日付が下から出てくる")
-        XCTAssertEqual(EditorCalendarAxis.offset(afterDragging: 40, from: 2, rowHeight: 40, speed: 1), 1)
-        XCTAssertEqual(EditorCalendarAxis.offset(afterDragging: 40, from: 2, rowHeight: 0, speed: 1), 2)
+        XCTAssertEqual(EditorCalendarAxis.offset(afterDragging: -80, from: 2, rowHeight: 40), 4,
+                       "上へなぞると、先の日付が下から出てくる。指と同じだけ動く")
+        XCTAssertEqual(EditorCalendarAxis.offset(afterDragging: 40, from: 2, rowHeight: 40), 1)
+        XCTAssertEqual(EditorCalendarAxis.offset(afterDragging: 40, from: 2, rowHeight: 0), 2)
+    }
+
+    func testInertiaSlowsDownLikeNormalScrolling() {
+        let speed = EditorCalendarAxis.velocity(fromDragVelocity: -400, rowHeight: 40)
+        XCTAssertEqual(speed, 10, "上へ速くなぞって離すと、先の方へ滑る（行／秒）")
+        let step = EditorCalendarAxis.inertiaStep(velocity: speed, seconds: 0.1)
+        XCTAssertLessThan(step.velocity, speed, "だんだん遅くなる")
+        XCTAssertGreaterThan(step.moved, 0)
+        XCTAssertEqual(EditorCalendarAxis.inertiaDistance(velocity: speed), speed * 0.4995, accuracy: 0.01,
+                       "iPhone のふつうのスクロールと同じ減り方（0.998）")
+        // 1 こまずつ足しても、滑りきる量に近づく
+        var total = 0.0
+        var v = speed
+        for _ in 0..<600 {
+            let s = EditorCalendarAxis.inertiaStep(velocity: v, seconds: 0.016)
+            total += s.moved
+            v = s.velocity
+        }
+        XCTAssertEqual(total, EditorCalendarAxis.inertiaDistance(velocity: speed), accuracy: 0.05)
     }
 
     func testSafetyLimit() {
