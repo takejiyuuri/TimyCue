@@ -50,24 +50,14 @@ final class EditorCalendarAxisTests: XCTestCase {
         XCTAssertEqual(axis.topWeek(at: january - 1).stickyMonth.year, 2026)
     }
 
-    func testDraggingMovesLabelsWithFinger() {
-        XCTAssertEqual(EditorCalendarAxis.offset(afterDragging: -14, from: 0, weekHeight: 7), 2,
-                       "指を上へ動かすと先の週へ進む")
-        XCTAssertEqual(EditorCalendarAxis.offset(afterDragging: 7, from: 2, weekHeight: 7), 1)
-    }
-
-    func testInertiaSlowsDownWithoutSnapping() {
-        var offset = 0.0
-        var speed = EditorCalendarAxis.initialInertiaSpeed(remainingWeeks: 10)
-        var frames = 0
-        while let step = EditorCalendarAxis.inertiaStep(offset: offset, speed: speed) {
-            offset = step.offset
-            speed = step.speed
-            frames += 1
-        }
-        XCTAssertEqual(offset, 10, accuracy: 0.1, "指を離したあと、見込みの分だけ慣性で回る")
-        XCTAssertNotEqual(offset, offset.rounded(), "週や月の区切りにスナップしない（v1.1）")
-        XCTAssertGreaterThan(frames, 10)
+    func testHoldingAboveOrBelowTheBandMovesSlowly() {
+        XCTAssertEqual(EditorCalendarAxis.holdDirection(pressY: 40, barHeight: 300), -1, "範囲帯より上を長押しすると上（過去）へ")
+        XCTAssertEqual(EditorCalendarAxis.holdDirection(pressY: 260, barHeight: 300), 1, "下を長押しすると下（未来）へ")
+        let speed = Double(EditorMetrics.barHoldWeeksPerSecond)
+        XCTAssertEqual(EditorCalendarAxis.offset(afterHolding: 2, from: 10, direction: -1, weeksPerSecond: speed), 10 - 2 * speed,
+                       "押している間ずっと一定の速さ")
+        XCTAssertEqual(EditorCalendarAxis.offset(afterHolding: 0.5, from: 10, direction: 1, weeksPerSecond: speed), 10 + 0.5 * speed,
+                       "月にはスナップしない")
     }
 
     func testSafetyLimit() {

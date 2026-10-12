@@ -76,4 +76,7 @@ enum EditorMetrics {
     /// 固定帯の近くに来た月は少し太く・濃く（v1.1「表示範囲帯」）
     static let barMonthFocusedFont = Font.system(size: 13, weight: .bold).monospacedDigit()
     static let barBandCornerRadius: CGFloat = 6
+    /// 年月バーを長押ししたときに動く速さ（週／秒）と、動き始めるまでの長さ（秒）。仮の値（実機で決める）
+    static let barHoldWeeksPerSecond: CGFloat = 1
+    static let barHoldDelay: Double = 0.3
 }
