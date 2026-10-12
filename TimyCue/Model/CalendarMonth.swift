@@ -62,6 +62,11 @@ struct CalendarWeek: Hashable, Comparable, Identifiable {
         CalendarWeek(containing: start.adding(days: weeks * 7))
     }
 
+    /// この週から other まで何週あるか（other が前なら負）
+    func weeks(to other: CalendarWeek) -> Int {
+        start.days(to: other.start) / 7
+    }
+
     /// この週に 1 日がある月。月表示列のこの週の高さに出す（Q18）
     var monthStartingInWeek: CalendarMonth? {
         days.first { $0.day == 1 }.map(CalendarMonth.init)

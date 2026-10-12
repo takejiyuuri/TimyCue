@@ -47,6 +47,11 @@ struct CalendarDay: Hashable, Comparable, Codable {
                     calendar: calendar)
     }
 
+    /// この日から other まで何日あるか（other が前なら負）
+    func days(to other: CalendarDay, calendar: Calendar = .timyCue) -> Int {
+        calendar.dateComponents([.day], from: date(calendar: calendar), to: other.date(calendar: calendar)).day ?? 0
+    }
+
     /// 日付タブなどに出す短い表記（例：10/12）
     var shortLabel: String { "\(month)/\(day)" }
 
@@ -65,6 +70,10 @@ struct CalendarDay: Hashable, Comparable, Codable {
 enum Weekday {
     /// 月曜始まりの曜日の並び（仕様 §19）
     static let symbols = ["月", "火", "水", "木", "金", "土", "日"]
+}
+
+extension CalendarDay: Identifiable {
+    var id: Self { self }
 }
 
 /// 0:00 からの分。14:17 なら 857。

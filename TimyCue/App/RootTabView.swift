@@ -25,6 +25,9 @@ enum RootTab: String, CaseIterable {
 
 struct RootTabView: View {
     @State private var selection: RootTab = RootTabView.initialTab
+    @Environment(ScheduleEditorStore.self) private var editorStore
+    @Environment(CalendarStore.self) private var calendarStore
+    @State private var showsEditorForScreenshot = false
 
     var body: some View {
         TabView(selection: $selection) {
@@ -35,6 +38,29 @@ struct RootTabView: View {
             }
         }
         .tint(Theme.Colors.accent)
+        .onAppear { openEditorForScreenshot() }
+        .fullScreenCover(isPresented: $showsEditorForScreenshot) {
+            ScheduleEditorView(initialMonth: CalendarMonth(CalendarDay(Date())))
+                .environment(editorStore)
+                .environment(calendarStore)
+        }
+    }
+
+    /// Codemagic で 3 分割画面の画面写真を撮るとき、起動引数 `-TimyCueEditorDays "0,7,14"`（今日からの日数）で、
+    /// その日を選んだ新規の 3 分割画面を開く（DEBUG のときだけ）
+    private func openEditorForScreenshot() {
+        #if DEBUG
+        guard let raw = UserDefaults.standard.string(forKey: "TimyCueEditorDays"), !showsEditorForScreenshot else { return }
+        let today = CalendarDay(Date())
+        let days = raw.split(separator: ",").compactMap { Int($0.trimmingCharacters(in: .whitespaces)) }.map { today.adding(days: $0) }
+        guard let first = days.first else { return }
+        editorStore.startNew()
+        days.forEach(editorStore.selectDay)
+        editorStore.displayDay(first)
+        editorStore.setStartMinute(14 * 60, on: first)
+        editorStore.content.title = "見本の打合せ"
+        showsEditorForScreenshot = true
+        #endif
     }
 
     @ViewBuilder

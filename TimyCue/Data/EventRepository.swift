@@ -5,6 +5,7 @@ protocol EventRepository: AnyObject {
     func allEvents() -> [CalendarEvent]
     func insert(_ events: [CalendarEvent]) throws
     func update(_ event: CalendarEvent) throws
+    func delete(id: UUID) throws
 }
 
 /// TimyCue だけが使う情報の読み書き（仕様 §84）。Apple カレンダーの予定とは別に保存する（仕様 §68）。
@@ -12,6 +13,7 @@ protocol EventRepository: AnyObject {
 protocol EventMetadataRepository: AnyObject {
     func allMetadata() -> [UUID: TimyCueEventMetadata]
     func save(_ metadata: TimyCueEventMetadata, for eventID: UUID) throws
+    func delete(for eventID: UUID) throws
 }
 
 enum EventRepositoryError: Error, Equatable {
@@ -40,6 +42,13 @@ final class InMemoryEventRepository: EventRepository {
         }
         events[index] = event
     }
+
+    func delete(id: UUID) throws {
+        guard let index = events.firstIndex(where: { $0.id == id }) else {
+            throw EventRepositoryError.notFound(id)
+        }
+        events.remove(at: index)
+    }
 }
 
 /// メモリの中だけに TimyCue の情報を持つ版
@@ -56,5 +65,9 @@ final class InMemoryEventMetadataRepository: EventMetadataRepository {
 
     func save(_ metadata: TimyCueEventMetadata, for eventID: UUID) throws {
         storage[eventID] = metadata
+    }
+
+    func delete(for eventID: UUID) throws {
+        storage[eventID] = nil
     }
 }

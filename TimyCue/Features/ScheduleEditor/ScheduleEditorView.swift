@@ -1,0 +1,113 @@
+import SwiftUI
+
+/// 予定登録・編集・コピーの専用 3 分割画面（仕様 §31・§32）。カレンダー画面とは分ける。
+/// 左上：時間画面、右上：予定入力、下：日付カレンダー。3 つとも常に出し、それぞれ別々に動く。
+/// 保存したら元の画面へ戻る（Q22。旧 §65 の「保存しても閉じない」は変更）
+struct ScheduleEditorView: View {
+    /// 下カレンダーを最初に出す月
+    let initialMonth: CalendarMonth
+    /// 保存したとき。保存した予定を渡す（元の画面が、保存した日や時刻を見せるため。Q22）
+    var onSaved: ([CalendarEvent]) -> Void = { _ in }
+    /// 予定を消したとき（予定詳細も閉じるため）
+    var onDeleted: () -> Void = {}
+
+    @Environment(ScheduleEditorStore.self) private var store
+    @Environment(CalendarStore.self) private var calendarStore
+    @Environment(\.dismiss) private var dismiss
+
+    @FocusState private var focusedRow: InputRow?
+    @State private var confirmsDiscard = false
+    @State private var confirmsDelete = false
+
+    var body: some View {
+        GeometryReader { geometry in
+            // キーボードが出ている間は、右の入力を広げて下のカレンダーを縮める。左の時間軸は残す（§67）
+            let isTyping = focusedRow != nil
+            let topRatio = isTyping ? EditorMetrics.keyboardTopPaneRatio : EditorMetrics.topPaneRatio
+            let leftRatio = isTyping ? EditorMetrics.keyboardTimePaneWidthRatio : EditorMetrics.timePaneWidthRatio
+            let bodyHeight = max(geometry.size.height - EditorMetrics.headerHeight, 0)
+
+            VStack(spacing: 0) {
+                header
+                HStack(spacing: EditorMetrics.paneSpacing) {
+                    TimePane()
+                        .frame(width: geometry.size.width * leftRatio)
+                    InputPane(focusedRow: $focusedRow,
+                              onCopy: { try? store.startCopy() },
+                              onDelete: { confirmsDelete = true })
+                }
+                .frame(height: bodyHeight * topRatio)
+                Theme.Colors.separator.frame(height: EditorMetrics.paneSpacing)
+                DateCalendarPane(initialMonth: initialMonth)
+                    .frame(height: max(bodyHeight * (1 - topRatio) - EditorMetrics.paneSpacing, 0))
+            }
+            .animation(.easeInOut(duration: 0.2), value: isTyping)
+        }
+        .background(Theme.Colors.separator.ignoresSafeArea())
+        // 未保存のまま離れるときは確かめる（§66）
+        .confirmationDialog("保存していない変更があります", isPresented: $confirmsDiscard, titleVisibility: .visible) {
+            Button("変更を破棄して閉じる", role: .destructive) { close() }
+            Button("編集を続ける", role: .cancel) {}
+        }
+        .confirmationDialog("この予定を削除しますか？", isPresented: $confirmsDelete, titleVisibility: .visible) {
+            Button("予定を削除", role: .destructive) { deleteEvent() }
+            Button("やめる", role: .cancel) {}
+        }
+    }
+
+    /// 固定ヘッダー：閉じる・新規／編集中／コピー中・保存ボタン（§59〜§62）
+    private var header: some View {
+        HStack {
+            Button("閉じる") {
+                if store.hasUnsavedChanges {
+                    confirmsDiscard = true
+                } else {
+                    close()
+                }
+            }
+            Spacer()
+            Text(store.mode.headerLabel)
+                .font(EditorMetrics.headerTitleFont)
+                .foregroundStyle(Theme.Colors.textPrimary)
+            Spacer()
+            Button(store.saveButtonTitle) { save() }
+                .font(EditorMetrics.saveButtonFont)
+                .buttonStyle(.borderedProminent)
+                .tint(Theme.Colors.accent)
+        }
+        .padding(.horizontal, Theme.Spacing.l)
+        .frame(height: EditorMetrics.headerHeight)
+        .background(Theme.Colors.surface)
+    }
+
+    /// 保存して元の画面へ戻る（Q22）。足りないものがあれば store が該当の行を開いて知らせ、閉じない（§46）
+    private func save() {
+        let saved: [CalendarEvent]
+        do {
+            saved = try store.save()
+        } catch {
+            return
+        }
+        focusedRow = nil
+        calendarStore.reload()
+        onSaved(saved)
+        dismiss()
+    }
+
+    private func deleteEvent() {
+        do {
+            try store.deleteEditingEvent()
+        } catch {
+            return
+        }
+        calendarStore.reload()
+        onDeleted()
+        dismiss()
+    }
+
+    private func close() {
+        store.discardChanges()
+        calendarStore.reload()
+        dismiss()
+    }
+}

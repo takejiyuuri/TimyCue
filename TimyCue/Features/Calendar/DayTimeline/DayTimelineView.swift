@@ -1,10 +1,13 @@
 import SwiftUI
 
 /// 1 日タイムライン（仕様 §25〜§30）。カレンダーで予定を見るための画面で、ここでは編集しない。
-/// 予定ブロックを押すと予定詳細を開く（Q17）
+/// 予定ブロックを押すと、そのブロックの近くに予定詳細の吹き出しを出す（Q17・Q27・Q28(b)）
 struct DayTimelineView: View {
     let day: CalendarDay
     @Environment(CalendarStore.self) private var store
+    @Environment(ScheduleEditorStore.self) private var editorStore
+    /// 「＋」で開いた新規の 3 分割画面（Q21）。この画面は残るので、ズームの倍率もそのまま（Q22）
+    @State private var showsNewEvent = false
 
     /// ピンチで変えた倍率。保存せず、開き直したら標準の倍率に戻る（仕様 §27）
     @State private var zoom: CGFloat = 1
@@ -63,8 +66,19 @@ struct DayTimelineView: View {
                         let minute = TimelineLayout.initialMinute(events: events, isToday: isToday, now: Clock.minuteOfDay(now))
                         proxy.scrollTo(TimelineAnchor.hour(minute / 60), anchor: .top)
                     }
+                    // 「＋」から保存したら、作った予定が見える位置までスクロールする（Q22）
+                    .onChange(of: store.timelineFocus) { _, focus in
+                        guard let focus, focus.day == day else { return }
+                        withAnimation {
+                            proxy.scrollTo(TimelineAnchor.marker(nearest: Double(max(focus.minute - 30, 0))), anchor: .top)
+                        }
+                        store.clearTimelineFocus()
+                    }
                 }
             }
+        }
+        .overlayPreferenceValue(TimelineDetailAnchorKey.self) { anchor in
+            TimelineDetailLayer(anchor: anchor)
         }
         .background(Theme.Colors.background.ignoresSafeArea())
         .task {
@@ -75,6 +89,30 @@ struct DayTimelineView: View {
         }
         .navigationTitle("\(day.month)月\(day.day)日（\(day.weekdaySymbol())）")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            // 1 日タイムラインの「＋」（Q21）：表示中の日を選んだ新規。開始時刻は未設定
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    editorStore.refresh()
+                    editorStore.startNew(on: day)
+                    showsNewEvent = true
+                } label: {
+                    Image(systemName: "plus")
+                }
+                .accessibilityLabel("新規予定")
+            }
+        }
+        .fullScreenCover(isPresented: $showsNewEvent) {
+            ScheduleEditorView(initialMonth: CalendarMonth(day), onSaved: { saved in
+                // この日に作った予定があればそれ、なければ最初の予定の時刻へ（Q22）
+                let target = saved.filter { $0.day == day }.min { $0.startMinute < $1.startMinute } ?? saved.first
+                if let target {
+                    store.focusTimeline(on: day, minute: target.startMinute)
+                }
+            })
+            .environment(editorStore)
+            .environment(store)
+        }
     }
 }
 
@@ -148,6 +186,61 @@ struct NowLineYKey: PreferenceKey {
     }
 }
 
+/// 予定詳細の吹き出しを出している予定ブロックの位置
+struct TimelineDetailAnchorKey: PreferenceKey {
+    static let defaultValue: Anchor<CGRect>? = nil
+
+    static func reduce(value: inout Anchor<CGRect>?, nextValue: () -> Anchor<CGRect>?) {
+        value = value ?? nextValue()
+    }
+}
+
+/// 予定ブロックの近くに出す予定詳細の吹き出し（Q28(b)）。
+/// ブロックを隠さないことを優先し、画面の空きに応じて上下左右に置く（置き場所の決まりは PopoverPlacement）
+private struct TimelineDetailLayer: View {
+    let anchor: Anchor<CGRect>?
+    @Environment(CalendarStore.self) private var store
+    @Environment(ScheduleEditorStore.self) private var editorStore
+    @State private var measuredHeight: CGFloat?
+
+    var body: some View {
+        GeometryReader { proxy in
+            if let anchor, let id = store.timelineDetailEventID, let event = store.event(id: id) {
+                let width = min(CalendarMetrics.popoverMaxWidth, proxy.size.width * CalendarMetrics.popoverWidthRatio)
+                let frame = PopoverPlacement.frames(
+                    container: proxy.size,
+                    anchors: [proxy[anchor]],
+                    sizes: [CGSize(width: width, height: measuredHeight ?? DayPopoverLayer.estimatedDetailHeight)],
+                    gap: CalendarMetrics.popoverGap,
+                    margin: CalendarMetrics.popoverMargin)[0]
+                EventDetailCard(event: event, metadata: store.metadata(for: id)) {
+                    editorStore.beginEditing(id, from: store)
+                }
+                .popoverBubble()
+                .frame(width: width)
+                .fixedSize(horizontal: false, vertical: true)
+                .background {
+                    GeometryReader { geometry in
+                        Color.clear.preference(key: TimelineDetailHeightKey.self, value: geometry.size.height)
+                    }
+                }
+                .position(x: frame.midX, y: frame.midY)
+            }
+        }
+        .onPreferenceChange(TimelineDetailHeightKey.self) { height in
+            measuredHeight = height
+        }
+    }
+}
+
+private struct TimelineDetailHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat? = nil
+
+    static func reduce(value: inout CGFloat?, nextValue: () -> CGFloat?) {
+        value = nextValue() ?? value
+    }
+}
+
 /// タイムラインの中身の上端の、スクロール画面の中での位置
 struct TimelineContentMinYKey: PreferenceKey {
     static let defaultValue: CGFloat = 0
@@ -201,10 +294,18 @@ private struct DayTimelineCanvas: View {
                 // 終了時刻のない予定は低い固定の高さ。見た目だけで、終了時刻としては扱わない（Q15）
                 let height = event.durationMinutes.map { max(CGFloat($0) / 60 * hourHeight, TimelineMetrics.noEndBlockHeight) }
                     ?? TimelineMetrics.noEndBlockHeight
+                let isSelected = store.timelineDetailEventID == event.id
                 EventBlockView(event: event, color: colors[event.id] ?? .orange, height: height)
                     .frame(width: max(columnWidth - TimelineMetrics.blockColumnGap, 0), height: height)
+                    .overlay {
+                        if isSelected {
+                            RoundedRectangle(cornerRadius: TimelineMetrics.blockCornerRadius)
+                                .strokeBorder(Theme.Colors.accent, lineWidth: 2)
+                        }
+                    }
                     .contentShape(Rectangle())
-                    .onTapGesture { store.openEventDetail(event.id) }
+                    .onTapGesture { store.tapTimelineEvent(event.id) }
+                    .anchorPreference(key: TimelineDetailAnchorKey.self, value: .bounds) { isSelected ? $0 : nil }
                     .alignmentGuide(.leading) { _ in -(TimelineMetrics.hourLabelWidth + columnWidth * CGFloat(placement.column)) }
                     .alignmentGuide(.top) { _ in -y(event.startMinute) }
             }
@@ -218,6 +319,9 @@ private struct DayTimelineCanvas: View {
             }
         }
         .frame(width: width, height: y(24 * 60) + TimelineMetrics.topInset, alignment: .topLeading)
+        // 予定ブロックの外を押したら、予定詳細の吹き出しを閉じる（Q29）
+        .contentShape(Rectangle())
+        .onTapGesture { store.closeTimelineDetail() }
         .background {
             GeometryReader { geometry in
                 Color.clear.preference(key: TimelineContentMinYKey.self,
@@ -326,6 +430,7 @@ private struct AllDayBandView: View {
                 HStack(spacing: 6) {
                     ForEach(events) { event in
                         let color = EventPalette.color(for: colors[event.id] ?? .orange)
+                        let isSelected = store.timelineDetailEventID == event.id
                         HStack(spacing: 4) {
                             Circle()
                                 .fill(color)
@@ -338,8 +443,14 @@ private struct AllDayBandView: View {
                         .padding(.horizontal, 10)
                         .padding(.vertical, 5)
                         .background(Capsule().fill(color.opacity(TimelineMetrics.blockFillOpacity)))
+                        .overlay {
+                            if isSelected {
+                                Capsule().strokeBorder(Theme.Colors.accent, lineWidth: 2)
+                            }
+                        }
                         .contentShape(Capsule())
-                        .onTapGesture { store.openEventDetail(event.id) }
+                        .onTapGesture { store.tapTimelineEvent(event.id) }
+                        .anchorPreference(key: TimelineDetailAnchorKey.self, value: .bounds) { isSelected ? $0 : nil }
                     }
                 }
                 .padding(.horizontal, 6)
