@@ -135,7 +135,7 @@ private extension EditorCalendarAxis.PlacedLine {
     }
 }
 
-/// 月の初めに 1 行空けて出す月帯。1 月だけは年も出す（2026-10-13 ユーザー決定）
+/// 月の初めに 1 行空けて出す月帯。1 月だけは年も出す（2026-10-13 ユーザー決定）。文字の左寄せは仮（未確定）
 private struct EditorMonthRow: View {
     let month: CalendarMonth
 
@@ -178,7 +178,7 @@ private struct EditorWeekRow: View {
 }
 
 /// 左右に置くスクロールバー（2026-10-13 ユーザー決定）。月や数字は出さず、バーだとわかる色とマーク（上下の矢印とつまみ）だけ。
-/// なぞった分だけカレンダーが動く（指と同じ向き。慣性はつけない）。左右どちらでも同じように動く
+/// なぞるとカレンダーが動く。左右どちらでも同じように動く。動く量・慣性の有無は未確定（今は指と同じ向き・同じだけ、慣性なし。仮）
 private struct CalendarScrollBar: View {
     let axis: EditorCalendarAxis
     @Binding var offset: Double

@@ -60,7 +60,7 @@ enum EditorMetrics {
 
     /// 見える高さは、日付の行 6 行ぶん（月の行は別に数える）
     static let calendarVisibleWeeks: CGFloat = 6
-    /// 月の初めに空ける、月を出す行の高さ（日付の行を 1 として）。仮の値（実機で決める）
+    /// 月の初めに空ける、月帯の高さ（日付の行を 1 として）。未確定（今の値は仮）
     static let calendarMonthRowRatio: Double = 0.6
     static let calendarMonthFont = Font.system(size: 12, weight: .semibold)
     /// いちばん上（曜日の上）に固定して出す年月（例：2026年　10月）
@@ -77,12 +77,12 @@ enum EditorMetrics {
     /// なぞって選んでいるとみなす、指の動きの大きさ
     static let dragSelectThreshold: CGFloat = 8
 
-    /// 左右のスクロールバーの幅（前の年月バー 64 の半分くらい）
+    /// 左右のスクロールバーの幅（前の年月バー 64 の半分くらい。候補）
     static let scrollBarWidth: CGFloat = 30
     static let scrollBarCornerRadius: CGFloat = 8
     /// バーだとわかるマーク（上下の矢印とつまみの線）
     static let scrollBarMarkFont = Font.system(size: 11, weight: .bold)
     static let scrollBarGripFont = Font.system(size: 14, weight: .semibold)
-    /// なぞった長さに対して、カレンダーが動く割合（1 なら指と同じだけ）。仮の値（実機で決める）
+    /// なぞった長さに対して、カレンダーが動く割合（1 なら指と同じだけ）。未確定（今の値は仮）
     static let scrollBarDragSpeed: Double = 1.0
 }
