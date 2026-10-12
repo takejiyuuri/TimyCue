@@ -115,7 +115,8 @@ struct EventKitLinks: Codable, Equatable {
 
     /// Apple カレンダー側で消えたことを確かめる。1 回見つからなかっただけでは消さない（一時的な読み込みの不具合と区別する）。
     /// 前に見つからなかった時から minimumInterval 以上たった、別の確認でもまだ見つからないものだけを返す。
-    /// 見つかったものは記録から外す。全部が一度に見つからないときは、読み込みの不具合とみなして何も記録しない
+    /// 見つかったものは記録から外す。全部が一度に見つからない読み込みは、同期・権限・読み込みの不具合とみなし、
+    /// 記録も削除の確定もしない（正常に読み直せてから、1 件ずつ確かめる）
     mutating func confirmMissing(_ missing: Set<String>, checked: Set<String>, now: Date, minimumInterval: TimeInterval) -> Set<String> {
         guard Self.trustsVanished(missing, total: checked.count) || missing.isEmpty else { return [] }
         let linked = itemIdentifiers.union(keys.values)
@@ -158,8 +159,12 @@ struct EventKitLinks: Codable, Equatable {
         return removed
     }
 
-    /// 消えたと見てよいか。権限や読み込みの不具合で全部が見つからないだけのときに、設定をまとめて消さないようにする
+    /// 正常な読み込みとみなしてよいか。結び付けている予定がまとめて見つからないときは、
+    /// 同期・権限・読み込みの不具合を先に疑う（追加仕様書 §1.5）
     static func trustsVanished(_ vanished: Set<String>, total: Int) -> Bool {
-        !vanished.isEmpty && (vanished.count < total || total <= 3)
+        !vanished.isEmpty && (vanished.count < total || total < massMissingThreshold)
     }
+
+    /// 全部が見つからないとき、読み込みの不具合とみなす件数。実装上の暫定値で、仕様の値ではない
+    static let massMissingThreshold = 4
 }

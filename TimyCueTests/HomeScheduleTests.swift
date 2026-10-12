@@ -69,6 +69,17 @@ final class HomeScheduleTests: XCTestCase {
                        "3 分たつ前でも、次の予定の出発が必要になったらそちらを優先する（最大 3 分）")
     }
 
+    func testOnlyDepartureTimeCutsTheNoticeShort() {
+        let meeting = CalendarEvent(day: today, startMinute: 10 * 60, title: "会議")
+        let visit = CalendarEvent(day: today, startMinute: 11 * 60, title: "A社")
+        // 出発 60 分前に入っただけでは、3 分の表示を途中で終えない
+        let later: (CalendarEvent) -> Date? = { $0.id == visit.id ? self.at(self.today, 10 * 60 + 30) : nil }
+        XCTAssertEqual(HomeSchedule.main(in: [meeting, visit], now: at(today, 10 * 60 + 1), departure: later), .started(meeting))
+        // 次の推奨出発時刻がもう過ぎていれば、3 分を待たない
+        let passed: (CalendarEvent) -> Date? = { $0.id == visit.id ? self.at(self.today, 9 * 60 + 55) : nil }
+        XCTAssertEqual(HomeSchedule.main(in: [meeting, visit], now: at(today, 10 * 60), departure: passed), .upcoming(visit))
+    }
+
     func testQuietWhenSixtyMinutesOrMoreAway() {
         let now = at(today, 9 * 60)
         XCTAssertTrue(HomeSchedule.isQuiet(now: now, start: at(today, 10 * 60)), "60 分以上先は静かに出す")

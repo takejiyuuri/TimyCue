@@ -108,8 +108,7 @@ final class EventKitEventRepository: EventRepository {
 
     /// Apple カレンダー側で削除されたかもしれない予定・回（裏で行う）。
     /// 予定そのもの・繰り返し全体は、識別子で引けなければ見つからないとする。
-    /// 繰り返しの 1 回は、読んだ範囲にあるはずの回が読めなかったとき、その回の前後 30 日にもなければ見つからないとする
-    /// （1 回だけ日をずらした回を、消えたと取り違えないように）。
+    /// 繰り返しの 1 回は、シリーズ全体を探してもないと確かめられたときだけ見つからないとする（下の説明）。
     /// カレンダーを隠しただけ・権限がないときは見つからないことにしない（§1.9・§1.10）
     private static func missingTargets(linkedKeys: [String],
                                        fetchedKeys: Set<String>,
@@ -130,7 +129,10 @@ final class EventKitEventRepository: EventRepository {
             }
         }
 
-        // 繰り返しの 1 回
+        // 繰り返しの 1 回。EventKit は、日をずらした回も「元の回の日時（occurrenceDate）」とシリーズの識別子を持ち続けるので、
+        // それで追う。読んだ範囲にあるはずの回が読めなかったときは、シリーズの初めから終わりまで（前後 1 年を足す）を探し、
+        // どこにもなければ削除とみなす。終わりのない繰り返し・回数で終わる繰り返し・長すぎる繰り返しは探しきれないので、
+        // 削除か移動か区別できないとして確かめない（設定は残す）
         var candidates: [String: [Date]] = [:]
         for key in linkedKeys {
             let parsed = EventKitMapping.parseLinkKey(key)
@@ -144,13 +146,24 @@ final class EventKitEventRepository: EventRepository {
             candidates[parsed.itemIdentifier, default: []].append(occurrence)
         }
         for (item, dates) in candidates {
-            guard let first = dates.min(), let last = dates.max(),
-                  let start = calendar.date(byAdding: .day, value: -30, to: first),
-                  let end = calendar.date(byAdding: .day, value: 31, to: last),
-                  end.timeIntervalSince(start) < 3 * 365 * 24 * 3600 else { continue }
-            let found = Set(store.events(matching: store.predicateForEvents(withStart: start, end: end, calendars: nil))
-                .filter { $0.calendarItemIdentifier == item }
-                .compactMap { $0.occurrenceDate })
+            guard let master = store.calendarItem(withIdentifier: item) as? EKEvent,
+                  let seriesEnd = master.recurrenceRules?.compactMap({ $0.recurrenceEnd?.endDate }).max(),
+                  master.recurrenceRules?.allSatisfy({ $0.recurrenceEnd?.endDate != nil }) == true,
+                  let seriesStart = master.startDate,
+                  let start = calendar.date(byAdding: .year, value: -1, to: min(seriesStart, dates.min() ?? seriesStart)),
+                  let end = calendar.date(byAdding: .year, value: 1, to: max(seriesEnd, dates.max() ?? seriesEnd)),
+                  let limit = calendar.date(byAdding: .year, value: Self.seriesSearchYears, to: start),
+                  end <= limit else { continue }
+            var found = Set<Date>()
+            var chunkStart = start
+            while chunkStart < end {
+                let chunkEnd = min(calendar.date(byAdding: .year, value: 3, to: chunkStart) ?? end, end)
+                store.events(matching: store.predicateForEvents(withStart: chunkStart, end: chunkEnd, calendars: nil))
+                    .filter { $0.calendarItemIdentifier == item }
+                    .compactMap { $0.occurrenceDate }
+                    .forEach { found.insert($0) }
+                chunkStart = chunkEnd
+            }
             for date in dates {
                 let key = EventKitMapping.linkKey(itemIdentifier: item, occurrenceDate: date)
                 checked.insert(key)
@@ -175,8 +188,12 @@ final class EventKitEventRepository: EventRepository {
         if links != before { try? linksFile.save(links) }
     }
 
-    /// 削除を確かめるまでに空ける時間（仮）
+    /// 削除を確かめるまでに空ける時間。実装上の暫定値で、仕様の値ではない（追加仕様書 §1.5 の決まりは
+    /// 「1 回見つからないだけでは消さない」「時間を空けた別の正常な読み込みでも見つからないことを確かめる」
+    /// 「続けて届く変更の知らせを、何回もの確認と数えない」）
     private static let deletionConfirmInterval: TimeInterval = 5 * 60
+    /// 繰り返しの 1 回を探しきれるとみなす、シリーズの長さの上限（年）。実装上の暫定値
+    private static let seriesSearchYears = 12
 
     /// 書き込んだ直後に、その日だけをすぐ読み直す（1 日ぶんなので短い。保存した予定をすぐ画面に出すため）
     private func refreshNow(days: [CalendarDay]) {
