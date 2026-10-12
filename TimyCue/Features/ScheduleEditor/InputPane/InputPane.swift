@@ -34,10 +34,21 @@ struct InputPane: View {
                             .padding(.vertical, Theme.Spacing.s)
                             .background(Theme.Colors.danger.opacity(0.08))
                     }
+                    // 書き込めない Apple カレンダーの予定：ロックの短い理由（追加仕様書 §1.7）
+                    if let reason = store.appleFieldsLockReason {
+                        Label(reason, systemImage: "lock.fill")
+                            .font(EditorMetrics.lockNoticeFont)
+                            .foregroundStyle(Theme.Colors.textSecondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, Theme.Spacing.m)
+                            .padding(.vertical, Theme.Spacing.s)
+                            .background(Theme.Colors.textSecondary.opacity(0.08))
+                    }
                     ForEach(store.visibleRows, id: \.self) { row in
                         InputRowView(row: row,
                                      value: store.valueText(for: row),
                                      isExpanded: store.expandedRow == row,
+                                     isLocked: store.isLocked(row),
                                      color: row == .color ? store.content.metadata.color : nil)
                             .id(row)
                             .onTapGesture { store.toggleRow(row) }
@@ -47,7 +58,8 @@ struct InputPane: View {
                                 .padding(.bottom, Theme.Spacing.m)
                         }
                     }
-                    if case .edit = store.mode {
+                    // 書き込めないカレンダーの予定は消せない（§1.7）
+                    if case .edit = store.mode, !store.areAppleFieldsLocked {
                         DeleteButton(onDelete: onDelete)
                     }
                 }
@@ -85,6 +97,8 @@ private struct InputRowView: View {
     let row: InputRow
     let value: String
     let isExpanded: Bool
+    /// 書き込めない Apple カレンダーの予定の、Apple 由来の項目（§1.7）
+    let isLocked: Bool
     let color: EventColor?
 
     var body: some View {
@@ -100,9 +114,14 @@ private struct InputRowView: View {
             }
             Text(value)
                 .font(EditorMetrics.inputValueFont)
-                .foregroundStyle(Theme.Colors.textPrimary)
+                .foregroundStyle(isLocked ? Theme.Colors.textSecondary : Theme.Colors.textPrimary)
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
+            if isLocked {
+                Image(systemName: "lock.fill")
+                    .font(EditorMetrics.lockIconFont)
+                    .foregroundStyle(Theme.Colors.textSecondary)
+            }
         }
         .padding(.horizontal, Theme.Spacing.m)
         .frame(height: EditorMetrics.inputRowHeight)

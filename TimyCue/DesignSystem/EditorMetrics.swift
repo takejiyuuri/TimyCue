@@ -52,6 +52,9 @@ enum EditorMetrics {
     static let issueFont = Font.system(size: 13, weight: .semibold)
     /// 予定の重なりの警告（§58）
     static let warningFont = Font.system(size: 10, weight: .semibold)
+    /// 書き込めない Apple カレンダーの予定のロック（追加仕様書 §1.7）
+    static let lockNoticeFont = Font.system(size: 12)
+    static let lockIconFont = Font.system(size: 11)
 
     // MARK: 下カレンダーと年月バー（v1.1）
 

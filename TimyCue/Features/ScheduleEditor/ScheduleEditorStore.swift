@@ -30,6 +30,8 @@ final class ScheduleEditorStore {
     /// 予定を書き込める Apple カレンダー（つないでいないときは空）と、新しい予定の既定の保存先（Q32）
     private(set) var writableCalendars: [CalendarChoice] = []
     private(set) var defaultCalendarID: String?
+    /// 書き込めない Apple カレンダー（共有・購読など）の id → 名前（追加仕様書 §1.7）
+    private(set) var readOnlyCalendarTitles: [String: String] = [:]
     /// 繰り返しを決めたあとに 2 日目を選ぼうとした日。繰り返しを解除するか確かめている間だけ持つ（Q49）
     private(set) var dayWaitingForRepeatClear: CalendarDay?
 
@@ -106,10 +108,34 @@ final class ScheduleEditorStore {
         }
     }
 
-    /// Apple カレンダーとつないだ・設定を変えたとき
-    func setCalendars(_ writable: [CalendarChoice], defaultCalendarID: String?) {
-        writableCalendars = writable
+    /// Apple カレンダーとつないだ・設定を変えたとき（書き込めないカレンダーも含めて渡す）
+    func setCalendars(_ calendars: [CalendarChoice], defaultCalendarID: String?) {
+        writableCalendars = calendars.filter(\.isWritable)
+        readOnlyCalendarTitles = Dictionary(calendars.filter { !$0.isWritable }.map { ($0.id, $0.title) },
+                                            uniquingKeysWith: { first, _ in first })
         self.defaultCalendarID = defaultCalendarID
+    }
+
+    // MARK: - 編集できない Apple カレンダーの予定（追加仕様書 §1.7）
+
+    /// 編集している予定が、書き込めない Apple カレンダーのものなら、その短い理由。
+    /// 予定名・日時・場所など Apple 由来の項目はロックし、TimyCue の設定（到着目標など）だけ変えられる
+    var appleFieldsLockReason: String? {
+        guard case .edit(let id) = mode,
+              let event = events.first(where: { $0.id == id }),
+              event.source == .appleCalendar,
+              let calendarID = event.calendarID,
+              let title = readOnlyCalendarTitles[calendarID] else { return nil }
+        return "「\(title)」は編集できないカレンダーです。予定名・日時・場所は Apple のカレンダーで変更してください"
+    }
+
+    var areAppleFieldsLocked: Bool {
+        appleFieldsLockReason != nil
+    }
+
+    /// その行がロックされているか（TimyCue の設定の行はロックしない）
+    func isLocked(_ row: InputRow) -> Bool {
+        areAppleFieldsLocked && row.isAppleField
     }
 
     /// 保存に足りないもの。日付 → 開始時刻 → 予定名 の順（仕様 §46・§87）
@@ -207,6 +233,7 @@ final class ScheduleEditorStore {
 
     /// 日を選ぶ。新規・コピーでは選んだ日を足し、編集ではその日へ移動する（仕様 §34・§61）。選んだ日を表示する
     func selectDay(_ day: CalendarDay) {
+        guard !areAppleFieldsLocked else { return }
         // 繰り返しを決めたまま 2 日目は選べない。解除するか確かめる（Q49：複数日登録と繰り返しは併用しない）
         if mode.allowsMultipleDays, content.repeatRule.isRepeating, !selectedDays.isEmpty, !selectedDays.contains(day) {
             dayWaitingForRepeatClear = day
@@ -264,7 +291,7 @@ final class ScheduleEditorStore {
     /// 開始時刻を入れる（時をタップして分ホイール、仮予定のドラッグ。仕様 §38・§40）。
     /// 表示中の日が選ばれていなければ、その日を選んでから入れる
     func setStartMinute(_ minute: MinuteOfDay, on day: CalendarDay? = nil) {
-        guard let target = day ?? displayedDay else { return }
+        guard !areAppleFieldsLocked, let target = day ?? displayedDay else { return }
         if !selectedDays.contains(target) { selectDay(target) }
         startMinutes[target] = clampToDay(minute)
     }
@@ -296,7 +323,7 @@ final class ScheduleEditorStore {
     /// 複数日（Q1）：最初に入れた所要時間は全部の日に入る。そのあと日付タブで選んだ日で変えると、その日だけ変わる。
     /// 1 日だけ選んでいる間は、何度変えても全部の日に共通の値として持つ（あとで足した日にも同じ値が入る）
     func setEndMinute(_ end: MinuteOfDay?, on day: CalendarDay? = nil) {
-        guard let target = day ?? displayedDay else { return }
+        guard !areAppleFieldsLocked, let target = day ?? displayedDay else { return }
         let duration: Int?
         if let end {
             guard let start = startMinutes[target], end > start else { return }
@@ -347,6 +374,8 @@ final class ScheduleEditorStore {
 
     /// 行を開く。別の行が開いていたら閉じる。開いている行をもう一度押したら閉じる（仕様 §45）
     func toggleRow(_ row: InputRow) {
+        // ロックした行は開かない（理由は右上の一番上に出している）
+        guard !isLocked(row) else { expandedRow = nil; return }
         expandedRow = expandedRow == row ? nil : row
     }
 
@@ -410,7 +439,10 @@ final class ScheduleEditorStore {
             let changed = before.changedFields(to: content.metadata)
             let targets = repository.occurrenceIDs(sameSeriesAs: id, scope: effectiveScope)
             let oldCommon = repository.seriesID(of: id).flatMap { metadataByEventID[$0] }
-            try repository.update(updated, scope: effectiveScope)
+            // 書き込めないカレンダーの予定は、Apple カレンダーへは書かず、TimyCue の設定だけ保存する（§1.7）
+            if !areAppleFieldsLocked {
+                try repository.update(updated, scope: effectiveScope)
+            }
             saved = [updated]
 
             if !isRecurring {
