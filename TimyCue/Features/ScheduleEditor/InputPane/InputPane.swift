@@ -159,11 +159,7 @@ private struct InlineEditor: View {
                 CustomNotificationEditor()
             }
         case .repeatRule:
-            // 毎日・毎週・隔週・毎月・カスタム（§54）は繰り返しの段階で足す
-            ChipRow(options: [RepeatRule.none],
-                    label: \.displayName,
-                    isSelected: { store.content.repeatRule == $0 },
-                    onTap: { store.content.repeatRule = $0 })
+            RepeatEditor()
         case .color:
             HStack(spacing: Theme.Spacing.m) {
                 ForEach(EventColor.allCases, id: \.self) { color in
@@ -470,6 +466,113 @@ private struct ChipRow<Option: Hashable>: View {
                         .contentShape(Capsule())
                         .onTapGesture { onTap(option) }
                 }
+            }
+        }
+    }
+}
+
+/// 繰り返し（§54・Q37）：なし・毎日・毎週・隔週・毎月・カスタム。カスタムは間隔・単位・曜日（毎週のとき）。どれも終わりの日を決められる。
+/// 本来の繰り返しは Apple カレンダーの繰り返しを正本にするので、連携しているときだけ選べる（2026-10-12 変更。Q48 は仮）
+private struct RepeatEditor: View {
+    @Environment(ScheduleEditorStore.self) private var store
+    @State private var showsCustom = false
+
+    var body: some View {
+        @Bindable var store = store
+        let rule = store.content.repeatRule
+
+        VStack(alignment: .leading, spacing: Theme.Spacing.s) {
+            if !store.canRepeat {
+                Text("カレンダーを連携すると、繰り返しを使えます")
+                    .font(EditorMetrics.inputLabelFont)
+                    .foregroundStyle(Theme.Colors.textSecondary)
+            } else {
+                if store.isEditingRecurringEvent {
+                    Text("繰り返しの変更は、保存するときに「これ以降」か「すべて」を選ぶと当たります")
+                        .font(EditorMetrics.inputLabelFont)
+                        .foregroundStyle(Theme.Colors.textSecondary)
+                }
+                ChipRow(options: RepeatRule.Choice.allCases,
+                        label: \.displayName,
+                        isSelected: { choice in
+                            choice == .custom ? (showsCustom || rule.choice == .custom)
+                                              : (!showsCustom && rule.choice == choice)
+                        },
+                        onTap: { choice in
+                            if choice == .custom {
+                                showsCustom = true
+                                if !rule.isRepeating { store.content.repeatRule = .weekly }
+                            } else {
+                                showsCustom = false
+                                var next = choice.preset
+                                next.endDay = choice == .none ? nil : rule.endDay
+                                store.content.repeatRule = next
+                            }
+                        })
+
+                if showsCustom || rule.choice == .custom {
+                    customEditor
+                }
+                if rule.isRepeating {
+                    endEditor
+                }
+            }
+        }
+    }
+
+    /// カスタム：何日／週／か月／年ごとか、毎週のときはどの曜日か
+    private var customEditor: some View {
+        @Bindable var store = store
+        let rule = store.content.repeatRule
+        let frequency = rule.frequency ?? .weekly
+        return VStack(alignment: .leading, spacing: Theme.Spacing.s) {
+            Stepper(value: $store.content.repeatRule.interval, in: 1...99) {
+                Text("\(rule.interval)\(frequency.unitName)ごと")
+                    .font(EditorMetrics.inputLabelFont)
+                    .foregroundStyle(Theme.Colors.textPrimary)
+            }
+            ChipRow(options: RepeatFrequency.allCases,
+                    label: \.unitName,
+                    isSelected: { $0 == frequency },
+                    onTap: { unit in
+                        store.content.repeatRule.frequency = unit
+                        if unit != .weekly { store.content.repeatRule.weekdays = [] }
+                    })
+            if frequency == .weekly {
+                ChipRow(options: Array(0..<7),
+                        label: { Weekday.symbols[$0] },
+                        isSelected: { rule.weekdays.contains($0) },
+                        onTap: { index in
+                            if store.content.repeatRule.weekdays.contains(index) {
+                                store.content.repeatRule.weekdays.remove(index)
+                            } else {
+                                store.content.repeatRule.weekdays.insert(index)
+                            }
+                        })
+            }
+        }
+    }
+
+    /// 終わりの日（なければ終わりなし）
+    private var endEditor: some View {
+        let rule = store.content.repeatRule
+        let fallback = store.displayedDay ?? CalendarDay(Date())
+        return VStack(alignment: .leading, spacing: Theme.Spacing.s) {
+            Toggle(isOn: Binding(get: { rule.endDay != nil },
+                                 set: { store.content.repeatRule.endDay = $0 ? fallback.adding(days: 30) : nil })) {
+                Text("終わりの日を決める")
+                    .font(EditorMetrics.inputLabelFont)
+                    .foregroundStyle(Theme.Colors.textPrimary)
+            }
+            .tint(Theme.Colors.accent)
+            if let endDay = rule.endDay {
+                DatePicker("終わりの日",
+                           selection: Binding(get: { endDay.date() },
+                                              set: { store.content.repeatRule.endDay = CalendarDay($0) }),
+                           in: fallback.date()...,
+                           displayedComponents: .date)
+                    .font(EditorMetrics.inputLabelFont)
+                    .environment(\.locale, Locale(identifier: "ja_JP"))
             }
         }
     }

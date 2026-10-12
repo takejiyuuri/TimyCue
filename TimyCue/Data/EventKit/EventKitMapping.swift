@@ -8,6 +8,8 @@ struct ExternalEventRecord: Equatable {
     var endDate: Date
     var isAllDay: Bool
     var notes: String?
+    /// 繰り返し（EventKit の繰り返しを正本にする。Q37）
+    var repeatRule: RepeatRule = .none
 }
 
 /// TimyCue の予定と、Apple カレンダーの予定の変換（仕様 §68・§69）
@@ -31,7 +33,8 @@ enum EventKitMapping {
                                    startDate: start,
                                    endDate: end,
                                    isAllDay: event.isAllDay,
-                                   notes: event.notes.isEmpty ? nil : event.notes)
+                                   notes: event.notes.isEmpty ? nil : event.notes,
+                                   repeatRule: event.repeatRule)
     }
 
     /// Apple カレンダーの予定から作る TimyCue の予定。
@@ -55,6 +58,7 @@ enum EventKitMapping {
                              title: record.title,
                              locationName: record.location.flatMap { $0.isEmpty ? nil : $0 },
                              isAllDay: record.isAllDay,
+                             repeatRule: record.repeatRule,
                              notes: record.notes ?? "",
                              source: source)
     }

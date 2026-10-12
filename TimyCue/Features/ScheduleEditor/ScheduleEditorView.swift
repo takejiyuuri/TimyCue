@@ -20,6 +20,8 @@ struct ScheduleEditorView: View {
     @State private var confirmsDiscard = false
     @State private var confirmsDelete = false
     @State private var showsGuidance = false
+    /// 繰り返し予定を保存するときに、範囲を聞いている（Q44）
+    @State private var asksSaveScope = false
 
     var body: some View {
         GeometryReader { geometry in
@@ -69,8 +71,25 @@ struct ScheduleEditorView: View {
                 laterTitle: "連携しないで保存")
             .presentationDetents([.medium])
         }
-        .confirmationDialog("この予定を削除しますか？", isPresented: $confirmsDelete, titleVisibility: .visible) {
-            Button("予定を削除", role: .destructive) { deleteEvent() }
+        // 繰り返し予定は、保存するときに 1 回だけ範囲を聞く（Q44）
+        .confirmationDialog("繰り返し予定の変更", isPresented: $asksSaveScope, titleVisibility: .visible) {
+            ForEach(RecurrenceScope.allCases, id: \.self) { scope in
+                Button(scope.displayName) { performSave(scope: scope) }
+            }
+            Button("やめる", role: .cancel) {}
+        } message: {
+            Text("どの予定に変更を当てますか？")
+        }
+        // 削除も同じ 3 択（§64・Q44）
+        .confirmationDialog(store.isEditingRecurringEvent ? "繰り返し予定の削除" : "この予定を削除しますか？",
+                            isPresented: $confirmsDelete, titleVisibility: .visible) {
+            if store.isEditingRecurringEvent {
+                ForEach(RecurrenceScope.allCases, id: \.self) { scope in
+                    Button(scope.displayName, role: .destructive) { deleteEvent(scope: scope) }
+                }
+            } else {
+                Button("予定を削除", role: .destructive) { deleteEvent(scope: .thisEvent) }
+            }
             Button("やめる", role: .cancel) {}
         }
     }
@@ -110,14 +129,18 @@ struct ScheduleEditorView: View {
             showsGuidance = true
             return
         }
+        if store.isEditingRecurringEvent && store.saveIssues.isEmpty {
+            asksSaveScope = true
+            return
+        }
         performSave()
     }
 
     /// 保存して元の画面へ戻る（Q22）。足りないものがあれば store が該当の行を開いて知らせ、閉じない（§46）
-    private func performSave() {
+    private func performSave(scope: RecurrenceScope = .thisEvent) {
         let saved: [CalendarEvent]
         do {
-            saved = try store.save()
+            saved = try store.save(scope: scope)
         } catch {
             return
         }
@@ -127,9 +150,9 @@ struct ScheduleEditorView: View {
         dismiss()
     }
 
-    private func deleteEvent() {
+    private func deleteEvent(scope: RecurrenceScope) {
         do {
-            try store.deleteEditingEvent()
+            try store.deleteEditingEvent(scope: scope)
         } catch {
             return
         }

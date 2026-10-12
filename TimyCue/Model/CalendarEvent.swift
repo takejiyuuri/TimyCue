@@ -21,13 +21,150 @@ enum EventColor: String, CaseIterable, Codable {
     }
 }
 
-/// 繰り返し（仕様 §54）。毎日・毎週・隔週・毎月・カスタムは、繰り返しを作る段階で足す。今は「なし」だけ。
-enum RepeatRule: String, Codable {
-    case none
+/// 繰り返しの単位
+enum RepeatFrequency: String, Codable, CaseIterable {
+    case daily
+    case weekly
+    case monthly
+    /// Apple カレンダーから来る「毎年」（誕生日など）。TimyCue の選択肢では「カスタム」の単位として選べる
+    case yearly
+
+    var unitName: String {
+        switch self {
+        case .daily: "日"
+        case .weekly: "週"
+        case .monthly: "か月"
+        case .yearly: "年"
+        }
+    }
+}
+
+/// 繰り返し（仕様 §54・Q37）。
+/// 本来の繰り返しは Apple カレンダー（EventKit）の繰り返しを正本にする。TimyCue 独自の繰り返しの仕組みは作らない（2026-10-12 変更）。
+/// ここに持つのは、EventKit の繰り返しの決まりを表す値だけ
+struct RepeatRule: Equatable, Codable {
+    /// nil は「なし」
+    var frequency: RepeatFrequency?
+    /// 何日／週／か月／年ごとか（1 以上）
+    var interval: Int
+    /// 毎週のときの曜日（月曜を 0）。空なら、その予定の曜日
+    var weekdays: Set<Int>
+    /// この日まで（その日を含む）。nil は終わりなし
+    var endDay: CalendarDay?
+
+    init(frequency: RepeatFrequency? = nil, interval: Int = 1, weekdays: Set<Int> = [], endDay: CalendarDay? = nil) {
+        self.frequency = frequency
+        self.interval = max(1, interval)
+        self.weekdays = weekdays
+        self.endDay = endDay
+    }
+
+    static let none = RepeatRule()
+    static let daily = RepeatRule(frequency: .daily)
+    static let weekly = RepeatRule(frequency: .weekly)
+    static let biweekly = RepeatRule(frequency: .weekly, interval: 2)
+    static let monthly = RepeatRule(frequency: .monthly)
+
+    var isRepeating: Bool { frequency != nil }
+
+    /// 選択肢（§54）
+    enum Choice: CaseIterable {
+        case none, daily, weekly, biweekly, monthly, custom
+
+        var displayName: String {
+            switch self {
+            case .none: "なし"
+            case .daily: "毎日"
+            case .weekly: "毎週"
+            case .biweekly: "隔週"
+            case .monthly: "毎月"
+            case .custom: "カスタム"
+            }
+        }
+
+        /// その選択肢のふつうの決まり（カスタムは毎週を出発点にする）
+        var preset: RepeatRule {
+            switch self {
+            case .none: .none
+            case .daily: .daily
+            case .weekly, .custom: .weekly
+            case .biweekly: .biweekly
+            case .monthly: .monthly
+            }
+        }
+    }
+
+    /// どの選択肢にあたるか。終わりの日は選択肢を変えない（「毎週（〜11/30）」も毎週）
+    var choice: Choice {
+        guard let frequency else { return .none }
+        guard weekdays.isEmpty else { return .custom }
+        switch (frequency, interval) {
+        case (.daily, 1): return .daily
+        case (.weekly, 1): return .weekly
+        case (.weekly, 2): return .biweekly
+        case (.monthly, 1): return .monthly
+        default: return .custom
+        }
+    }
+
+    /// 入力の行に出す文字。例：「毎週」「3日ごと」「2週ごと（月・水）」「毎月（〜11/30まで）」
+    var displayName: String {
+        guard let frequency else { return "なし" }
+        var text: String
+        switch choice {
+        case .custom:
+            text = interval == 1 ? "毎\(frequency.unitName)" : "\(interval)\(frequency.unitName)ごと"
+            if frequency == .weekly, !weekdays.isEmpty {
+                text += "（" + weekdays.sorted().map { Weekday.symbols[$0] }.joined(separator: "・") + "）"
+            }
+        default:
+            text = choice.displayName
+        }
+        if let endDay {
+            text += "（〜\(endDay.month)/\(endDay.day)まで）"
+        }
+        return text
+    }
+
+    // MARK: - 保存
+
+    private enum CodingKeys: String, CodingKey {
+        case frequency, interval, weekdays, endDay
+    }
+
+    /// 繰り返しが「なし」だけだったころのファイル（"none" という文字）も読めるようにする
+    init(from decoder: Decoder) throws {
+        if let single = try? decoder.singleValueContainer(), (try? single.decode(String.self)) != nil {
+            self = .none
+            return
+        }
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(frequency: try container.decodeIfPresent(RepeatFrequency.self, forKey: .frequency),
+                  interval: try container.decodeIfPresent(Int.self, forKey: .interval) ?? 1,
+                  weekdays: try container.decodeIfPresent(Set<Int>.self, forKey: .weekdays) ?? [],
+                  endDay: try container.decodeIfPresent(CalendarDay.self, forKey: .endDay))
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(frequency, forKey: .frequency)
+        try container.encode(interval, forKey: .interval)
+        try container.encode(weekdays, forKey: .weekdays)
+        try container.encodeIfPresent(endDay, forKey: .endDay)
+    }
+}
+
+/// 繰り返し予定を直す・消すときの範囲（Q44）
+enum RecurrenceScope: CaseIterable {
+    case thisEvent
+    case futureEvents
+    case allEvents
 
     var displayName: String {
         switch self {
-        case .none: "なし"
+        case .thisEvent: "この予定のみ"
+        case .futureEvents: "これ以降"
+        case .allEvents: "すべて"
         }
     }
 }

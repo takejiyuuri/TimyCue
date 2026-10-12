@@ -111,6 +111,11 @@ final class SwitchableEventRepository: EventRepository {
     func update(_ event: CalendarEvent) throws { try current.update(event) }
     func delete(id: UUID) throws { try current.delete(id: id) }
     func ensureLoaded(from start: CalendarDay, to end: CalendarDay) { current.ensureLoaded(from: start, to: end) }
+    func update(_ event: CalendarEvent, scope: RecurrenceScope) throws { try current.update(event, scope: scope) }
+    func delete(id: UUID, scope: RecurrenceScope) throws { try current.delete(id: id, scope: scope) }
+    func occurrenceIDs(sameSeriesAs id: UUID, scope: RecurrenceScope) -> [UUID] {
+        current.occurrenceIDs(sameSeriesAs: id, scope: scope)
+    }
 }
 
 /// Apple カレンダーとつないだあとの保存先。Apple カレンダーの予定と、つなぐ前から TimyCue の中にあった予定の両方を見せる。
@@ -129,19 +134,31 @@ final class CombinedEventRepository: EventRepository {
     func insert(_ events: [CalendarEvent]) throws { try primary.insert(events) }
 
     func update(_ event: CalendarEvent) throws {
-        if local.allEvents().contains(where: { $0.id == event.id }) {
-            try local.update(event)
-        } else {
-            try primary.update(event)
-        }
+        try update(event, scope: .thisEvent)
     }
 
     func delete(id: UUID) throws {
+        try delete(id: id, scope: .thisEvent)
+    }
+
+    func update(_ event: CalendarEvent, scope: RecurrenceScope) throws {
+        if local.allEvents().contains(where: { $0.id == event.id }) {
+            try local.update(event)
+        } else {
+            try primary.update(event, scope: scope)
+        }
+    }
+
+    func delete(id: UUID, scope: RecurrenceScope) throws {
         if local.allEvents().contains(where: { $0.id == id }) {
             try local.delete(id: id)
         } else {
-            try primary.delete(id: id)
+            try primary.delete(id: id, scope: scope)
         }
+    }
+
+    func occurrenceIDs(sameSeriesAs id: UUID, scope: RecurrenceScope) -> [UUID] {
+        local.allEvents().contains(where: { $0.id == id }) ? [id] : primary.occurrenceIDs(sameSeriesAs: id, scope: scope)
     }
 
     func ensureLoaded(from start: CalendarDay, to end: CalendarDay) {
