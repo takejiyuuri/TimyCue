@@ -52,8 +52,10 @@ final class CalendarConnection {
         self.preferencesFile = preferencesFile
         self.onChange = onChange
         preferences = preferencesFile.load()
-        authorization = EKEventStore.authorizationStatus(for: .event)
-        state = Self.state(for: authorization)
+        // 初期化が済むまでは self のプロパティを読めないので、いったん手元に置く
+        let status = EKEventStore.authorizationStatus(for: .event)
+        authorization = status
+        state = Self.state(for: status)
         if state == .connected { useEventKit() }
     }
 
