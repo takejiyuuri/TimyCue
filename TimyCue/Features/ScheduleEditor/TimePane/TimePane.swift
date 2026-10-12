@@ -211,6 +211,20 @@ private struct EditorTimeAxis: View {
                         .fixedSize()
                 }
             }
+            .overlay(alignment: .bottomLeading) {
+                // 動かしている間もその場で判定する。警告だけで保存は止めない（§58）
+                if let warning = store.warnings(on: day, start: start).first {
+                    Text(warning.message)
+                        .font(EditorMetrics.warningFont)
+                        .foregroundStyle(Theme.Colors.textPrimary)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 2)
+                        .background(Capsule().fill(Theme.Colors.warning.opacity(0.9)))
+                        .fixedSize()
+                        .offset(y: EditorMetrics.endHandleHeight + 4)
+                        .allowsHitTesting(false)
+                }
+            }
             .overlay(alignment: .bottom) {
                 EndHandle()
                     .offset(y: EditorMetrics.endHandleHeight / 2)

@@ -27,8 +27,12 @@ extension ScheduleEditorStore {
         }
     }
 
-    /// 到着目標の候補（仕様 §49。カスタムは入力の段階で足す）
+    /// 到着目標の候補（仕様 §49）。ほかはカスタムで選ぶ
     static let arrivalTargetChoices = [5, 10, 15, 20, 30]
+    /// カスタムで選べる到着目標・通知の分（仮）
+    static let customArrivalRange = 1...180
+    static let customNotificationRange = 5...240
+    static let customMinuteStep = 5
 
     /// 終了の行で素早く選べる所要時間（Q24：未設定・30・60・90・120 分・カスタム）。時間画面の下端のハンドルと同じ値を見る
     static let durationChoices = [30, 60, 90, 120]

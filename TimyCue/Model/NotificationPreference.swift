@@ -27,6 +27,15 @@ enum NotificationTiming: Hashable, Codable {
         }
     }
 
+    /// 通知の行で、カスタムを外すときに出す長い表記（例：出発45分前・予定開始15分前）
+    var fullLabel: String {
+        switch self {
+        case .beforeDeparture(let minutes): "出発\(minutes)分前"
+        case .atDeparture: "出発時"
+        case .beforeStart(let minutes): "予定開始\(minutes)分前"
+        }
+    }
+
     /// 並べる順：出発の○分前（早い順）→ 出発 → 開始の○分前（早い順）
     fileprivate var sortKey: (Int, Int) {
         switch self {

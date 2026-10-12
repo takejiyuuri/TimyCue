@@ -50,6 +50,8 @@ enum EditorMetrics {
     static let inputValueFont = Font.system(size: 14, weight: .medium)
     static let chipFont = Font.system(size: 13, weight: .medium)
     static let issueFont = Font.system(size: 13, weight: .semibold)
+    /// 予定の重なりの警告（§58）
+    static let warningFont = Font.system(size: 10, weight: .semibold)
 
     // MARK: 下カレンダーと年月バー（v1.1）
 
