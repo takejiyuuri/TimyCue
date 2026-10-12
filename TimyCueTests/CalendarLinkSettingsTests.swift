@@ -28,6 +28,50 @@ final class CalendarLinkSettingsTests: XCTestCase {
                        "書き込めないカレンダーには保存しない")
     }
 
+    // MARK: - 既定の保存先が使えなくなったとき（v1.2「Apple Calendar」）
+
+    func testUnavailableDefaultFallsBackToIPhoneDefaultAndNoticeOnce() {
+        var preferences = CalendarPreferences()
+        preferences.defaultCalendarID = "gone"
+        XCTAssertTrue(preferences.dropUnavailableDefault(writable: [home, work]), "削除された既定の保存先は使わない")
+        XCTAssertNil(preferences.defaultCalendarID, "iPhone の既定へ戻す")
+        XCTAssertEqual(preferences.pendingFallbackNotice, true, "切り替えたことを知らせる")
+        XCTAssertEqual(CalendarPreferences.saveTarget(eventCalendarID: nil, preferences: preferences,
+                                                      systemDefaultID: "work", writable: [home, work]), "work")
+
+        preferences.pendingFallbackNotice = nil
+        XCTAssertFalse(preferences.dropUnavailableDefault(writable: [home, work]), "同じことで二度は知らせない")
+        XCTAssertNil(preferences.pendingFallbackNotice)
+    }
+
+    func testReadOnlyDefaultAlsoFallsBack() {
+        var preferences = CalendarPreferences()
+        preferences.defaultCalendarID = "jp"
+        XCTAssertTrue(preferences.dropUnavailableDefault(writable: [home]), "書き込めなくなったカレンダーも既定の保存先にしない")
+        XCTAssertNil(preferences.defaultCalendarID)
+    }
+
+    func testAvailableDefaultIsKept() {
+        var preferences = CalendarPreferences()
+        preferences.defaultCalendarID = "work"
+        XCTAssertFalse(preferences.dropUnavailableDefault(writable: [home, work]))
+        XCTAssertEqual(preferences.defaultCalendarID, "work")
+        XCTAssertFalse(preferences.dropUnavailableDefault(writable: []), "カレンダーが 1 つも見えないときは消えたと決めつけない")
+        XCTAssertEqual(preferences.defaultCalendarID, "work")
+        XCTAssertNil(preferences.pendingFallbackNotice)
+    }
+
+    // MARK: - 設定トップの状態（v1.2「設定画面」）
+
+    @MainActor
+    func testStatusLabels() {
+        XCTAssertEqual(CalendarConnection.statusLabel(for: .fullAccess), "接続済み")
+        XCTAssertEqual(CalendarConnection.statusLabel(for: .notDetermined), "未接続")
+        XCTAssertEqual(CalendarConnection.statusLabel(for: .writeOnly), "一部許可", "予定の追加だけ許可されている")
+        XCTAssertEqual(CalendarConnection.statusLabel(for: .denied), "許可が必要")
+        XCTAssertEqual(CalendarConnection.statusLabel(for: .restricted), "利用できません")
+    }
+
     @MainActor
     func testCalendarRowOnlyWithTwoOrMoreWritableCalendars() {
         let store = ScheduleEditorStore(repository: InMemoryEventRepository(), metadataRepository: InMemoryEventMetadataRepository())
@@ -143,6 +187,7 @@ final class CalendarLinkSettingsTests: XCTestCase {
         let json = #"{"hiddenCalendarIDs":["jp"]}"#
         let preferences = try JSONDecoder().decode(CalendarPreferences.self, from: Data(json.utf8))
         XCTAssertNil(preferences.guidanceDismissCount)
+        XCTAssertNil(preferences.pendingFallbackNotice)
         XCTAssertFalse(preferences.isShown("jp"))
     }
 }

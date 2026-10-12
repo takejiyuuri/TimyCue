@@ -21,6 +21,8 @@ final class CalendarConnection {
     }
 
     private(set) var state: State
+    /// iOS のカレンダーの許可の状態そのもの（設定トップに「接続済み」「一部許可」などと出すため）
+    private(set) var authorization: EKAuthorizationStatus
     /// 見えるカレンダー（つないでいるときだけ）
     private(set) var calendars: [CalendarChoice] = []
     private(set) var preferences: CalendarPreferences
@@ -50,7 +52,8 @@ final class CalendarConnection {
         self.preferencesFile = preferencesFile
         self.onChange = onChange
         preferences = preferencesFile.load()
-        state = Self.state(for: EKEventStore.authorizationStatus(for: .event))
+        authorization = EKEventStore.authorizationStatus(for: .event)
+        state = Self.state(for: authorization)
         if state == .connected { useEventKit() }
     }
 
@@ -61,6 +64,20 @@ final class CalendarConnection {
         case .restricted: .restricted
         case .notDetermined: .notAsked
         @unknown default: .notAsked
+        }
+    }
+
+    /// 設定トップの「カレンダー連携」の右に出す今の状態（v1.2「設定画面」）
+    var statusLabel: String { Self.statusLabel(for: authorization) }
+
+    static func statusLabel(for status: EKAuthorizationStatus) -> String {
+        switch status {
+        case .fullAccess, .authorized: "接続済み"
+        case .writeOnly: "一部許可"
+        case .denied: "許可が必要"
+        case .restricted: "利用できません"
+        case .notDetermined: "未接続"
+        @unknown default: "未接続"
         }
     }
 
@@ -97,6 +114,7 @@ final class CalendarConnection {
         } catch {
             state = .denied
         }
+        authorization = EKEventStore.authorizationStatus(for: .event)
         if state == .connected { useEventKit() }
     }
 
@@ -105,8 +123,28 @@ final class CalendarConnection {
         guard state == .connected, let eventKit else { return }
         calendars = eventKit.calendars()
         systemDefaultCalendarID = eventKit.systemDefaultCalendarID
+        checkDefaultCalendar()
         eventKit.reloadCache()
         notify()
+    }
+
+    // MARK: - 既定の保存先が使えなくなったとき（v1.2「Apple Calendar」）
+
+    /// 既定の保存先から iPhone の既定へ切り替えたことを、まだ知らせていないか
+    var showsSaveTargetNotice: Bool {
+        preferences.pendingFallbackNotice == true
+    }
+
+    var saveTargetNoticeMessage: String {
+        let name = writableCalendars.first { $0.id == defaultSaveCalendarID }.map { "「\($0.title)」" } ?? ""
+        return "既定の保存先にしていたカレンダーが使えなくなったため、新しい予定は iPhone の既定のカレンダー\(name)に保存します。保存先は 設定 ＞ カレンダー連携 で変えられます。"
+    }
+
+    /// 知らせ終わった。同じことでは二度と知らせない
+    func dismissSaveTargetNotice() {
+        guard preferences.pendingFallbackNotice != nil else { return }
+        preferences.pendingFallbackNotice = nil
+        savePreferences()
     }
 
     // MARK: - 設定 ＞ カレンダー連携
@@ -152,8 +190,16 @@ final class CalendarConnection {
         eventKit = repository
         calendars = repository.calendars()
         systemDefaultCalendarID = repository.systemDefaultCalendarID
+        checkDefaultCalendar()
         switchable.use(CombinedEventRepository(primary: repository, local: localEvents))
         notify()
+    }
+
+    /// 既定の保存先がまだ書き込めるか確かめ、使えなければ iPhone の既定へ戻して、知らせる印を付ける
+    private func checkDefaultCalendar() {
+        if preferences.dropUnavailableDefault(writable: writableCalendars) {
+            savePreferences()
+        }
     }
 
     private func savePreferences() {

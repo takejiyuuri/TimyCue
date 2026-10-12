@@ -1,14 +1,21 @@
 import SwiftUI
 
-/// 設定タブ（仕様 §81）。今あるのは「カレンダー連携」だけ。ほかのカテゴリ（通知・表示・移動・学習など）は、それぞれの段階で足す
+/// 設定タブ（仕様 §81）。今あるのは「カレンダー連携」だけ。ほかのカテゴリ（通知・表示・移動・学習など）は、それぞれの段階で
+/// v1.2「設定画面」の順番（通知、表示・拡大表示、カレンダー連携、移動・学習…）に足す。各行の右には今の状態を短く出す
 struct SettingsTabView: View {
+    @Environment(CalendarConnection.self) private var connection
+
     var body: some View {
         NavigationStack {
             List {
                 NavigationLink {
                     CalendarSettingsView()
                 } label: {
-                    Label("カレンダー連携", systemImage: "calendar")
+                    LabeledContent {
+                        Text(connection.statusLabel)
+                    } label: {
+                        Label("カレンダー連携", systemImage: "calendar")
+                    }
                 }
             }
             .navigationTitle("設定")
@@ -75,7 +82,9 @@ struct CalendarSettingsView: View {
             }
         case .denied:
             VStack(alignment: .leading, spacing: Theme.Spacing.s) {
-                Text("カレンダーへのアクセスが許可されていません。iPhone の設定から許可してください。それまで予定は TimyCue の中に保存します。")
+                Text(connection.authorization == .writeOnly
+                     ? "予定の追加だけが許可されています。Apple カレンダーの予定を読み込むには、iPhone の設定でカレンダーを「フルアクセス」にしてください。それまで予定は TimyCue の中に保存します。"
+                     : "カレンダーへのアクセスが許可されていません。iPhone の設定から許可してください。それまで予定は TimyCue の中に保存します。")
                     .font(.footnote)
                     .foregroundStyle(Theme.Colors.textSecondary)
                 Button("設定アプリで許可する") {

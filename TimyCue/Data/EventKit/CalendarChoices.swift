@@ -21,9 +21,22 @@ struct CalendarPreferences: Codable, Equatable {
     var hiddenCalendarIDs: Set<String> = []
     /// 「カレンダーを連携」の案内を「あとで」にした回数（Q38）。古いファイルにはないので省略できる
     var guidanceDismissCount: Int?
+    /// 既定の保存先が使えなくなって iPhone の既定へ切り替えたことを、まだ知らせていない（v1.2。一度だけ知らせる）。
+    /// 古いファイルにはないので省略できる
+    var pendingFallbackNotice: Bool?
 
     func isShown(_ calendarID: String) -> Bool {
         !hiddenCalendarIDs.contains(calendarID)
+    }
+
+    /// TimyCue の既定の保存先が、削除・書き込み不可などで使えなくなっていたら、iPhone の既定へ戻す（v1.2「Apple Calendar」）。
+    /// 戻したときだけ true を返し、知らせる印を付ける。戻したあとは既定を持たないので、同じことで二度は知らせない。
+    /// 書き込めるカレンダーが 1 つも見えないとき（読み込みの途中など）は、消えたと決めつけない
+    mutating func dropUnavailableDefault(writable: [CalendarChoice]) -> Bool {
+        guard let id = defaultCalendarID, !writable.isEmpty, !writable.contains(where: { $0.id == id }) else { return false }
+        defaultCalendarID = nil
+        pendingFallbackNotice = true
+        return true
     }
 
     /// 書き込めるカレンダーの中から、保存先を決める。予定ごとの指定 → 設定の既定 → iPhone の既定 の順（Q32）
