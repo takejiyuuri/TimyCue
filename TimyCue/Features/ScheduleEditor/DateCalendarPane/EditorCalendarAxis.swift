@@ -75,26 +75,15 @@ struct EditorCalendarAxis: Equatable {
         bandTop + (Double(weekIndex) - offset) * weekHeight
     }
 
-    /// バーを指で dy だけ動かしたときの、新しい位置。指に年月ラベルがついてくる向きに動く
-    static func offset(afterDragging dy: Double, from start: Double, weekHeight: Double) -> Double {
-        guard weekHeight > 0 else { return start }
-        return start - dy / weekHeight
+    // MARK: - 長押しで動かす（2026-10-12 ユーザー決定。滑らせて慣性で回すのはやめた）
+
+    /// 長押しでどちらへ動かすか。バーの真ん中（表示範囲帯の真ん中）より上を押したら上（過去）へ、下なら下（未来）へ
+    static func holdDirection(pressY: Double, barHeight: Double) -> Double {
+        pressY < barHeight / 2 ? -1 : 1
     }
 
-    // MARK: - 慣性
-
-    /// 指を離したあとの 1 コマごとの減り方（ドラムロールのように慣性で回る。月にはスナップしない）
-    static let inertiaDecay = 0.92
-    static let inertiaStopSpeed = 0.002
-
-    /// 指を離したときに、あとどれだけ（週）回るかから、最初の 1 コマの速さを出す
-    static func initialInertiaSpeed(remainingWeeks: Double) -> Double {
-        remainingWeeks * (1 - inertiaDecay)
-    }
-
-    /// 慣性で 1 コマ進める。止まったら nil
-    static func inertiaStep(offset: Double, speed: Double) -> (offset: Double, speed: Double)? {
-        guard abs(speed) > inertiaStopSpeed else { return nil }
-        return (offset + speed, speed * inertiaDecay)
+    /// 長押ししている間の位置。一定のゆっくりした速さで動き、月にはスナップしない
+    static func offset(afterHolding seconds: Double, from start: Double, direction: Double, weeksPerSecond: Double) -> Double {
+        start + direction * max(0, seconds) * weeksPerSecond
     }
 }

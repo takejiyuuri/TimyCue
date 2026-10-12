@@ -182,16 +182,21 @@ private struct EditorDayCell: View {
     }
 }
 
-/// 年月一体の縦スクロールバー（v1.1「独自年月スクロールバー」）。
-/// 左に年、右に月。上下にスライドすると慣性で回る（月にはスナップしない）。真ん中の固定帯は動かず、年月ラベルがその下を流れる。
-/// 月をタップするとその月へ飛び、その月の 1 日を含む週がカレンダーのいちばん上に来る
+/// 年月一体の縦スクロールバー（v1.1「独自年月スクロールバー」・2026-10-12 ユーザー決定）。
+/// 左に年、右に月。真ん中の固定帯は動かず、年月ラベルがその下を流れる。
+/// 帯より上を長押しすると、押している間ずっと一定のゆっくりした速さで上（過去）へ、下を長押しすると下（未来）へ動く。
+/// 指を離したらすぐ止まる（滑らせて慣性で回すのはやめた）。月を短く押すとその月へ飛び、その月の 1 日を含む週がいちばん上に来る
 private struct YearMonthBar: View {
     let axis: EditorCalendarAxis
     @Binding var offset: Double
     let visibleRows: Int
 
-    @State private var dragStartOffset: Double?
-    @State private var inertia: Task<Void, Never>?
+    /// 長押しで動かしている間の処理
+    @State private var hold: Task<Void, Never>?
+    /// 押し始めたか（指を置いた最初の 1 回だけ長押しの準備をする）
+    @State private var isPressing = false
+    /// 長押しで動き始めたか（動いたら、指を離しても月へは飛ばない）
+    @State private var isHolding = false
 
     private let weekHeight = Double(EditorMetrics.barWeekHeight)
     private let labelHeight: CGFloat = 18
@@ -221,8 +226,6 @@ private struct YearMonthBar: View {
                     let isFocused = y >= bandTop - 1 && y < bandTop + bandHeight
                     YearMonthLabel(month: item.month, showsYear: item.month.month == 1, isFocused: isFocused)
                         .frame(width: geometry.size.width, height: labelHeight)
-                        .contentShape(Rectangle())
-                        .onTapGesture { jump(to: item.month) }
                         .offset(y: CGFloat(y))
                 }
 
@@ -238,40 +241,61 @@ private struct YearMonthBar: View {
             .frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading)
             .clipped()
             .contentShape(Rectangle())
+            // 指を置いたら長押しの準備。少し押し続けたら動き始め、離したら止まる。短く押しただけなら、その月へ飛ぶ
             .gesture(
-                DragGesture(minimumDistance: 2)
+                DragGesture(minimumDistance: 0)
                     .onChanged { value in
-                        inertia?.cancel()
-                        let start = dragStartOffset ?? offset
-                        if dragStartOffset == nil { dragStartOffset = offset }
-                        offset = axis.clamp(EditorCalendarAxis.offset(afterDragging: Double(value.translation.height),
-                                                                      from: start, weekHeight: weekHeight))
+                        guard !isPressing else { return }
+                        isPressing = true
+                        startHolding(direction: EditorCalendarAxis.holdDirection(pressY: Double(value.startLocation.y),
+                                                                                 barHeight: height))
                     }
                     .onEnded { value in
-                        dragStartOffset = nil
-                        let remaining = -Double(value.predictedEndTranslation.height - value.translation.height) / weekHeight
-                        startInertia(remainingWeeks: remaining)
+                        let moved = isHolding
+                        stopHolding()
+                        guard !moved, abs(value.translation.height) < 10 else { return }
+                        let tappedY = Double(value.location.y)
+                        let tapped = months.first { item in
+                            let y = EditorCalendarAxis.barY(weekIndex: item.weekIndex, offset: offset,
+                                                            bandTop: bandTop, weekHeight: weekHeight)
+                            return tappedY >= y && tappedY < y + Double(labelHeight)
+                        }
+                        if let tapped { jump(to: tapped.month) }
                     }
             )
         }
         .background(Theme.Colors.background)
+        .onDisappear { stopHolding() }
     }
 
-    /// 指を離したあと、慣性で回し続ける
-    private func startInertia(remainingWeeks: Double) {
-        inertia?.cancel()
-        inertia = Task { @MainActor in
-            var speed = EditorCalendarAxis.initialInertiaSpeed(remainingWeeks: remainingWeeks)
-            while !Task.isCancelled, let step = EditorCalendarAxis.inertiaStep(offset: offset, speed: speed) {
-                offset = axis.clamp(step.offset)
-                speed = step.speed
+    /// 長押しで動かす。押し始めて少したってから、一定の速さで動かし続ける
+    private func startHolding(direction: Double) {
+        hold?.cancel()
+        hold = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(EditorMetrics.barHoldDelay))
+            guard !Task.isCancelled else { return }
+            isHolding = true
+            let start = offset
+            let began = Date()
+            while !Task.isCancelled {
+                offset = axis.clamp(EditorCalendarAxis.offset(afterHolding: Date().timeIntervalSince(began),
+                                                              from: start, direction: direction,
+                                                              weeksPerSecond: Double(EditorMetrics.barHoldWeeksPerSecond)))
                 try? await Task.sleep(for: .milliseconds(16))
             }
         }
     }
 
+    /// 指を離したらすぐ止める
+    private func stopHolding() {
+        hold?.cancel()
+        hold = nil
+        isPressing = false
+        isHolding = false
+    }
+
     private func jump(to month: CalendarMonth) {
-        inertia?.cancel()
+        stopHolding()
         withAnimation(.easeInOut(duration: 0.3)) {
             offset = axis.offset(jumpingTo: month)
         }
