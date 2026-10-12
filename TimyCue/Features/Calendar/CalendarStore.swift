@@ -38,14 +38,22 @@ struct DayPopoverRow: Identifiable, Equatable {
 final class CalendarStore {
     /// 吹き出しは最大 2 つ（仕様 §23）
     static let maxOpenPopovers = 2
-    /// 最初に並べる週の数と、端に近づいたときに足す週の数（Q13：見える範囲は固定しない）
-    static let initialWeeksBefore = 26
+    /// 過去の週は、最初から内部の安全上限（約 20 年前）まで並べておく。
+    /// スクロール中に一覧の上へ週を足すと、スクロール位置がずれて足す処理が続けて起き、画面が固まって変な日へ飛んだ（実機）。
+    /// 並べるのは週の名前だけで、画面に出す中身は見えている週しか作らない
+    static let weeksBefore = 52 * 20
+    /// 未来は、下の端に近づいたら足していく（Q13：見える範囲は固定しない。下へ足してもスクロール位置はずれない）
     static let initialWeeksAfter = 52
     static let weeksPerExtension = 26
     /// 端に何週まで近づいたら足すか
     static let extensionThreshold = 6
-    /// 内部の安全上限（今日から前後それぞれ約 100 年）。ふつうの使い方では届かない
+    /// 未来の内部の安全上限（今日から約 100 年）。ふつうの使い方では届かない
     static let maxWeeksFromToday = 52 * 100
+    /// 予定を読んでおく範囲：見えている週の前後これだけ（Apple カレンダーは必要な範囲だけ読む。Q35）
+    static let loadMarginWeeks = 8
+    /// 開いたときに読んでおく範囲（一番上の週から）
+    static let initialLoadWeeksBefore = 26
+    static let initialLoadWeeksAfter = 52
 
     private(set) var today: CalendarDay
     /// 縦に並べている週（古い順）。スクロールしていく方向へ順に足す（Q13）
@@ -113,39 +121,32 @@ final class CalendarStore {
 
     // MARK: - 週の追加（Q13）
 
-    /// 週が画面に出たとき。端に近づいていたら、その方向へ週を足す
+    /// 週が画面に出たとき。その前後の予定を読んでおき、下の端に近づいていたら先の週を足す。
+    /// 上には足さない（過去は最初から並べてある）
     func weekDidAppear(_ week: CalendarWeek) {
+        repository.ensureLoaded(from: week.adding(weeks: -Self.loadMarginWeeks).start,
+                                to: week.adding(weeks: Self.loadMarginWeeks).lastDay)
         guard let index = weeks.firstIndex(of: week) else { return }
-        if index < Self.extensionThreshold { extendBefore() }
         if index >= weeks.count - Self.extensionThreshold { extendAfter() }
-    }
-
-    func extendBefore() {
-        guard let first = weeks.first else { return }
-        let limit = CalendarWeek(containing: today).adding(weeks: -Self.maxWeeksFromToday)
-        let added = (1...Self.weeksPerExtension).map { first.adding(weeks: -$0) }.filter { $0 >= limit }.reversed()
-        weeks.insert(contentsOf: added, at: 0)
-        loadWeeks()
-        reload()
     }
 
     func extendAfter() {
         guard let last = weeks.last else { return }
         let limit = CalendarWeek(containing: today).adding(weeks: Self.maxWeeksFromToday)
         let added = (1...Self.weeksPerExtension).map { last.adding(weeks: $0) }.filter { $0 <= limit }
+        guard !added.isEmpty else { return }
         weeks.append(contentsOf: added)
-        loadWeeks()
         reload()
     }
 
-    /// 並べている週の範囲の予定を読み込んでおく（Apple カレンダーは必要な範囲だけ読む。Q35）
+    /// 一番上に見えている週のあたりの予定を読み込んでおく（見えている週の前後は weekDidAppear で読む）
     private func loadWeeks() {
-        guard let first = weeks.first, let last = weeks.last else { return }
-        repository.ensureLoaded(from: first.start, to: last.lastDay)
+        repository.ensureLoaded(from: topWeek.adding(weeks: -Self.initialLoadWeeksBefore).start,
+                                to: topWeek.adding(weeks: Self.initialLoadWeeksAfter).lastDay)
     }
 
     private static func weeks(around center: CalendarWeek) -> [CalendarWeek] {
-        (-initialWeeksBefore...initialWeeksAfter).map { center.adding(weeks: $0) }
+        (-weeksBefore...initialWeeksAfter).map { center.adding(weeks: $0) }
     }
 
     // MARK: - 読み取り

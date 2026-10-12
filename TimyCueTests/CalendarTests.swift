@@ -92,7 +92,9 @@ final class CalendarStoreTests: XCTestCase {
     func testWeeksStartAroundTodayWithCurrentMonthOnTop() {
         let store = makeStore([])
         XCTAssertEqual(store.weeks, store.weeks.sorted(), "週は縦に順につながる（仕様 §19）")
-        XCTAssertEqual(store.weeks.count, CalendarStore.initialWeeksBefore + CalendarStore.initialWeeksAfter + 1)
+        XCTAssertEqual(store.weeks.count, CalendarStore.weeksBefore + CalendarStore.initialWeeksAfter + 1)
+        XCTAssertEqual(store.weeks.first, CalendarWeek(containing: today).adding(weeks: -CalendarStore.weeksBefore),
+                       "過去は最初から内部の安全上限まで並べておく")
         XCTAssertTrue(store.weeks.contains(CalendarWeek(containing: today)))
         XCTAssertEqual(store.topWeek, CalendarWeek(containing: CalendarDay(year: 2026, month: 10, day: 1)),
                        "最初は今月の 1 日を含む週を一番上に")
@@ -117,11 +119,25 @@ final class CalendarStoreTests: XCTestCase {
         XCTAssertEqual(store.weeks.last, last.adding(weeks: CalendarStore.weeksPerExtension))
 
         store.weekDidAppear(first)
-        XCTAssertEqual(store.weeks.first, first.adding(weeks: -CalendarStore.weeksPerExtension), "上の端なら前の週を足す")
+        XCTAssertEqual(store.weeks.first, first,
+                       "上には足さない（スクロール中に上へ足すと位置がずれ、続けて足されて固まり、変な日へ飛んだ）")
         XCTAssertEqual(store.weeks, store.weeks.sorted())
 
         store.weekDidAppear(store.weeks[store.weeks.count / 2])
-        XCTAssertEqual(store.weeks.count, count + CalendarStore.weeksPerExtension * 2, "真ん中では足さない")
+        XCTAssertEqual(store.weeks.count, count + CalendarStore.weeksPerExtension, "真ん中では足さない")
+    }
+
+    func testEventsAreLoadedAroundTheWeekOnScreen() {
+        let repository = LoadRecordingRepository()
+        let store = CalendarStore(repository: repository, metadataRepository: InMemoryEventMetadataRepository(), today: today)
+        let past = CalendarWeek(containing: CalendarDay(year: 2026, month: 6, day: 1))
+        store.weekDidAppear(past)
+        let last = repository.requests.last
+        XCTAssertEqual(last?.from, past.adding(weeks: -CalendarStore.loadMarginWeeks).start,
+                       "過去へスクロールしたら、見えている週の前後だけを読む（並べた週を全部は読まない）")
+        XCTAssertEqual(last?.to, past.adding(weeks: CalendarStore.loadMarginWeeks).lastDay)
+        XCTAssertFalse(repository.requests.contains { $0.from <= store.weeks.first!.start },
+                       "20 年前までの全部を読もうとしない")
     }
 
     func testWeeksStopAtSafetyLimit() {
@@ -221,5 +237,18 @@ final class CalendarStoreTests: XCTestCase {
         try repository.insert([CalendarEvent(day: today, startMinute: 600, title: "追加")])
         store.reload()
         XCTAssertEqual(store.events(on: today).map(\.title), ["追加"])
+    }
+}
+
+/// 予定を読む範囲を頼まれた記録だけを取る保存先（読み込む範囲のテスト用）
+private final class LoadRecordingRepository: EventRepository {
+    private(set) var requests: [(from: CalendarDay, to: CalendarDay)] = []
+
+    func allEvents() -> [CalendarEvent] { [] }
+    func insert(_ events: [CalendarEvent]) throws {}
+    func update(_ event: CalendarEvent) throws {}
+    func delete(id: UUID) throws {}
+    func ensureLoaded(from start: CalendarDay, to end: CalendarDay) {
+        requests.append((start, end))
     }
 }
