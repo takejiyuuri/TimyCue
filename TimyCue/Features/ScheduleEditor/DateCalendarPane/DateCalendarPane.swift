@@ -227,7 +227,7 @@ private struct YearMonthBar: View {
                 }
 
                 // いちばん上には、今見えている年を出しておく（例：2026 | 10月 の 2026）
-                Text("\(axis.topWeek(at: offset).stickyMonth.year)")
+                Text(verbatim: String(axis.topWeek(at: offset).stickyMonth.year))
                     .font(EditorMetrics.barYearFont)
                     .foregroundStyle(Theme.Colors.textSecondary)
                     .padding(.horizontal, 4)
@@ -286,13 +286,20 @@ private struct YearMonthLabel: View {
 
     var body: some View {
         HStack(spacing: 2) {
-            Text(showsYear ? "\(month.year)" : "")
-                .font(EditorMetrics.barYearFont)
-                .foregroundStyle(Theme.Colors.textSecondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            if showsYear {
+                // 年は桁区切りを付けない（「2,026」にしない）
+                Text(verbatim: String(month.year))
+                    .font(EditorMetrics.barYearFont)
+                    .foregroundStyle(Theme.Colors.textSecondary)
+                    .fixedSize()
+            }
+            Spacer(minLength: 0)
+            // 月は「1…」と切らずに出す
             Text(month.monthLabel)
                 .font(isFocused ? EditorMetrics.barMonthFocusedFont : EditorMetrics.barMonthFont)
                 .foregroundStyle(isFocused ? Theme.Colors.textPrimary : Theme.Colors.textSecondary)
+                .fixedSize()
+                .layoutPriority(1)
         }
         .padding(.horizontal, 4)
     }
