@@ -24,6 +24,9 @@ extension ScheduleEditorStore {
         case .end:
             guard let day = displayedDay, let end = endMinute(on: day) else { return "未設定" }
             return TimeText.hourMinute(end)
+        case .calendar:
+            let id = content.calendarID ?? defaultCalendarID
+            return writableCalendars.first { $0.id == id }?.title ?? "既定"
         }
     }
 

@@ -27,6 +27,7 @@ struct RootTabView: View {
     @State private var selection: RootTab = RootTabView.initialTab
     @Environment(ScheduleEditorStore.self) private var editorStore
     @Environment(CalendarStore.self) private var calendarStore
+    @Environment(CalendarConnection.self) private var connection
     @State private var showsEditorForScreenshot = false
 
     var body: some View {
@@ -38,11 +39,20 @@ struct RootTabView: View {
             }
         }
         .tint(Theme.Colors.accent)
+        // 既定の保存先が使えなくなって iPhone の既定へ切り替えたことを、一度だけ知らせる（v1.2「Apple Calendar」）
+        .alert("保存先のカレンダーを切り替えました",
+               isPresented: Binding(get: { connection.showsSaveTargetNotice },
+                                    set: { if !$0 { connection.dismissSaveTargetNotice() } })) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(connection.saveTargetNoticeMessage)
+        }
         .onAppear { openEditorForScreenshot() }
         .fullScreenCover(isPresented: $showsEditorForScreenshot) {
             ScheduleEditorView(initialMonth: CalendarMonth(CalendarDay(Date())))
                 .environment(editorStore)
                 .environment(calendarStore)
+                .environment(connection)
         }
     }
 
@@ -67,7 +77,8 @@ struct RootTabView: View {
     private func screen(for tab: RootTab) -> some View {
         switch tab {
         case .calendar: CalendarTabView()
-        case .home, .settings: PlaceholderScreen(title: tab.title)
+        case .settings: SettingsTabView()
+        case .home: PlaceholderScreen(title: tab.title)
         }
     }
 

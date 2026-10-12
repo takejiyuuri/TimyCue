@@ -6,6 +6,7 @@ import SwiftUI
 struct CalendarTabView: View {
     @Environment(CalendarStore.self) private var store
     @Environment(ScheduleEditorStore.self) private var editorStore
+    @Environment(CalendarConnection.self) private var connection
     /// 「＋」で開いた新規の 3 分割画面（Q21）
     @State private var newEventDay: CalendarDay?
 
@@ -34,11 +35,20 @@ struct CalendarTabView: View {
                 ScheduleEditorView(initialMonth: request.month, onDeleted: { store.closeEventDetail(request.id) })
                     .environment(editorStore)
                     .environment(store)
+                    .environment(connection)
             }
         }
         .onAppear {
             store.updateToday()
             openForScreenshot()
+        }
+        // 開いただけでは iOS の許可のダイアログを出さない。未連携のときだけ、使う理由と「カレンダーを連携」の案内を出す（Q38）
+        .overlay {
+            if connection.showsFirstGuidance {
+                CalendarGuidanceView(
+                    onConnect: { Task { await connection.connect() } },
+                    onLater: { connection.dismissGuidance() })
+            }
         }
         .fullScreenCover(item: $newEventDay) { day in
             ScheduleEditorView(initialMonth: CalendarMonth(day), onSaved: { saved in
@@ -49,6 +59,7 @@ struct CalendarTabView: View {
             })
             .environment(editorStore)
             .environment(store)
+            .environment(connection)
         }
     }
 

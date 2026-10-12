@@ -27,6 +27,9 @@ final class ScheduleEditorStore {
     private(set) var predictionState: PredictionState = .idle
     private(set) var events: [CalendarEvent] = []
     private(set) var metadataByEventID: [UUID: TimyCueEventMetadata] = [:]
+    /// 予定を書き込める Apple カレンダー（つないでいないときは空）と、新しい予定の既定の保存先（Q32）
+    private(set) var writableCalendars: [CalendarChoice] = []
+    private(set) var defaultCalendarID: String?
 
     /// 保存しようとして足りないものがあったか。あったら、直るまで知らせを出し続ける（仕様 §46）
     private var showsSaveIssue = false
@@ -89,9 +92,22 @@ final class ScheduleEditorStore {
         return starts.min().map { max(0, $0 - leadMinutes) }
     }
 
-    /// 右上に出す行。ルートは移動手段が車のときだけ（仕様 §52）
+    /// 右上に出す行。ルートは移動手段が車のときだけ（仕様 §52）。
+    /// カレンダーは書き込める Apple カレンダーが 2 つ以上あるときだけ（Q32）
     var visibleRows: [InputRow] {
-        InputRow.allCases.filter { $0 != .route || content.metadata.transport == .car }
+        InputRow.allCases.filter { row in
+            switch row {
+            case .route: content.metadata.transport == .car
+            case .calendar: writableCalendars.count > 1
+            default: true
+            }
+        }
+    }
+
+    /// Apple カレンダーとつないだ・設定を変えたとき
+    func setCalendars(_ writable: [CalendarChoice], defaultCalendarID: String?) {
+        writableCalendars = writable
+        self.defaultCalendarID = defaultCalendarID
     }
 
     /// 保存に足りないもの。日付 → 開始時刻 → 予定名 の順（仕様 §46・§87）

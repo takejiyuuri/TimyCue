@@ -2,10 +2,18 @@ import Foundation
 
 /// 予定（Apple カレンダーと共有する部分）の読み書き。今はモック、第4段階で EventKit 版に差し替える（仕様 §68）。
 protocol EventRepository: AnyObject {
+    /// 読み込んである予定
     func allEvents() -> [CalendarEvent]
     func insert(_ events: [CalendarEvent]) throws
     func update(_ event: CalendarEvent) throws
     func delete(id: UUID) throws
+    /// その期間の予定を読み込んでおく。Apple カレンダーは表示に必要な範囲だけ、必要になったときに読む（Q35）
+    func ensureLoaded(from start: CalendarDay, to end: CalendarDay)
+}
+
+extension EventRepository {
+    /// 全部を手元に持っている保存先では何もしない
+    func ensureLoaded(from start: CalendarDay, to end: CalendarDay) {}
 }
 
 /// TimyCue だけが使う情報の読み書き（仕様 §84）。Apple カレンダーの予定とは別に保存する（仕様 §68）。

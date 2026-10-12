@@ -41,7 +41,9 @@ targets:
           UIColorName: LaunchBackground
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
-        # 位置情報・カレンダー・通知などの許可の説明文は、使う段階になってから足す（仕様 §79：必要になった時に許可を求める）
+        # 許可の説明文。許可は必要になった時に初めて求める（仕様 §79）。位置情報・通知・モーションは使う段階で足す
+        NSCalendarsFullAccessUsageDescription: Apple カレンダーの予定を TimyCue に表示し、TimyCue で作った予定を Apple カレンダーに保存するために使います。
+        NSCalendarsUsageDescription: Apple カレンダーの予定を TimyCue に表示し、TimyCue で作った予定を Apple カレンダーに保存するために使います。
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.github.takejiyuuri.timycue

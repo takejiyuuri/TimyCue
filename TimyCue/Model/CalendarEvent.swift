@@ -54,6 +54,8 @@ struct CalendarEvent: Identifiable, Equatable, Codable {
     /// Apple カレンダーのメモ。主な入力欄には出さないが、消さずに持っておく（仕様 §55）
     var notes: String
     var source: EventSource
+    /// 保存先の Apple カレンダー（EKCalendar の calendarIdentifier）。nil は既定の保存先（Q32）
+    var calendarID: String?
 
     init(id: UUID = UUID(),
          day: CalendarDay,
@@ -64,7 +66,8 @@ struct CalendarEvent: Identifiable, Equatable, Codable {
          isAllDay: Bool = false,
          repeatRule: RepeatRule = .none,
          notes: String = "",
-         source: EventSource = .timyCue) {
+         source: EventSource = .timyCue,
+         calendarID: String? = nil) {
         self.id = id
         self.day = day
         self.startMinute = startMinute
@@ -75,6 +78,7 @@ struct CalendarEvent: Identifiable, Equatable, Codable {
         self.repeatRule = repeatRule
         self.notes = notes
         self.source = source
+        self.calendarID = calendarID
     }
 
     /// 終了時刻。終了未設定なら nil（Apple カレンダー用の仮の終了を本当の終了と見なさない。仕様 §69）
