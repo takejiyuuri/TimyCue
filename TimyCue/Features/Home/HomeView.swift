@@ -97,13 +97,13 @@ struct HomeView: View {
             if case .started = main { return true }
             return false
         }()
-        // 60 分以上先は大きな「あと○分」にせず、静かに出す（追加仕様書 §5.2）
+        // 60 分以上先は大きな「あと○分」にせず、静かに出す（追加仕様書 §5.2。今は暫定で開始時刻を使う。第 5 段階で推奨出発時刻へ）
         let countdown = isStarted || HomeSchedule.isQuiet(now: now, start: start)
             ? "" : HomeSchedule.countdownText(from: now, to: start)
         return VStack(alignment: .leading, spacing: Theme.Spacing.s) {
             VStack(alignment: .leading, spacing: 6) {
                 if isStarted {
-                    // 開始時刻から約 3 分（§5.1）
+                    // 開始時刻から最大 3 分（§5.1）
                     Text("予定時刻になりました")
                         .font(.title3.weight(.semibold))
                         .foregroundStyle(Theme.Colors.accent)

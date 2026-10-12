@@ -609,7 +609,7 @@ private struct RepeatEditor: View {
 }
 
 /// 編集のときだけ、右の入力のいちばん下に独立して出す「予定を削除」。誤操作を防ぐため固定ヘッダーには置かない（§64・Q25）
-/// TimyCue の中の予定を Apple カレンダーへ移す（追加仕様書 §1.12）
+/// TimyCue の中の予定を Apple カレンダーへ移す（追加仕様書 §1.12）。下の説明文は仮（未確定）
 private struct MoveToAppleButton: View {
     let onMove: () -> Void
 

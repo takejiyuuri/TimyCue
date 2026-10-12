@@ -91,7 +91,7 @@ struct ScheduleEditorView: View {
         } message: {
             Text("どの予定に変更を当てますか？")
         }
-        // ローカル予定を Apple カレンダーへ移す（追加仕様書 §1.12）
+        // ローカル予定を Apple カレンダーへ移す（追加仕様書 §1.12）。確認を出すこと・文言は仮（未確定）
         .confirmationDialog("Apple Calendarに保存しますか？", isPresented: $confirmsMoveToApple, titleVisibility: .visible) {
             Button("Apple Calendarに保存") { moveToAppleCalendar() }
             Button("やめる", role: .cancel) {}
@@ -168,6 +168,7 @@ struct ScheduleEditorView: View {
         dismiss()
     }
 
+    /// 移したら編集画面を閉じる（仮。未確定）
     private func moveToAppleCalendar() {
         let moved: CalendarEvent
         do {
