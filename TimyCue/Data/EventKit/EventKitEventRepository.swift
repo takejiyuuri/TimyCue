@@ -89,17 +89,16 @@ final class EventKitEventRepository: EventRepository {
         let store = store
         let calendar = calendar
         // 起動して初めて読むときも見る（アプリを閉じている間に消された予定）
-        let linkedItems = (checksDeleted || !checkedDeletedOnce) ? links.itemIdentifiers : []
+        let linkedKeys = (checksDeleted || !checkedDeletedOnce) ? Array(links.keys.values) : []
         checkedDeletedOnce = true
         fetchQueue.async { [weak self] in
             let fetched = ranges.flatMap { Self.fetch(store: store, hiddenCalendarIDs: hidden, range: $0, calendar: calendar) }
-            // 今読めた予定は消えていない（識別子で引けない種類の予定もあるので、先に外す）
-            let fetchedItems = Set(fetched.map { EventKitMapping.parseLinkKey($0.key).itemIdentifier })
-            let vanished = Self.vanishedItems(linkedItems.subtracting(fetchedItems), store: store)
+            let check = Self.missingTargets(linkedKeys: linkedKeys, fetchedKeys: Set(fetched.map(\.key)),
+                                            ranges: ranges, store: store, calendar: calendar)
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
                     guard let self else { return }
-                    self.removeVanished(vanished, total: linkedItems.count)
+                    if !linkedKeys.isEmpty { self.removeConfirmedMissing(check.missing, checked: check.checked) }
                     self.merge(fetched, ranges: ranges, replacingAll: replacingAll)
                     self.onLoaded?()
                 }
@@ -107,22 +106,77 @@ final class EventKitEventRepository: EventRepository {
         }
     }
 
-    /// Apple カレンダー側で消えた予定の識別子。カレンダーを隠しただけ・権限がないときは消えたことにしない（§1.9・§1.10）
-    private static func vanishedItems(_ items: Set<String>, store: EKEventStore) -> Set<String> {
-        guard !items.isEmpty, EKEventStore.authorizationStatus(for: .event) == .fullAccess else { return [] }
-        return items.filter { store.calendarItem(withIdentifier: $0) == nil }
+    /// Apple カレンダー側で削除されたかもしれない予定・回（裏で行う）。
+    /// 予定そのもの・繰り返し全体は、識別子で引けなければ見つからないとする。
+    /// 繰り返しの 1 回は、読んだ範囲にあるはずの回が読めなかったとき、その回の前後 30 日にもなければ見つからないとする
+    /// （1 回だけ日をずらした回を、消えたと取り違えないように）。
+    /// カレンダーを隠しただけ・権限がないときは見つからないことにしない（§1.9・§1.10）
+    private static func missingTargets(linkedKeys: [String],
+                                       fetchedKeys: Set<String>,
+                                       ranges: [ClosedRange<CalendarDay>],
+                                       store: EKEventStore,
+                                       calendar: Calendar) -> (missing: Set<String>, checked: Set<String>) {
+        guard !linkedKeys.isEmpty, EKEventStore.authorizationStatus(for: .event) == .fullAccess else { return ([], []) }
+        let fetchedItems = Set(fetchedKeys.map { EventKitMapping.parseLinkKey($0).itemIdentifier })
+        var missing = Set<String>()
+        var checked = Set<String>()
+
+        // 予定そのもの・繰り返し全体
+        let items = Set(linkedKeys.map { EventKitMapping.parseLinkKey($0).itemIdentifier })
+        for item in items {
+            checked.insert(item)
+            if !fetchedItems.contains(item) && store.calendarItem(withIdentifier: item) == nil {
+                missing.insert(item)
+            }
+        }
+
+        // 繰り返しの 1 回
+        var candidates: [String: [Date]] = [:]
+        for key in linkedKeys {
+            let parsed = EventKitMapping.parseLinkKey(key)
+            guard let occurrence = parsed.occurrenceDate, !missing.contains(parsed.itemIdentifier) else { continue }
+            if fetchedKeys.contains(key) {
+                checked.insert(key)
+                continue
+            }
+            let day = CalendarDay(occurrence, calendar: calendar)
+            guard ranges.contains(where: { $0.contains(day) }) else { continue }
+            candidates[parsed.itemIdentifier, default: []].append(occurrence)
+        }
+        for (item, dates) in candidates {
+            guard let first = dates.min(), let last = dates.max(),
+                  let start = calendar.date(byAdding: .day, value: -30, to: first),
+                  let end = calendar.date(byAdding: .day, value: 31, to: last),
+                  end.timeIntervalSince(start) < 3 * 365 * 24 * 3600 else { continue }
+            let found = Set(store.events(matching: store.predicateForEvents(withStart: start, end: end, calendars: nil))
+                .filter { $0.calendarItemIdentifier == item }
+                .compactMap { $0.occurrenceDate })
+            for date in dates {
+                let key = EventKitMapping.linkKey(itemIdentifier: item, occurrenceDate: date)
+                checked.insert(key)
+                if !found.contains(date) { missing.insert(key) }
+            }
+        }
+        return (missing, checked)
     }
 
-    /// Apple カレンダー側で削除された予定を、TimyCue からも消し、その予定の TimyCue の設定も消す（追加仕様書 §1.5）
-    private func removeVanished(_ vanished: Set<String>, total: Int) {
-        guard EventKitLinks.trustsVanished(vanished, total: total) else { return }
-        let removed = links.removeVanished(vanished)
-        guard !removed.isEmpty else { return }
-        idByKey = idByKey.filter { !removed.contains($0.value) }
-        cache.removeAll { removed.contains($0.id) }
-        try? linksFile.save(links)
-        try? metadata.deleteAll(removed)
+    /// Apple カレンダー側での削除が確かめられた予定・回を、TimyCue からも消し、その TimyCue の設定も消す（追加仕様書 §1.5）。
+    /// 1 回見つからなかっただけでは消さず、時間をおいた別の確認でもまだ見つからないときだけ消す
+    private func removeConfirmedMissing(_ missing: Set<String>, checked: Set<String>) {
+        let before = links
+        let confirmed = links.confirmMissing(missing, checked: checked, now: Date(),
+                                             minimumInterval: Self.deletionConfirmInterval)
+        let removed = links.removeVanished(confirmed)
+        if !removed.isEmpty {
+            idByKey = idByKey.filter { !removed.contains($0.value) }
+            cache.removeAll { removed.contains($0.id) }
+            try? metadata.deleteAll(removed)
+        }
+        if links != before { try? linksFile.save(links) }
     }
+
+    /// 削除を確かめるまでに空ける時間（仮）
+    private static let deletionConfirmInterval: TimeInterval = 5 * 60
 
     /// 書き込んだ直後に、その日だけをすぐ読み直す（1 日ぶんなので短い。保存した予定をすぐ画面に出すため）
     private func refreshNow(days: [CalendarDay]) {
