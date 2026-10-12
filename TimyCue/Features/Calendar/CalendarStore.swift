@@ -162,6 +162,11 @@ final class CalendarStore {
         eventsByDay[day] ?? []
     }
 
+    /// 読み込んである予定すべて（ホームで次の予定を探すため）
+    var loadedEvents: [CalendarEvent] {
+        eventsByDay.values.flatMap { $0 }
+    }
+
     /// その日の時刻のある予定（開始時刻順）。1 日タイムラインの 0:00〜24:00 に置く（仕様 §26）
     func timedEvents(on day: CalendarDay) -> [CalendarEvent] {
         events(on: day).filter { !$0.isAllDay }

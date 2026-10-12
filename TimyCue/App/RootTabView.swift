@@ -78,7 +78,7 @@ struct RootTabView: View {
         switch tab {
         case .calendar: CalendarTabView()
         case .settings: SettingsTabView()
-        case .home: PlaceholderScreen(title: tab.title)
+        case .home: HomeView()
         }
     }
 
@@ -90,19 +90,5 @@ struct RootTabView: View {
         }
         #endif
         return .home
-    }
-}
-
-/// 各タブの中身ができるまでの仮の画面
-struct PlaceholderScreen: View {
-    let title: String
-
-    var body: some View {
-        ZStack {
-            Theme.Colors.background.ignoresSafeArea()
-            Text(title)
-                .font(.title2.weight(.semibold))
-                .foregroundStyle(Theme.Colors.textPrimary)
-        }
     }
 }
