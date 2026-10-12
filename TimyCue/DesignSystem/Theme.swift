@@ -18,6 +18,20 @@ enum Theme {
         /// 警告の黄色・赤は予定色とは別の意味（仕様 §4）
         static let warning = Color(hex: 0xE8B931)
         static let danger = Color(hex: 0xE0645A)
+        /// 土曜の曜日と日付は淡い青、日曜は淡い赤（2026-10-12 デザインの指摘。警告の赤と見間違えない淡さ。仮）
+        static let saturday = Color(hex: 0x6F9CCB)
+        static let sunday = Color(hex: 0xD48A82)
+        /// 月カレンダーで、見ている月（画面の真ん中の月）以外の日を見た目だけ薄くする度合い（2026-10-12 ユーザー決定。仮）
+        static let outsideMonthOpacity: Double = 0.38
+
+        /// 曜日（月曜を 0）ごとの文字の色。土曜・日曜だけ色を付け、ほかは normal
+        static func weekdayText(_ indexFromMonday: Int, normal: Color) -> Color {
+            switch indexFromMonday {
+            case 5: saturday
+            case 6: sunday
+            default: normal
+            }
+        }
     }
 
     enum Radius {

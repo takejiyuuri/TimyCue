@@ -98,8 +98,14 @@ final class CalendarStore {
         CalendarWeek(containing: topWeekID ?? CalendarMonth(today).firstDay)
     }
 
-    /// 月表示列の上に固定表示する月（Q19）と、画面上部の年（Q20）
+    /// 画面上部の年（Q20）を決める月。一番上の週で決まる（月の sticky 表示 Q19 は 2026-10-12 にやめた）
     var stickyMonth: CalendarMonth { topWeek.stickyMonth }
+
+    /// 「見ている月」：画面の真ん中にある週の月。これ以外の月の日は見た目だけ薄くする（2026-10-12 ユーザー決定）
+    func focusMonth(visibleRows: Int) -> CalendarMonth {
+        let middle = topWeek.adding(weeks: max(0, visibleRows) / 2)
+        return CalendarMonth(middle.days[3])
+    }
 
     /// 予定を読み直す（予定を保存したあとなど）
     func reload() {

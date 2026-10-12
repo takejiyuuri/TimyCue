@@ -102,6 +102,23 @@ final class CalendarStoreTests: XCTestCase {
         XCTAssertEqual(store.stickyMonth.yearLabel, "2026年")
     }
 
+    func testFocusMonthIsTheMonthInTheMiddleOfTheScreen() {
+        let store = makeStore([])
+        store.topWeekID = CalendarDay(year: 2026, month: 9, day: 28)
+        XCTAssertEqual(store.focusMonth(visibleRows: 8), CalendarMonth(year: 2026, month: 10),
+                       "一番上が 9 月の終わりの週でも、真ん中が 10 月なら 10 月を見ている月とする（前後の月は薄く）")
+        store.topWeekID = CalendarDay(year: 2026, month: 10, day: 19)
+        XCTAssertEqual(store.focusMonth(visibleRows: 8), CalendarMonth(year: 2026, month: 11),
+                       "スクロールして真ん中が 11 月になったら、見ている月も変わる")
+    }
+
+    func testWeekendColors() {
+        XCTAssertEqual(Theme.Colors.weekdayText(5, normal: Theme.Colors.textPrimary), Theme.Colors.saturday, "土曜は淡い青")
+        XCTAssertEqual(Theme.Colors.weekdayText(6, normal: Theme.Colors.textPrimary), Theme.Colors.sunday, "日曜は淡い赤")
+        XCTAssertEqual(Theme.Colors.weekdayText(0, normal: Theme.Colors.textPrimary), Theme.Colors.textPrimary)
+        XCTAssertEqual(CalendarDay(year: 2026, month: 10, day: 17).weekdayIndexFromMonday(), 5, "2026/10/17 は土曜")
+    }
+
     func testStickyMonthFollowsTopWeek() {
         let store = makeStore([])
         store.topWeekID = CalendarDay(year: 2026, month: 10, day: 26)
