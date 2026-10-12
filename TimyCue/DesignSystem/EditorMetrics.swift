@@ -56,12 +56,18 @@ enum EditorMetrics {
     static let lockNoticeFont = Font.system(size: 12)
     static let lockIconFont = Font.system(size: 11)
 
-    // MARK: 下カレンダーと年月バー（v1.1）
+    // MARK: 下カレンダーと左右のバー（2026-10-13 ユーザー決定）
 
-    /// 日付の行の最低の高さ。枠にちょうど収まる行数を、ここから決める
-    static let calendarMinRowHeight: CGFloat = 40
+    /// 見える高さは、日付の行 6 行ぶん（月の行は別に数える）
+    static let calendarVisibleWeeks: CGFloat = 6
+    /// 月の初めに空ける、月を出す行の高さ（日付の行を 1 として）。仮の値（実機で決める）
+    static let calendarMonthRowRatio: Double = 0.6
+    static let calendarMonthFont = Font.system(size: 12, weight: .semibold)
+    /// 曜日の上に出す年
+    static let calendarYearHeight: CGFloat = 20
+    static let calendarYearFont = Font.system(size: 12, weight: .semibold).monospacedDigit()
     static let calendarDayFont = Font.system(size: 14, weight: .medium).monospacedDigit()
-    static let calendarWeekdayHeight: CGFloat = 20
+    static let calendarWeekdayHeight: CGFloat = 18
     static let calendarWeekdayFont = Font.system(size: 11, weight: .medium)
     static let selectedCircleSize: CGFloat = 26
     /// 予定がある日の予定色のドット（Q23）
@@ -71,15 +77,12 @@ enum EditorMetrics {
     /// なぞって選んでいるとみなす、指の動きの大きさ
     static let dragSelectThreshold: CGFloat = 8
 
-    static let yearMonthBarWidth: CGFloat = 64
-    /// バーの上での 1 週の高さ（カレンダーの行より小さくして、前後の月まで見えるようにする）
-    static let barWeekHeight: CGFloat = 7
-    static let barYearFont = Font.system(size: 11, weight: .medium).monospacedDigit()
-    static let barMonthFont = Font.system(size: 12, weight: .regular).monospacedDigit()
-    /// 固定帯の近くに来た月は少し太く・濃く（v1.1「表示範囲帯」）
-    static let barMonthFocusedFont = Font.system(size: 13, weight: .bold).monospacedDigit()
-    static let barBandCornerRadius: CGFloat = 6
-    /// 年月バーを長押ししたときに動く速さ（週／秒）と、動き始めるまでの長さ（秒）。仮の値（実機で決める）
-    static let barHoldWeeksPerSecond: CGFloat = 1.5
-    static let barHoldDelay: Double = 0.3
+    /// 左右のスクロールバーの幅（前の年月バー 64 の半分くらい）
+    static let scrollBarWidth: CGFloat = 30
+    static let scrollBarCornerRadius: CGFloat = 8
+    /// バーだとわかるマーク（上下の矢印とつまみの線）
+    static let scrollBarMarkFont = Font.system(size: 11, weight: .bold)
+    static let scrollBarGripFont = Font.system(size: 14, weight: .semibold)
+    /// なぞった長さに対して、カレンダーが動く割合（1 なら指と同じだけ）。仮の値（実機で決める）
+    static let scrollBarDragSpeed: Double = 1.0
 }

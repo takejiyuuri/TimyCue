@@ -23,6 +23,10 @@ enum Theme {
         static let sunday = Color(hex: 0xD48A82)
         /// 月カレンダーで、見ている月（画面の真ん中の月）以外の日を見た目だけ薄くする度合い（2026-10-12 ユーザー決定。仮）
         static let outsideMonthOpacity: Double = 0.38
+        /// 3 分割画面の左右のスクロールバー。カレンダーと見分けやすい色（2026-10-13 ユーザー決定。色は仮）
+        static let scrollBarTrack = Color(hex: 0xF4A96A, opacity: 0.22)
+        static let scrollBarTrackActive = Color(hex: 0xF4A96A, opacity: 0.38)
+        static let scrollBarMark = Color(hex: 0xC2753A)
 
         /// 曜日（月曜を 0）ごとの文字の色。土曜・日曜だけ色を付け、ほかは normal
         static func weekdayText(_ indexFromMonday: Int, normal: Color) -> Color {

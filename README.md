@@ -29,7 +29,7 @@ TestFlight：Codemagic の「iOS → TestFlight」で送り、iPhone の実機�
 | `TimyCue/Features/Calendar/` | カレンダータブ：週を縦につなげる月カレンダー・日付吹き出し・1 日タイムライン（`CalendarStore`。仕様 §18〜§30・v1.1・Q8〜Q20） |
 | `TimyCue/Features/Settings/` | 設定タブ（今は 設定 ＞ カレンダー連携 だけ。§81・Q31〜Q33） |
 | `TimyCue/Features/EventDetail/` | 予定詳細の中身（吹き出しの中に出す。編集は「編集」から 3 分割画面へ。v1.1・Q27〜Q30） |
-| `TimyCue/Features/ScheduleEditor/` | 3 分割の予定編集画面（`ScheduleEditorStore`。仕様 §31〜§67・v1.1 の下カレンダーと年月バー） |
+| `TimyCue/Features/ScheduleEditor/` | 3 分割の予定編集画面（`ScheduleEditorStore`。仕様 §31〜§67・下カレンダーと左右のスクロールバー） |
 | `TimyCueTests/` | 自動テスト |
 | `tools/make_icon.py` | 仮のアプリアイコンを作る（`python tools/make_icon.py`） |
 | `codemagic.yaml` | クラウドの Mac でのビルド・テスト・画面写真・TestFlight 送信 |

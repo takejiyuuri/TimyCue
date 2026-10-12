@@ -1,68 +1,81 @@
 import XCTest
 @testable import TimyCue
 
+/// 3 分割画面の下カレンダー（2026-10-13 ユーザー決定「3 分割画面のカレンダー」）
 final class EditorCalendarAxisTests: XCTestCase {
-    private let axis = EditorCalendarAxis(around: CalendarMonth(year: 2026, month: 10))
+    /// 月の行は日付の行の半分の高さで考える
+    private let axis = EditorCalendarAxis(around: CalendarMonth(year: 2026, month: 10), monthRowRatio: 0.5)
+    private let october = CalendarMonth(year: 2026, month: 10)
+    private let november = CalendarMonth(year: 2026, month: 11)
 
-    func testOriginIsWeekContainingFirstDayOfMonth() {
-        XCTAssertEqual(axis.week(at: 0).days.map(\.day), [28, 29, 30, 1, 2, 3, 4], "週は途切れず続く（v1.1）")
-        XCTAssertEqual(axis.topWeek(at: 0.6), axis.week(at: 0), "途中までスクロールしていても、いちばん上の週は番号の小数を切り捨てた週")
-        XCTAssertEqual(axis.topWeek(at: -0.2), axis.week(at: -1))
+    func testWeekCountAndDayCount() {
+        XCTAssertEqual(EditorCalendarAxis.weekCount(of: october), 5, "2026 年 10 月は木曜始まりの 31 日：5 行")
+        XCTAssertEqual(EditorCalendarAxis.weekCount(of: CalendarMonth(year: 2027, month: 2)), 4, "2027 年 2 月は月曜始まりの 28 日：4 行")
+        XCTAssertEqual(EditorCalendarAxis.weekCount(of: CalendarMonth(year: 2026, month: 8)), 6, "2026 年 8 月は土曜始まりの 31 日：6 行")
+        XCTAssertEqual(EditorCalendarAxis.dayCount(of: CalendarMonth(year: 2028, month: 2)), 29, "うるう年")
+        XCTAssertEqual(EditorCalendarAxis.dayCount(of: CalendarMonth(year: 2100, month: 2)), 28)
     }
 
-    func testJumpPutsFirstWeekOfMonthOnTop() {
-        let offset = axis.offset(jumpingTo: CalendarMonth(year: 2026, month: 12))
-        XCTAssertEqual(axis.topWeek(at: offset), CalendarWeek(containing: CalendarDay(year: 2026, month: 12, day: 1)),
-                       "その月の 1 日を含む週がいちばん上の列に来る（v1.1「年月バーのタップ」）")
-        XCTAssertEqual(axis.offset(jumpingTo: CalendarMonth(year: 2026, month: 9)), -4, "9 月 1 日を含む週は 4 週前")
+    func testMonthsAreSeparatedByAMonthRow() {
+        let lines = axis.lines(of: october)
+        XCTAssertEqual(lines.first?.line, .month(october), "月の初めに 1 行空けて月を出す")
+        XCTAssertEqual(lines.first?.height, 0.5)
+        XCTAssertEqual(lines.count, 1 + 5)
+        XCTAssertEqual(axis.top(of: october), 0)
+        XCTAssertEqual(axis.top(of: november), 5.5, "10 月の月の行（0.5）＋ 5 週")
+        XCTAssertEqual(axis.top(of: CalendarMonth(year: 2026, month: 9)), -5.5, "9 月は火曜始まりの 30 日：5 週")
+        XCTAssertEqual(axis.month(at: 5.4), october)
+        XCTAssertEqual(axis.month(at: 5.5), november)
+        XCTAssertEqual(axis.month(at: -0.1), CalendarMonth(year: 2026, month: 9))
     }
 
-    func testDayAtPoint() {
-        // 行の高さ 40、列の幅 50、いちばん上は番号 0 の週
-        XCTAssertEqual(axis.day(atX: 10, y: 5, offset: 0, rowHeight: 40, columnWidth: 50),
-                       CalendarDay(year: 2026, month: 9, day: 28))
-        XCTAssertEqual(axis.day(atX: 320, y: 45, offset: 0, rowHeight: 40, columnWidth: 50),
+    func testWeekCrossingMonthsIsSplitIntoTwoRows() {
+        // 10/26〜11/1 の週：10 月の最後の行と、11 月の最初の行に分ける
+        let crossing = CalendarWeek(containing: CalendarDay(year: 2026, month: 10, day: 31))
+        let octoberLast = axis.lines(of: october).last
+        let novemberFirstWeek = axis.lines(of: november)[1]
+        XCTAssertEqual(octoberLast?.line, .week(october, crossing))
+        XCTAssertEqual(novemberFirstWeek.line, .week(november, crossing), "同じ週でも、月ごとの行に分ける")
+    }
+
+    func testDayAtPointSkipsMonthRowAndOtherMonths() {
+        // 行の高さ 40、列の幅 50。いちばん上は 10 月の月の行（高さ 20）
+        XCTAssertNil(axis.day(atX: 10, y: 5, offset: 0, rowHeight: 40, columnWidth: 50), "月の行は日付ではない")
+        XCTAssertNil(axis.day(atX: 10, y: 25, offset: 0, rowHeight: 40, columnWidth: 50),
+                     "1 行目の月曜は 9/28。ほかの月の日は出さないので選べない")
+        XCTAssertEqual(axis.day(atX: 160, y: 25, offset: 0, rowHeight: 40, columnWidth: 50),
+                       CalendarDay(year: 2026, month: 10, day: 1), "1 行目の木曜")
+        XCTAssertEqual(axis.day(atX: 320, y: 65, offset: 0, rowHeight: 40, columnWidth: 50),
                        CalendarDay(year: 2026, month: 10, day: 11), "2 行目の日曜")
-        XCTAssertEqual(axis.day(atX: 10, y: 5, offset: 0.5, rowHeight: 40, columnWidth: 50),
-                       CalendarDay(year: 2026, month: 9, day: 28), "半分スクロールしている：上の行の下半分")
-        XCTAssertEqual(axis.day(atX: 10, y: 25, offset: 0.5, rowHeight: 40, columnWidth: 50),
-                       CalendarDay(year: 2026, month: 10, day: 5), "その下の行")
         XCTAssertNil(axis.day(atX: 10, y: -1, offset: 0, rowHeight: 40, columnWidth: 50))
     }
 
-    func testBarMonthsAndLabelPositions() {
-        let months = axis.barMonths(offset: 0, spanWeeks: 10)
-        XCTAssertEqual(months.map(\.month.monthLabel), ["8月", "9月", "10月", "11月", "12月"])
-        XCTAssertEqual(months.first { $0.month.month == 10 }?.weekIndex, 0)
-        // 年月バーの固定帯の上端に、いちばん上に見えている週が来る
-        XCTAssertEqual(EditorCalendarAxis.barY(weekIndex: 0, offset: 0, bandTop: 100, weekHeight: 7), 100)
-        XCTAssertEqual(EditorCalendarAxis.barY(weekIndex: 0, offset: 2, bandTop: 100, weekHeight: 7), 86,
-                       "下の月へ進むと、ラベルが固定帯の下を上へ流れる（帯は動かない）")
+    func testVisibleLines() {
+        let lines = axis.visibleLines(offset: 4.75, visibleRows: 6)
+        XCTAssertEqual(lines.first?.line, .week(october, CalendarWeek(containing: CalendarDay(year: 2026, month: 10, day: 26))),
+                       "一部だけ見えている行も含む")
+        XCTAssertTrue(lines.contains { $0.line == .month(november) })
+        XCTAssertTrue(lines.allSatisfy { $0.top < 4.75 + 6 && $0.top + $0.height > 4.75 })
     }
 
-    func testDecemberToJanuaryCrossesYearOnOneAxis() {
-        let months = axis.barMonths(offset: axis.offset(jumpingTo: CalendarMonth(year: 2027, month: 1)), spanWeeks: 6)
-        XCTAssertTrue(months.contains { $0.month == CalendarMonth(year: 2026, month: 12) })
-        XCTAssertTrue(months.contains { $0.month == CalendarMonth(year: 2027, month: 1) },
-                      "年と月は 1 本の続いた縦軸（v1.1）")
-        let january = axis.offset(jumpingTo: CalendarMonth(year: 2027, month: 1))
-        XCTAssertEqual(axis.topWeek(at: january).stickyMonth.year, 2027, "1 月の週が上に来たら年が変わる（ハプティクスの合図）")
-        XCTAssertEqual(axis.topWeek(at: january - 1).stickyMonth.year, 2026)
+    func testYearChangesWhenJanuaryReachesTheTop() {
+        let january = CalendarMonth(year: 2027, month: 1)
+        let top = axis.top(of: january)
+        XCTAssertEqual(axis.topMonth(at: top).year, 2027, "1 月が上に来たら年が変わる（ハプティクスの合図）")
+        XCTAssertEqual(axis.topMonth(at: top - 0.1).year, 2026)
+        XCTAssertEqual(axis.topMonth(at: axis.top(of: CalendarMonth(year: 2025, month: 12))).year, 2025, "前の年へもたどれる")
     }
 
-    func testHoldingAboveOrBelowTheBandMovesSlowly() {
-        XCTAssertEqual(EditorCalendarAxis.holdDirection(pressY: 40, barHeight: 300), -1, "範囲帯より上を長押しすると上（過去）へ")
-        XCTAssertEqual(EditorCalendarAxis.holdDirection(pressY: 260, barHeight: 300), 1, "下を長押しすると下（未来）へ")
-        let speed = Double(EditorMetrics.barHoldWeeksPerSecond)
-        XCTAssertEqual(EditorCalendarAxis.offset(afterHolding: 2, from: 10, direction: -1, weeksPerSecond: speed), 10 - 2 * speed,
-                       "押している間ずっと一定の速さ")
-        XCTAssertEqual(EditorCalendarAxis.offset(afterHolding: 0.5, from: 10, direction: 1, weeksPerSecond: speed), 10 + 0.5 * speed,
-                       "月にはスナップしない")
+    func testDraggingTheScrollBarMovesWithTheFinger() {
+        XCTAssertEqual(EditorCalendarAxis.offset(afterDragging: -80, from: 2, rowHeight: 40, speed: 1), 4,
+                       "上へなぞると、先の日付が下から出てくる")
+        XCTAssertEqual(EditorCalendarAxis.offset(afterDragging: 40, from: 2, rowHeight: 40, speed: 1), 1)
+        XCTAssertEqual(EditorCalendarAxis.offset(afterDragging: 40, from: 2, rowHeight: 0, speed: 1), 2)
     }
 
     func testSafetyLimit() {
-        XCTAssertEqual(axis.clamp(1_000_000), Double(EditorCalendarAxis.maxWeeks))
-        XCTAssertEqual(axis.clamp(-1_000_000), -Double(EditorCalendarAxis.maxWeeks))
+        XCTAssertEqual(axis.clamp(1_000_000), EditorCalendarAxis.maxOffset)
+        XCTAssertEqual(axis.clamp(-1_000_000), -EditorCalendarAxis.maxOffset)
     }
 }
 
