@@ -155,6 +155,90 @@ final class FileRepositoryTests: XCTestCase {
         XCTAssertEqual(reopened[kept], walk, "前からあったものは消さない")
     }
 
+    // MARK: - Apple カレンダー側で消えた予定（追加仕様書 §1.5）
+
+    func testVanishedAppleEventsDropLinksAndSettings() throws {
+        let single = UUID(), occurrence1 = UUID(), occurrence2 = UUID(), other = UUID(), series = UUID()
+        var links = EventKitLinks()
+        links.keys = [single: "A",
+                      occurrence1: EventKitMapping.linkKey(itemIdentifier: "B", occurrenceDate: Date(timeIntervalSince1970: 0)),
+                      occurrence2: EventKitMapping.linkKey(itemIdentifier: "B", occurrenceDate: Date(timeIntervalSince1970: 604_800)),
+                      other: "C"]
+        links.endUnset = [single, other]
+        links.seriesIDs = ["B": series]
+        XCTAssertEqual(links.itemIdentifiers, ["A", "B", "C"], "繰り返しの回はシリーズの識別子にまとめる")
+
+        let removed = links.removeVanished(["A", "B"])
+        XCTAssertEqual(removed, [single, occurrence1, occurrence2, series], "その予定の回ごとの設定とシリーズ共通の設定を消す")
+        XCTAssertEqual(links.keys, [other: "C"])
+        XCTAssertEqual(links.endUnset, [other])
+        XCTAssertNil(links.seriesIDs)
+
+        let file = JSONFile<[UUID: TimyCueEventMetadata]>(url: directory.appendingPathComponent("metadata.json"), empty: [:])
+        let repository = FileEventMetadataRepository(file: file)
+        try repository.saveAll([single: TimyCueEventMetadata(), other: TimyCueEventMetadata(), series: TimyCueEventMetadata()])
+        try repository.deleteAll(removed)
+        XCTAssertEqual(Set(FileEventMetadataRepository(file: file).allMetadata().keys), [other])
+    }
+
+    func testDoesNotTrustEverythingVanishingAtOnce() {
+        XCTAssertFalse(EventKitLinks.trustsVanished([], total: 10))
+        XCTAssertTrue(EventKitLinks.trustsVanished(["A"], total: 10))
+        XCTAssertFalse(EventKitLinks.trustsVanished(Set((0..<10).map(String.init)), total: 10),
+                       "全部が一度に見つからないのは読み込みの不具合とみなし、設定をまとめて消さない")
+        XCTAssertTrue(EventKitLinks.trustsVanished(["A"], total: 1), "予定が少ないときは消してよい")
+    }
+
+    func testDeletionIsConfirmedOnlyBySecondCheckLater() {
+        var links = EventKitLinks()
+        let occurrenceKey = EventKitMapping.linkKey(itemIdentifier: "B", occurrenceDate: Date(timeIntervalSince1970: 0))
+        links.keys = [UUID(): "A", UUID(): occurrenceKey, UUID(): "C", UUID(): "D"]
+        let checked: Set<String> = ["A", "B", "C", "D", occurrenceKey]
+        let start = Date(timeIntervalSince1970: 1_000_000)
+
+        XCTAssertTrue(links.confirmMissing(["A", occurrenceKey], checked: checked, now: start, minimumInterval: 300).isEmpty,
+                      "1 回見つからなかっただけでは消さない")
+        XCTAssertTrue(links.confirmMissing(["A", occurrenceKey], checked: checked, now: start.addingTimeInterval(10), minimumInterval: 300).isEmpty,
+                      "すぐあとの確認（続けて届く変更の知らせ）では、まだ確かめたことにしない")
+        XCTAssertEqual(links.confirmMissing(["A", occurrenceKey], checked: checked, now: start.addingTimeInterval(400), minimumInterval: 300),
+                       ["A", occurrenceKey], "時間をおいた別の確認でもまだ見つからなければ、削除とみなす")
+        XCTAssertNil(links.missingSince)
+    }
+
+    func testFoundAgainClearsTheMissingRecord() {
+        var links = EventKitLinks()
+        links.keys = [UUID(): "A", UUID(): "C", UUID(): "D", UUID(): "E"]
+        let checked: Set<String> = ["A", "C", "D", "E"]
+        let start = Date(timeIntervalSince1970: 1_000_000)
+        _ = links.confirmMissing(["A"], checked: checked, now: start, minimumInterval: 300)
+        XCTAssertNotNil(links.missingSince?["A"])
+        _ = links.confirmMissing([], checked: checked, now: start.addingTimeInterval(60), minimumInterval: 300)
+        XCTAssertNil(links.missingSince, "一時的に読めなかっただけなら、記録を消す")
+        XCTAssertTrue(links.confirmMissing(["A"], checked: checked, now: start.addingTimeInterval(1000), minimumInterval: 300).isEmpty,
+                      "また見つからなくなったら、最初から数え直す")
+    }
+
+    func testWholeSeriesMissingAtOnceIsNotTrusted() {
+        var links = EventKitLinks()
+        links.keys = [UUID(): "A", UUID(): "B", UUID(): "C", UUID(): "D"]
+        let all: Set<String> = ["A", "B", "C", "D"]
+        let start = Date(timeIntervalSince1970: 1_000_000)
+        _ = links.confirmMissing(all, checked: all, now: start, minimumInterval: 300)
+        XCTAssertNil(links.missingSince, "全部が一度に見つからないのは読み込みの不具合とみなし、記録もしない")
+    }
+
+    func testRemovingOneOccurrenceKeepsTheRestOfTheSeries() {
+        let first = UUID(), second = UUID(), series = UUID()
+        let firstKey = EventKitMapping.linkKey(itemIdentifier: "B", occurrenceDate: Date(timeIntervalSince1970: 0))
+        let secondKey = EventKitMapping.linkKey(itemIdentifier: "B", occurrenceDate: Date(timeIntervalSince1970: 604_800))
+        var links = EventKitLinks()
+        links.keys = [first: firstKey, second: secondKey]
+        links.seriesIDs = ["B": series]
+        XCTAssertEqual(links.removeVanished([firstKey]), [first], "Apple 側で「この予定のみ」削除された回は、その回だけ消す")
+        XCTAssertEqual(links.keys, [second: secondKey])
+        XCTAssertEqual(links.seriesIDs, ["B": series], "シリーズ共通の設定は残す")
+    }
+
     func testBrokenFileStartsEmpty() throws {
         let url = directory.appendingPathComponent("events.json")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

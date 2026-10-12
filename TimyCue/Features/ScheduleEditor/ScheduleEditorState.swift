@@ -52,6 +52,14 @@ enum InputRow: CaseIterable, Equatable {
         case .calendar: "カレンダー"
         }
     }
+
+    /// Apple カレンダーの予定そのものの項目か。書き込めないカレンダーの予定ではロックする（追加仕様書 §1.7）
+    var isAppleField: Bool {
+        switch self {
+        case .title, .location, .repeatRule, .end, .calendar: true
+        case .arrivalTarget, .transport, .route, .notifications, .color: false
+        }
+    }
 }
 
 /// 保存に足りないもの（仕様 §46：予定名・日付・開始時刻が必須）。

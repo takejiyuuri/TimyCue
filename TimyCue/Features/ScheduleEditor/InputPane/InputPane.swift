@@ -8,6 +8,8 @@ struct InputPane: View {
     var focusedRow: FocusState<InputRow?>.Binding
     let onCopy: () -> Void
     let onDelete: () -> Void
+    /// 「Apple Calendarに保存」（ローカル予定を移す。追加仕様書 §1.12）
+    let onMoveToApple: () -> Void
 
     var body: some View {
         VStack(spacing: 0) {
@@ -34,10 +36,21 @@ struct InputPane: View {
                             .padding(.vertical, Theme.Spacing.s)
                             .background(Theme.Colors.danger.opacity(0.08))
                     }
+                    // 書き込めない Apple カレンダーの予定：ロックの短い理由（追加仕様書 §1.7）
+                    if let reason = store.appleFieldsLockReason {
+                        Label(reason, systemImage: "lock.fill")
+                            .font(EditorMetrics.lockNoticeFont)
+                            .foregroundStyle(Theme.Colors.textSecondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, Theme.Spacing.m)
+                            .padding(.vertical, Theme.Spacing.s)
+                            .background(Theme.Colors.textSecondary.opacity(0.08))
+                    }
                     ForEach(store.visibleRows, id: \.self) { row in
                         InputRowView(row: row,
                                      value: store.valueText(for: row),
                                      isExpanded: store.expandedRow == row,
+                                     isLocked: store.isLocked(row),
                                      color: row == .color ? store.content.metadata.color : nil)
                             .id(row)
                             .onTapGesture { store.toggleRow(row) }
@@ -47,7 +60,11 @@ struct InputPane: View {
                                 .padding(.bottom, Theme.Spacing.m)
                         }
                     }
-                    if case .edit = store.mode {
+                    if store.canMoveToAppleCalendar {
+                        MoveToAppleButton(onMove: onMoveToApple)
+                    }
+                    // 書き込めないカレンダーの予定は消せない（§1.7）
+                    if case .edit = store.mode, !store.areAppleFieldsLocked {
                         DeleteButton(onDelete: onDelete)
                     }
                 }
@@ -85,6 +102,8 @@ private struct InputRowView: View {
     let row: InputRow
     let value: String
     let isExpanded: Bool
+    /// 書き込めない Apple カレンダーの予定の、Apple 由来の項目（§1.7）
+    let isLocked: Bool
     let color: EventColor?
 
     var body: some View {
@@ -100,9 +119,14 @@ private struct InputRowView: View {
             }
             Text(value)
                 .font(EditorMetrics.inputValueFont)
-                .foregroundStyle(Theme.Colors.textPrimary)
+                .foregroundStyle(isLocked ? Theme.Colors.textSecondary : Theme.Colors.textPrimary)
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
+            if isLocked {
+                Image(systemName: "lock.fill")
+                    .font(EditorMetrics.lockIconFont)
+                    .foregroundStyle(Theme.Colors.textSecondary)
+            }
         }
         .padding(.horizontal, Theme.Spacing.m)
         .frame(height: EditorMetrics.inputRowHeight)
@@ -585,6 +609,27 @@ private struct RepeatEditor: View {
 }
 
 /// 編集のときだけ、右の入力のいちばん下に独立して出す「予定を削除」。誤操作を防ぐため固定ヘッダーには置かない（§64・Q25）
+/// TimyCue の中の予定を Apple カレンダーへ移す（追加仕様書 §1.12）。下の説明文は仮（未確定）
+private struct MoveToAppleButton: View {
+    let onMove: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
+            Button(action: onMove) {
+                Label("Apple Calendarに保存", systemImage: "calendar.badge.plus")
+                    .font(EditorMetrics.chipFont)
+            }
+            .buttonStyle(.bordered)
+            Text("この予定は TimyCue の中だけにあります")
+                .font(EditorMetrics.lockNoticeFont)
+                .foregroundStyle(Theme.Colors.textSecondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, Theme.Spacing.m)
+        .padding(.top, Theme.Spacing.l)
+    }
+}
+
 private struct DeleteButton: View {
     let onDelete: () -> Void
 

@@ -226,9 +226,12 @@ private struct EditorTimeAxis: View {
                 }
             }
             .overlay(alignment: .bottom) {
-                EndHandle()
-                    .offset(y: EditorMetrics.endHandleHeight / 2)
-                    .highPriorityGesture(endDrag(for: event))
+                // 書き込めない Apple カレンダーの予定は、時刻を動かせない（§1.7）
+                if !store.areAppleFieldsLocked {
+                    EndHandle()
+                        .offset(y: EditorMetrics.endHandleHeight / 2)
+                        .highPriorityGesture(endDrag(for: event))
+                }
             }
     }
 
@@ -236,6 +239,7 @@ private struct EditorTimeAxis: View {
     private func moveDrag(for event: CalendarEvent) -> some Gesture {
         DragGesture(minimumDistance: 3)
             .onChanged { value in
+                guard !store.areAppleFieldsLocked else { return }
                 wheelHour = nil
                 dragStart = TimeDragMath.startMinute(afterDragging: Double(value.translation.height),
                                                      from: event.startMinute, hourHeight: Double(hourHeight))
@@ -268,6 +272,7 @@ private struct EditorTimeAxis: View {
 
     /// 「時」を押す：その時刻の 00 分を入れ、その位置に分ホイールを出す（§38）
     private func tapHour(_ hour: Int) {
+        guard !store.areAppleFieldsLocked else { return }
         wheelHour = hour
         wheelMinute = 0
         store.setStartMinute(TimeDragMath.startMinute(hour: hour, minute: 0), on: day)

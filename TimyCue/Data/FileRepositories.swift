@@ -92,6 +92,13 @@ final class FileEventMetadataRepository: EventMetadataRepository {
         storage[eventID] = nil
         try file.save(storage)
     }
+
+    /// ファイルへは 1 回だけ書く
+    func deleteAll(_ eventIDs: Set<UUID>) throws {
+        guard eventIDs.contains(where: { storage[$0] != nil }) else { return }
+        for id in eventIDs { storage[id] = nil }
+        try file.save(storage)
+    }
 }
 
 /// 予定の保存先を、あとから切り替えられるようにする包み（Apple カレンダーとつないだら切り替える）
@@ -116,6 +123,7 @@ final class SwitchableEventRepository: EventRepository {
     func occurrenceIDs(sameSeriesAs id: UUID, scope: RecurrenceScope) -> [UUID] {
         current.occurrenceIDs(sameSeriesAs: id, scope: scope)
     }
+    func seriesID(of eventID: UUID) -> UUID? { current.seriesID(of: eventID) }
 }
 
 /// Apple カレンダーとつないだあとの保存先。Apple カレンダーの予定と、つなぐ前から TimyCue の中にあった予定の両方を見せる。
@@ -159,6 +167,10 @@ final class CombinedEventRepository: EventRepository {
 
     func occurrenceIDs(sameSeriesAs id: UUID, scope: RecurrenceScope) -> [UUID] {
         local.allEvents().contains(where: { $0.id == id }) ? [id] : primary.occurrenceIDs(sameSeriesAs: id, scope: scope)
+    }
+
+    func seriesID(of eventID: UUID) -> UUID? {
+        local.allEvents().contains(where: { $0.id == eventID }) ? nil : primary.seriesID(of: eventID)
     }
 
     func ensureLoaded(from start: CalendarDay, to end: CalendarDay) {

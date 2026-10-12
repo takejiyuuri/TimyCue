@@ -37,6 +37,7 @@ final class CalendarConnection {
     @ObservationIgnored private let metadata: EventMetadataRepository
     @ObservationIgnored private let preferencesFile: JSONFile<CalendarPreferences>
     @ObservationIgnored private var eventKit: EventKitEventRepository?
+    /// カレンダーの一覧（書き込めないものも含む）と、既定の保存先を知らせる
     @ObservationIgnored private let onChange: @MainActor ([CalendarChoice], String?) -> Void
 
     /// localEvents が nil のとき（DEBUG の見本の予定で動かしているとき）は、つながない。
@@ -46,7 +47,7 @@ final class CalendarConnection {
          localEvents: FileEventRepository?,
          metadata: EventMetadataRepository,
          preferencesFile: JSONFile<CalendarPreferences> = JSONFile(url: JSONFile<CalendarPreferences>.appSupportURL(named: "calendar-preferences.json"), empty: CalendarPreferences()),
-         onChange: @escaping @MainActor (_ writableCalendars: [CalendarChoice], _ defaultCalendarID: String?) -> Void) {
+         onChange: @escaping @MainActor (_ calendars: [CalendarChoice], _ defaultCalendarID: String?) -> Void) {
         self.eventStore = eventStore
         self.switchable = switchable
         self.localEvents = localEvents
@@ -270,6 +271,6 @@ final class CalendarConnection {
 
     private func notify() {
         refreshDuplicates()
-        onChange(writableCalendars, defaultSaveCalendarID)
+        onChange(calendars, defaultSaveCalendarID)
     }
 }

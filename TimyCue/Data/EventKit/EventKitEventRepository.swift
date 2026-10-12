@@ -22,6 +22,8 @@ final class EventKitEventRepository: EventRepository {
     /// 読み込みを頼んだ範囲（内部のキャッシュ。ユーザーから見える制限ではない。Q35）
     private var requestedRange: ClosedRange<CalendarDay>?
     private var cache: [CalendarEvent] = []
+    /// 起動してから、Apple カレンダー側で消えた予定を一度見たか
+    private var checkedDeletedOnce = false
     /// 裏で読むための列。順に処理するので、結果も頼んだ順に届く
     private let fetchQueue = DispatchQueue(label: "io.github.takejiyuuri.timycue.eventkit", qos: .userInitiated)
 
@@ -77,25 +79,121 @@ final class EventKitEventRepository: EventRepository {
     /// Apple カレンダー側が変わったとき・読み込むカレンダーを変えたときに、頼んだ範囲を裏で読み直す
     func reloadCache() {
         guard let range = requestedRange else { cache = []; return }
-        load([range], replacingAll: true)
+        load([range], replacingAll: true, checksDeleted: true)
     }
 
-    /// 裏で読み、読み終わったら画面の処理の中で取り込む
-    private func load(_ ranges: [ClosedRange<CalendarDay>], replacingAll: Bool) {
+    /// 裏で読み、読み終わったら画面の処理の中で取り込む。
+    /// checksDeleted のときは、結び付けてある予定が Apple カレンダー側で消えていないかも見る（追加仕様書 §1.5）
+    private func load(_ ranges: [ClosedRange<CalendarDay>], replacingAll: Bool, checksDeleted: Bool = false) {
         let hidden = preferences().hiddenCalendarIDs
         let store = store
         let calendar = calendar
+        // 起動して初めて読むときも見る（アプリを閉じている間に消された予定）
+        let linkedKeys = (checksDeleted || !checkedDeletedOnce) ? Array(links.keys.values) : []
+        checkedDeletedOnce = true
         fetchQueue.async { [weak self] in
             let fetched = ranges.flatMap { Self.fetch(store: store, hiddenCalendarIDs: hidden, range: $0, calendar: calendar) }
+            let check = Self.missingTargets(linkedKeys: linkedKeys, fetchedKeys: Set(fetched.map(\.key)),
+                                            ranges: ranges, store: store, calendar: calendar)
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
                     guard let self else { return }
+                    if !linkedKeys.isEmpty { self.removeConfirmedMissing(check.missing, checked: check.checked) }
                     self.merge(fetched, ranges: ranges, replacingAll: replacingAll)
                     self.onLoaded?()
                 }
             }
         }
     }
+
+    /// Apple カレンダー側で削除されたかもしれない予定・回（裏で行う）。
+    /// 予定そのもの・繰り返し全体は、識別子で引けなければ見つからないとする。
+    /// 繰り返しの 1 回は、シリーズ全体を探してもないと確かめられたときだけ見つからないとする（下の説明）。
+    /// カレンダーを隠しただけ・権限がないときは見つからないことにしない（§1.9・§1.10）
+    private static func missingTargets(linkedKeys: [String],
+                                       fetchedKeys: Set<String>,
+                                       ranges: [ClosedRange<CalendarDay>],
+                                       store: EKEventStore,
+                                       calendar: Calendar) -> (missing: Set<String>, checked: Set<String>) {
+        guard !linkedKeys.isEmpty, EKEventStore.authorizationStatus(for: .event) == .fullAccess else { return ([], []) }
+        let fetchedItems = Set(fetchedKeys.map { EventKitMapping.parseLinkKey($0).itemIdentifier })
+        var missing = Set<String>()
+        var checked = Set<String>()
+
+        // 予定そのもの・繰り返し全体
+        let items = Set(linkedKeys.map { EventKitMapping.parseLinkKey($0).itemIdentifier })
+        for item in items {
+            checked.insert(item)
+            if !fetchedItems.contains(item) && store.calendarItem(withIdentifier: item) == nil {
+                missing.insert(item)
+            }
+        }
+
+        // 繰り返しの 1 回。EventKit は、日をずらした回も「元の回の日時（occurrenceDate）」とシリーズの識別子を持ち続けるので、
+        // それで追う。読んだ範囲にあるはずの回が読めなかったときは、シリーズの初めから終わりまで（前後 1 年を足す）を探し、
+        // どこにもなければ削除とみなす。終わりのない繰り返し・回数で終わる繰り返し・長すぎる繰り返しは探しきれないので、
+        // 削除か移動か区別できないとして確かめない（設定は残す）
+        var candidates: [String: [Date]] = [:]
+        for key in linkedKeys {
+            let parsed = EventKitMapping.parseLinkKey(key)
+            guard let occurrence = parsed.occurrenceDate, !missing.contains(parsed.itemIdentifier) else { continue }
+            if fetchedKeys.contains(key) {
+                checked.insert(key)
+                continue
+            }
+            let day = CalendarDay(occurrence, calendar: calendar)
+            guard ranges.contains(where: { $0.contains(day) }) else { continue }
+            candidates[parsed.itemIdentifier, default: []].append(occurrence)
+        }
+        for (item, dates) in candidates {
+            guard let master = store.calendarItem(withIdentifier: item) as? EKEvent,
+                  let seriesEnd = master.recurrenceRules?.compactMap({ $0.recurrenceEnd?.endDate }).max(),
+                  master.recurrenceRules?.allSatisfy({ $0.recurrenceEnd?.endDate != nil }) == true,
+                  let seriesStart = master.startDate,
+                  let start = calendar.date(byAdding: .year, value: -1, to: min(seriesStart, dates.min() ?? seriesStart)),
+                  let end = calendar.date(byAdding: .year, value: 1, to: max(seriesEnd, dates.max() ?? seriesEnd)),
+                  let limit = calendar.date(byAdding: .year, value: Self.seriesSearchYears, to: start),
+                  end <= limit else { continue }
+            var found = Set<Date>()
+            var chunkStart = start
+            while chunkStart < end {
+                let chunkEnd = min(calendar.date(byAdding: .year, value: 3, to: chunkStart) ?? end, end)
+                store.events(matching: store.predicateForEvents(withStart: chunkStart, end: chunkEnd, calendars: nil))
+                    .filter { $0.calendarItemIdentifier == item }
+                    .compactMap { $0.occurrenceDate }
+                    .forEach { found.insert($0) }
+                chunkStart = chunkEnd
+            }
+            for date in dates {
+                let key = EventKitMapping.linkKey(itemIdentifier: item, occurrenceDate: date)
+                checked.insert(key)
+                if !found.contains(date) { missing.insert(key) }
+            }
+        }
+        return (missing, checked)
+    }
+
+    /// Apple カレンダー側での削除が確かめられた予定・回を、TimyCue からも消し、その TimyCue の設定も消す（追加仕様書 §1.5）。
+    /// 1 回見つからなかっただけでは消さず、時間をおいた別の確認でもまだ見つからないときだけ消す
+    private func removeConfirmedMissing(_ missing: Set<String>, checked: Set<String>) {
+        let before = links
+        let confirmed = links.confirmMissing(missing, checked: checked, now: Date(),
+                                             minimumInterval: Self.deletionConfirmInterval)
+        let removed = links.removeVanished(confirmed)
+        if !removed.isEmpty {
+            idByKey = idByKey.filter { !removed.contains($0.value) }
+            cache.removeAll { removed.contains($0.id) }
+            try? metadata.deleteAll(removed)
+        }
+        if links != before { try? linksFile.save(links) }
+    }
+
+    /// 削除を確かめるまでに空ける時間。実装上の暫定値で、仕様の値ではない（追加仕様書 §1.5 の決まりは
+    /// 「1 回見つからないだけでは消さない」「時間を空けた別の正常な読み込みでも見つからないことを確かめる」
+    /// 「続けて届く変更の知らせを、何回もの確認と数えない」）
+    private static let deletionConfirmInterval: TimeInterval = 5 * 60
+    /// 繰り返しの 1 回を探しきれるとみなす、シリーズの長さの上限（年）。実装上の暫定値
+    private static let seriesSearchYears = 12
 
     /// 書き込んだ直後に、その日だけをすぐ読み直す（1 日ぶんなので短い。保存した予定をすぐ画面に出すため）
     private func refreshNow(days: [CalendarDay]) {
@@ -110,15 +208,14 @@ final class EventKitEventRepository: EventRepository {
     private func merge(_ fetched: [FetchedEvent], ranges: [ClosedRange<CalendarDay>], replacingAll: Bool) {
         let known = metadata.allMetadata()
         var newMetadata: [UUID: TimyCueEventMetadata] = [:]
-        // 繰り返しのまだ見ていない回は、同じ繰り返しのほかの回の TimyCue の情報（到着目標など）を引き継ぐ
-        var seriesMetadata: [String: TimyCueEventMetadata] = [:]
-        for (id, key) in links.keys {
-            if let info = known[id] { seriesMetadata[EventKitMapping.parseLinkKey(key).itemIdentifier] = info }
-        }
+        // 繰り返しのまだ見ていない回は、シリーズ共通の設定（到着目標など）を使う。個別上書きは引き継がない（追加仕様書 §2.7.1）
+        let seriesIDs = links.seriesIDs ?? [:]
         var linksChanged = false
         var events: [CalendarEvent] = []
         for item in fetched {
             let id: UUID
+            // 前の id と設定を使い直すのは、鍵（予定の識別子＋繰り返しなら元の回の日時）が同じときだけ。
+            // 名前や日時が似ているだけの予定には結び付け直さない（追加仕様書 §1.5.1・Q54）
             if let existing = idByKey[item.key] {
                 id = existing
             } else {
@@ -129,8 +226,11 @@ final class EventKitEventRepository: EventRepository {
             }
             // 初めて見る Apple カレンダーの予定は、元のカレンダーの色を初期候補にする（§53）
             if known[id] == nil && newMetadata[id] == nil {
-                if let series = seriesMetadata[EventKitMapping.parseLinkKey(item.key).itemIdentifier] {
-                    newMetadata[id] = series
+                let parsed = EventKitMapping.parseLinkKey(item.key)
+                if parsed.occurrenceDate != nil,
+                   let seriesID = seriesIDs[parsed.itemIdentifier], var common = known[seriesID] {
+                    common.overrides = nil
+                    newMetadata[id] = common
                 } else {
                     var info = TimyCueEventMetadata()
                     info.color = item.calendarColor
@@ -292,6 +392,20 @@ final class EventKitEventRepository: EventRepository {
         }
         try linksFile.save(links)
         cache.removeAll { removed.contains($0.id) }
+    }
+
+    /// 繰り返し予定のシリーズ共通の設定を保存する id。初めて聞かれたシリーズには作って覚える（追加仕様書 §2.7.1）
+    func seriesID(of eventID: UUID) -> UUID? {
+        guard let key = links.keys[eventID] else { return nil }
+        let parsed = EventKitMapping.parseLinkKey(key)
+        guard parsed.occurrenceDate != nil else { return nil }
+        if let existing = links.seriesIDs?[parsed.itemIdentifier] { return existing }
+        let created = UUID()
+        var ids = links.seriesIDs ?? [:]
+        ids[parsed.itemIdentifier] = created
+        links.seriesIDs = ids
+        try? linksFile.save(links)
+        return created
     }
 
     /// 同じ繰り返しの、読み込んである回の id（「これ以降」ならその回から後、「すべて」なら全部。その予定自身も含む）

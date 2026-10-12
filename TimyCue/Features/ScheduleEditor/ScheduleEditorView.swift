@@ -19,6 +19,8 @@ struct ScheduleEditorView: View {
     @FocusState private var focusedRow: InputRow?
     @State private var confirmsDiscard = false
     @State private var confirmsDelete = false
+    /// 「Apple Calendarに保存」を確かめている（§1.12）
+    @State private var confirmsMoveToApple = false
     @State private var showsGuidance = false
     /// 繰り返し予定を保存するときに、範囲を聞いている（Q44）
     @State private var asksSaveScope = false
@@ -38,7 +40,8 @@ struct ScheduleEditorView: View {
                         .frame(width: geometry.size.width * leftRatio)
                     InputPane(focusedRow: $focusedRow,
                               onCopy: { try? store.startCopy() },
-                              onDelete: { confirmsDelete = true })
+                              onDelete: { confirmsDelete = true },
+                              onMoveToApple: { confirmsMoveToApple = true })
                 }
                 .frame(height: bodyHeight * topRatio)
                 Theme.Colors.separator.frame(height: EditorMetrics.paneSpacing)
@@ -87,6 +90,13 @@ struct ScheduleEditorView: View {
             Button("やめる", role: .cancel) {}
         } message: {
             Text("どの予定に変更を当てますか？")
+        }
+        // ローカル予定を Apple カレンダーへ移す（追加仕様書 §1.12）。確認を出すこと・文言は仮（未確定）
+        .confirmationDialog("Apple Calendarに保存しますか？", isPresented: $confirmsMoveToApple, titleVisibility: .visible) {
+            Button("Apple Calendarに保存") { moveToAppleCalendar() }
+            Button("やめる", role: .cancel) {}
+        } message: {
+            Text("Apple Calendarに予定を作り、到着目標などの設定も引き継ぎます。TimyCue の中の予定は削除します。")
         }
         // 削除も同じ 3 択（§64・Q44）
         .confirmationDialog(store.isEditingRecurringEvent ? "繰り返し予定の削除" : "この予定を削除しますか？",
@@ -155,6 +165,20 @@ struct ScheduleEditorView: View {
         focusedRow = nil
         calendarStore.reload()
         onSaved(saved)
+        dismiss()
+    }
+
+    /// 移したら編集画面を閉じる（仮。未確定）
+    private func moveToAppleCalendar() {
+        let moved: CalendarEvent
+        do {
+            moved = try store.moveToAppleCalendar()
+        } catch {
+            return
+        }
+        focusedRow = nil
+        calendarStore.reload()
+        onSaved([moved])
         dismiss()
     }
 

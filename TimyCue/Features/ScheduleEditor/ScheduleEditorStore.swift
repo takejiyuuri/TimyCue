@@ -30,6 +30,8 @@ final class ScheduleEditorStore {
     /// 予定を書き込める Apple カレンダー（つないでいないときは空）と、新しい予定の既定の保存先（Q32）
     private(set) var writableCalendars: [CalendarChoice] = []
     private(set) var defaultCalendarID: String?
+    /// 書き込めない Apple カレンダー（共有・購読など）の id → 名前（追加仕様書 §1.7）
+    private(set) var readOnlyCalendarTitles: [String: String] = [:]
     /// 繰り返しを決めたあとに 2 日目を選ぼうとした日。繰り返しを解除するか確かめている間だけ持つ（Q49）
     private(set) var dayWaitingForRepeatClear: CalendarDay?
 
@@ -106,10 +108,34 @@ final class ScheduleEditorStore {
         }
     }
 
-    /// Apple カレンダーとつないだ・設定を変えたとき
-    func setCalendars(_ writable: [CalendarChoice], defaultCalendarID: String?) {
-        writableCalendars = writable
+    /// Apple カレンダーとつないだ・設定を変えたとき（書き込めないカレンダーも含めて渡す）
+    func setCalendars(_ calendars: [CalendarChoice], defaultCalendarID: String?) {
+        writableCalendars = calendars.filter(\.isWritable)
+        readOnlyCalendarTitles = Dictionary(calendars.filter { !$0.isWritable }.map { ($0.id, $0.title) },
+                                            uniquingKeysWith: { first, _ in first })
         self.defaultCalendarID = defaultCalendarID
+    }
+
+    // MARK: - 編集できない Apple カレンダーの予定（追加仕様書 §1.7）
+
+    /// 編集している予定が、書き込めない Apple カレンダーのものなら、その短い理由。
+    /// 予定名・日時・場所など Apple 由来の項目はロックし、TimyCue の設定（到着目標など）だけ変えられる
+    var appleFieldsLockReason: String? {
+        guard case .edit(let id) = mode,
+              let event = events.first(where: { $0.id == id }),
+              event.source == .appleCalendar,
+              let calendarID = event.calendarID,
+              let title = readOnlyCalendarTitles[calendarID] else { return nil }
+        return "「\(title)」は編集できないカレンダーです。予定名・日時・場所は Apple のカレンダーで変更してください"
+    }
+
+    var areAppleFieldsLocked: Bool {
+        appleFieldsLockReason != nil
+    }
+
+    /// その行がロックされているか（TimyCue の設定の行はロックしない）
+    func isLocked(_ row: InputRow) -> Bool {
+        areAppleFieldsLocked && row.isAppleField
     }
 
     /// 保存に足りないもの。日付 → 開始時刻 → 予定名 の順（仕様 §46・§87）
@@ -207,6 +233,7 @@ final class ScheduleEditorStore {
 
     /// 日を選ぶ。新規・コピーでは選んだ日を足し、編集ではその日へ移動する（仕様 §34・§61）。選んだ日を表示する
     func selectDay(_ day: CalendarDay) {
+        guard !areAppleFieldsLocked else { return }
         // 繰り返しを決めたまま 2 日目は選べない。解除するか確かめる（Q49：複数日登録と繰り返しは併用しない）
         if mode.allowsMultipleDays, content.repeatRule.isRepeating, !selectedDays.isEmpty, !selectedDays.contains(day) {
             dayWaitingForRepeatClear = day
@@ -264,7 +291,7 @@ final class ScheduleEditorStore {
     /// 開始時刻を入れる（時をタップして分ホイール、仮予定のドラッグ。仕様 §38・§40）。
     /// 表示中の日が選ばれていなければ、その日を選んでから入れる
     func setStartMinute(_ minute: MinuteOfDay, on day: CalendarDay? = nil) {
-        guard let target = day ?? displayedDay else { return }
+        guard !areAppleFieldsLocked, let target = day ?? displayedDay else { return }
         if !selectedDays.contains(target) { selectDay(target) }
         startMinutes[target] = clampToDay(minute)
     }
@@ -296,7 +323,7 @@ final class ScheduleEditorStore {
     /// 複数日（Q1）：最初に入れた所要時間は全部の日に入る。そのあと日付タブで選んだ日で変えると、その日だけ変わる。
     /// 1 日だけ選んでいる間は、何度変えても全部の日に共通の値として持つ（あとで足した日にも同じ値が入る）
     func setEndMinute(_ end: MinuteOfDay?, on day: CalendarDay? = nil) {
-        guard let target = day ?? displayedDay else { return }
+        guard !areAppleFieldsLocked, let target = day ?? displayedDay else { return }
         let duration: Int?
         if let end {
             guard let start = startMinutes[target], end > start else { return }
@@ -347,6 +374,8 @@ final class ScheduleEditorStore {
 
     /// 行を開く。別の行が開いていたら閉じる。開いている行をもう一度押したら閉じる（仕様 §45）
     func toggleRow(_ row: InputRow) {
+        // ロックした行は開かない（理由は右上の一番上に出している）
+        guard !isLocked(row) else { expandedRow = nil; return }
         expandedRow = expandedRow == row ? nil : row
     }
 
@@ -378,13 +407,20 @@ final class ScheduleEditorStore {
         }
 
         let saved: [CalendarEvent]
-        /// TimyCue の情報（到着目標など）を保存する予定。繰り返しの「これ以降」「すべて」なら、読み込んである同じ繰り返しの回にも
-        var metadataTargets: [UUID] = []
+        /// 保存する TimyCue の情報（到着目標など）。繰り返しはシリーズ共通の設定と回ごとの個別上書きを分ける（追加仕様書 §2.7.1・Q53）
+        var entries: [UUID: TimyCueEventMetadata] = [:]
         switch mode {
         case .new, .copy:
             saved = draftEvents
             try repository.insert(saved)
-            metadataTargets = saved.map(\.id)
+            var common = content.metadata
+            common.overrides = nil
+            for event in saved {
+                entries[event.id] = common
+                if event.repeatRule.isRepeating, let seriesID = repository.seriesID(of: event.id) {
+                    entries[seriesID] = common
+                }
+            }
         case .edit(let id):
             guard let original = events.first(where: { $0.id == id }),
                   let day = selectedDays.first,
@@ -397,13 +433,46 @@ final class ScheduleEditorStore {
                                             durationMinutes: durationMinutes(on: day),
                                             isAllDay: original.isAllDay,
                                             source: original.source)
-            let effectiveScope: RecurrenceScope = original.repeatRule.isRepeating ? scope : .thisEvent
-            metadataTargets = repository.occurrenceIDs(sameSeriesAs: id, scope: effectiveScope)
-            try repository.update(updated, scope: effectiveScope)
+            let isRecurring = original.repeatRule.isRepeating
+            let effectiveScope: RecurrenceScope = isRecurring ? scope : .thisEvent
+            let before = metadataByEventID[id] ?? TimyCueEventMetadata()
+            let changed = before.changedFields(to: content.metadata)
+            let targets = repository.occurrenceIDs(sameSeriesAs: id, scope: effectiveScope)
+            let oldCommon = repository.seriesID(of: id).flatMap { metadataByEventID[$0] }
+            // 書き込めないカレンダーの予定は、Apple カレンダーへは書かず、TimyCue の設定だけ保存する（§1.7）
+            if !areAppleFieldsLocked {
+                try repository.update(updated, scope: effectiveScope)
+            }
             saved = [updated]
+
+            if !isRecurring {
+                entries[id] = content.metadata
+            } else if effectiveScope == .thisEvent {
+                entries[id] = RecurringMetadata.thisOnly(before: before, after: content.metadata)
+                // 共通設定がまだない（前の版で作った）繰り返しは、変える前の設定を共通設定として残す
+                if oldCommon == nil, let seriesID = repository.seriesID(of: id) {
+                    var common = before
+                    common.overrides = nil
+                    entries[seriesID] = common
+                }
+            } else {
+                var fallback = before
+                fallback.overrides = nil
+                for target in Set(targets + [id]) {
+                    entries[target] = RecurringMetadata.series(target: metadataByEventID[target] ?? fallback,
+                                                               changed: changed,
+                                                               newValues: content.metadata,
+                                                               isEditedOccurrence: target == id)
+                }
+                // 「これ以降」で Apple 側の繰り返しが分かれると、シリーズの id も新しくなる（前の回は前の共通設定のまま）
+                if let seriesID = repository.seriesID(of: id) {
+                    entries[seriesID] = RecurringMetadata.updatedCommon(oldCommon ?? fallback,
+                                                                        changed: changed,
+                                                                        newValues: content.metadata)
+                }
+            }
         }
-        try metadataRepository.saveAll(Dictionary(metadataTargets.map { ($0, content.metadata) },
-                                                  uniquingKeysWith: { first, _ in first }))
+        try metadataRepository.saveAll(entries)
 
         reloadEvents()
         showsSaveIssue = false
@@ -417,13 +486,60 @@ final class ScheduleEditorStore {
         guard case .edit(let id) = mode else { return }
         let day = displayedDay
         let effectiveScope: RecurrenceScope = isEditingRecurringEvent ? scope : .thisEvent
-        let removed = repository.occurrenceIDs(sameSeriesAs: id, scope: effectiveScope)
+        var removed = Set(repository.occurrenceIDs(sameSeriesAs: id, scope: effectiveScope))
+        // 「すべて」ならシリーズ共通の設定も消す（追加仕様書 §2.7.1）
+        if effectiveScope == .allEvents, let seriesID = repository.seriesID(of: id) { removed.insert(seriesID) }
         try repository.delete(id: id, scope: effectiveScope)
-        for removedID in removed {
-            try metadataRepository.delete(for: removedID)
-        }
+        try metadataRepository.deleteAll(removed)
         reloadEvents()
         startNew(on: day)
+    }
+
+    // MARK: - ローカル予定を Apple カレンダーへ移す（追加仕様書 §1.12）
+
+    /// 編集している予定が、つなぐ前から TimyCue の中にあった予定で、Apple カレンダーとつないでいるか。
+    /// 自動・一括では移さない。編集画面でユーザーが「Apple Calendarに保存」を選んだときだけ移す
+    var canMoveToAppleCalendar: Bool {
+        guard case .edit(let id) = mode, !writableCalendars.isEmpty,
+              let event = events.first(where: { $0.id == id }) else { return false }
+        return event.source == .timyCue
+    }
+
+    /// 「Apple Calendarに保存」：今の内容で Apple カレンダーに新しく作り、TimyCue の設定を引き継いで、
+    /// 元のローカル予定を消す（二重に出さない）。作った予定を返す
+    @discardableResult
+    func moveToAppleCalendar() throws -> CalendarEvent {
+        let issues = saveIssues
+        guard issues.isEmpty else {
+            present(issues)
+            throw ScheduleEditorError.notReady(issues)
+        }
+        guard canMoveToAppleCalendar, case .edit(let id) = mode,
+              let original = events.first(where: { $0.id == id }),
+              let day = selectedDays.first,
+              let start = startMinutes[day] else {
+            throw ScheduleEditorError.eventNotFound(editingEvent?.id ?? UUID())
+        }
+        let moved = content.makeEvent(id: UUID(),
+                                      day: day,
+                                      startMinute: start,
+                                      durationMinutes: durationMinutes(on: day),
+                                      isAllDay: original.isAllDay,
+                                      source: .appleCalendar)
+        try repository.insert([moved])
+        var settings = content.metadata
+        settings.overrides = nil
+        var entries = [moved.id: settings]
+        if moved.repeatRule.isRepeating, let seriesID = repository.seriesID(of: moved.id) { entries[seriesID] = settings }
+        try metadataRepository.saveAll(entries)
+        try repository.delete(id: id)
+        try metadataRepository.delete(for: id)
+
+        reloadEvents()
+        mode = .edit(eventID: moved.id)
+        showsSaveIssue = false
+        baseline = snapshot
+        return moved
     }
 
     /// 予定詳細の吹き出しの「編集」（Q30）：その予定の編集を始め、カレンダー側に 3 分割画面を開いてもらう
