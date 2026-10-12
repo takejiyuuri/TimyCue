@@ -17,6 +17,8 @@ struct HomeView: View {
     @State private var editRequest: EditRequest?
     /// ホームの予定を押したときの予定詳細の吹き出し（Q28(c)）
     @State private var showsDetail = false
+    /// 重複候補の一覧（Q50）
+    @State private var showsDuplicates = false
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 30)) { context in
@@ -29,6 +31,10 @@ struct HomeView: View {
                         .font(.title3.weight(.semibold))
                         .foregroundStyle(Theme.Colors.textPrimary)
                         .padding(.top, Theme.Spacing.l)
+
+                    if connection.showsDuplicateNotice {
+                        duplicateNotice
+                    }
 
                     if let next {
                         nextEventSection(next, now: now)
@@ -55,6 +61,17 @@ struct HomeView: View {
         }
         .background(Theme.Colors.background.ignoresSafeArea())
         .onAppear { store.updateToday() }
+        .sheet(isPresented: $showsDuplicates) {
+            NavigationStack {
+                DuplicateListView()
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("閉じる") { showsDuplicates = false }
+                        }
+                    }
+            }
+            .environment(connection)
+        }
         .fullScreenCover(item: $newEventDay) { day in
             ScheduleEditorView(initialMonth: CalendarMonth(day), onSaved: { _ in store.reload() })
                 .environment(editorStore)
@@ -136,6 +153,36 @@ struct HomeView: View {
             dayText = "\(event.day.month)/\(event.day.day)（\(event.day.weekdaySymbol())）"
         }
         return "\(dayText) \(CalendarStore.timeText(for: event))"
+    }
+
+    // MARK: - 重複候補の案内（Q50）
+
+    /// 新しい重複候補が見つかったら、一度だけ強制しない案内を出す。［確認］で一覧へ。閉じたらもう出さない
+    private var duplicateNotice: some View {
+        HStack(alignment: .center, spacing: Theme.Spacing.m) {
+            Text("重複している可能性のある予定が\(connection.duplicateCandidates.count)件あります")
+                .font(.subheadline)
+                .foregroundStyle(Theme.Colors.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+            Button("確認") {
+                connection.markDuplicatesNotified()
+                showsDuplicates = true
+            }
+            .buttonStyle(.bordered)
+            .tint(Theme.Colors.accent)
+            Button {
+                connection.markDuplicatesNotified()
+            } label: {
+                Image(systemName: "xmark")
+                    .foregroundStyle(Theme.Colors.textSecondary)
+            }
+            .accessibilityLabel("閉じる")
+        }
+        .padding(Theme.Spacing.m)
+        .background {
+            RoundedRectangle(cornerRadius: Theme.Radius.medium).fill(Theme.Colors.surface)
+        }
     }
 
     // MARK: - 使い始めるための入り口（Q42-8・Q43）

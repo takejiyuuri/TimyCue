@@ -28,6 +28,8 @@ final class CalendarConnection {
     private(set) var preferences: CalendarPreferences
     /// iPhone の「新規イベントのデフォルトカレンダー」
     private(set) var systemDefaultCalendarID: String?
+    /// TimyCue のローカル予定と Apple カレンダーの予定の重複候補（Q42-8・Q50）。同期のたびに見直す
+    private(set) var duplicateCandidates: [DuplicateCandidate] = []
 
     @ObservationIgnored private let eventStore: EKEventStore
     @ObservationIgnored private let switchable: SwitchableEventRepository
@@ -181,6 +183,62 @@ final class CalendarConnection {
                                        systemDefaultID: systemDefaultCalendarID, writable: writableCalendars)
     }
 
+    // MARK: - 重複候補（Q42-8・Q50）
+
+    /// ホームに一度だけ出す、強制しない案内：まだ知らせていない重複候補がある
+    var showsDuplicateNotice: Bool {
+        let notified = preferences.notifiedDuplicates ?? []
+        return duplicateCandidates.contains { !notified.contains($0.id) }
+    }
+
+    /// ホームの案内を見た（［確認］か閉じる）。今ある候補は、もうホームでは知らせない
+    func markDuplicatesNotified() {
+        var notified = preferences.notifiedDuplicates ?? []
+        notified.formUnion(duplicateCandidates.map(\.id))
+        preferences.notifiedDuplicates = notified
+        savePreferences()
+    }
+
+    /// 「両方残す」：両方を独立した予定として持ち、同じ組はもう重複候補として聞かない
+    func keepBoth(_ candidate: DuplicateCandidate) {
+        var kept = preferences.keptBothDuplicates ?? []
+        kept.insert(candidate.id)
+        preferences.keptBothDuplicates = kept
+        savePreferences()
+        refreshDuplicates()
+    }
+
+    /// 「Apple Calendarの予定を使う」で、両方に付いた TimyCue の設定がぶつかるか（ぶつかるなら、どちらを使うか先に聞く）
+    func settingsConflict(_ candidate: DuplicateCandidate) -> Bool {
+        let all = metadata.allMetadata()
+        return DuplicateCandidates.settingsConflict(local: all[candidate.local.id], apple: all[candidate.apple.id])
+    }
+
+    /// 「Apple Calendarの予定を使う」：ローカル予定の TimyCue の設定をできるだけ Apple の予定へ引き継いでから、
+    /// ローカル予定を削除する（隠すのではなく削除。Apple の予定を正本にする）
+    func useApple(_ candidate: DuplicateCandidate, preferLocalSettings: Bool? = nil) throws {
+        guard let localEvents else { return }
+        let all = metadata.allMetadata()
+        let merged = DuplicateCandidates.mergedMetadata(local: all[candidate.local.id],
+                                                        apple: all[candidate.apple.id],
+                                                        preferLocal: preferLocalSettings)
+        try metadata.save(merged, for: candidate.apple.id)
+        try localEvents.delete(id: candidate.local.id)
+        try metadata.delete(for: candidate.local.id)
+        notify()
+    }
+
+    /// 同期のたびに重複候補を見直す（見つけるのは Apple カレンダーとの同期のとき。Q50）
+    private func refreshDuplicates() {
+        guard state == .connected, let eventKit, let localEvents else {
+            duplicateCandidates = []
+            return
+        }
+        duplicateCandidates = DuplicateCandidates.find(local: localEvents.allEvents(),
+                                                       apple: eventKit.allEvents(),
+                                                       keptBoth: preferences.keptBothDuplicates ?? [])
+    }
+
     // MARK: - 内部
 
     /// 保存先を、Apple カレンダーとつなぐ前から TimyCue の中にあった予定と Apple カレンダーの両方にする。
@@ -211,6 +269,7 @@ final class CalendarConnection {
     }
 
     private func notify() {
+        refreshDuplicates()
         onChange(writableCalendars, defaultSaveCalendarID)
     }
 }

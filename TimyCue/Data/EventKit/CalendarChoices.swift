@@ -24,6 +24,10 @@ struct CalendarPreferences: Codable, Equatable {
     /// 既定の保存先が使えなくなって iPhone の既定へ切り替えたことを、まだ知らせていない（v1.2。一度だけ知らせる）。
     /// 古いファイルにはないので省略できる
     var pendingFallbackNotice: Bool?
+    /// 重複候補で「両方残す」を選んだ組（もう聞かない。Q50）。古いファイルにはないので省略できる
+    var keptBothDuplicates: Set<String>?
+    /// ホームで「重複している可能性のある予定が N 件あります」と一度知らせた組（Q50）
+    var notifiedDuplicates: Set<String>?
 
     func isShown(_ calendarID: String) -> Bool {
         !hiddenCalendarIDs.contains(calendarID)

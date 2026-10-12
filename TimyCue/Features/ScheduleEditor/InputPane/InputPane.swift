@@ -483,7 +483,13 @@ private struct RepeatEditor: View {
 
         VStack(alignment: .leading, spacing: Theme.Spacing.s) {
             if !store.canRepeat {
+                // 連携していないときは選べない（Q48）。同じ予定を何日も作るなら下カレンダーの複数日登録
                 Text("カレンダーを連携すると、繰り返しを使えます")
+                    .font(EditorMetrics.inputLabelFont)
+                    .foregroundStyle(Theme.Colors.textSecondary)
+            } else if store.repeatBlockedByMultipleDays {
+                // 複数日登録とは併用しない（Q49）
+                Text("繰り返しは1日の予定で設定できます")
                     .font(EditorMetrics.inputLabelFont)
                     .foregroundStyle(Theme.Colors.textSecondary)
             } else {

@@ -34,6 +34,15 @@ struct CalendarSettingsView: View {
                 statusRow
             }
             if connection.state == .connected {
+                // あとから確かめられるように、重複候補の数を残しておく（Q50）
+                Section {
+                    NavigationLink {
+                        DuplicateListView()
+                    } label: {
+                        LabeledContent("重複候補",
+                                       value: connection.duplicateCandidates.isEmpty ? "なし" : "\(connection.duplicateCandidates.count)件")
+                    }
+                }
                 if !connection.writableCalendars.isEmpty {
                     Section {
                         Picker("新しい予定の保存先", selection: Binding(
