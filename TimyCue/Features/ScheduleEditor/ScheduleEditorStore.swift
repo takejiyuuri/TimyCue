@@ -30,6 +30,8 @@ final class ScheduleEditorStore {
     /// 予定を書き込める Apple カレンダー（つないでいないときは空）と、新しい予定の既定の保存先（Q32）
     private(set) var writableCalendars: [CalendarChoice] = []
     private(set) var defaultCalendarID: String?
+    /// 繰り返しを決めたあとに 2 日目を選ぼうとした日。繰り返しを解除するか確かめている間だけ持つ（Q49）
+    private(set) var dayWaitingForRepeatClear: CalendarDay?
 
     /// 保存しようとして足りないものがあったか。あったら、直るまで知らせを出し続ける（仕様 §46）
     private var showsSaveIssue = false
@@ -205,6 +207,11 @@ final class ScheduleEditorStore {
 
     /// 日を選ぶ。新規・コピーでは選んだ日を足し、編集ではその日へ移動する（仕様 §34・§61）。選んだ日を表示する
     func selectDay(_ day: CalendarDay) {
+        // 繰り返しを決めたまま 2 日目は選べない。解除するか確かめる（Q49：複数日登録と繰り返しは併用しない）
+        if mode.allowsMultipleDays, content.repeatRule.isRepeating, !selectedDays.isEmpty, !selectedDays.contains(day) {
+            dayWaitingForRepeatClear = day
+            return
+        }
         if mode.allowsMultipleDays {
             if !selectedDays.contains(day) {
                 selectedDays.append(day)
@@ -216,6 +223,24 @@ final class ScheduleEditorStore {
             startMinutes = carriedStart.map { [day: $0] } ?? [:]
         }
         displayedDay = day
+    }
+
+    /// 「繰り返しを解除しますか？」に「解除する」：繰り返しを外して、選ぼうとした日を足す（Q49）
+    func clearRepeatAndSelectWaitingDay() {
+        guard let day = dayWaitingForRepeatClear else { return }
+        dayWaitingForRepeatClear = nil
+        content.repeatRule = .none
+        selectDay(day)
+    }
+
+    /// 「繰り返しを解除しますか？」に「キャンセル」：日は足さない
+    func cancelWaitingDay() {
+        dayWaitingForRepeatClear = nil
+    }
+
+    /// 2 日以上選んでいる（複数日登録）ので、繰り返しは選べない（Q49）
+    var repeatBlockedByMultipleDays: Bool {
+        selectedDays.count >= 2
     }
 
     /// 選んだ日を外す（新規・コピーのみ）。表示中の日を外したら、残りの最初の日を表示する
