@@ -66,6 +66,21 @@ final class EventKitMappingTests: XCTestCase {
         XCTAssertEqual(links.id(forKey: key), id)
     }
 
+    // MARK: - 足りない範囲だけを読む（裏での読み込み）
+
+    func testMissingRangesReadOnlyWhatIsNotRequestedYet() {
+        let d = { (offset: Int) in CalendarDay(year: 2026, month: 10, day: 1).adding(days: offset) }
+        XCTAssertEqual(EventKitMapping.missingRanges(wanted: d(0)...d(10), requested: nil), [d(0)...d(10)], "初めは全部")
+        XCTAssertEqual(EventKitMapping.missingRanges(wanted: d(2)...d(8), requested: d(0)...d(10)), [], "読んである範囲なら何もしない")
+        XCTAssertEqual(EventKitMapping.missingRanges(wanted: d(-5)...d(3), requested: d(0)...d(10)), [d(-5)...d(-1)],
+                       "過去へスクロールしたら、前に足した分だけ")
+        XCTAssertEqual(EventKitMapping.missingRanges(wanted: d(8)...d(20), requested: d(0)...d(10)), [d(11)...d(20)],
+                       "未来へは、後ろに足した分だけ")
+        XCTAssertEqual(EventKitMapping.missingRanges(wanted: d(-3)...d(13), requested: d(0)...d(10)), [d(-3)...d(-1), d(11)...d(13)])
+        XCTAssertEqual(EventKitMapping.missingRanges(wanted: d(-30)...d(-20), requested: d(0)...d(10)), [d(-30)...d(-1)],
+                       "離れた範囲なら、間も読んで途切れないようにする")
+    }
+
     func testNearestColorUsesHue() {
         XCTAssertEqual(EventColor.nearest(red: 1, green: 0.58, blue: 0), .orange, "Apple カレンダーのオレンジ（§53）")
         XCTAssertEqual(EventColor.nearest(red: 0.4, green: 0.8, blue: 0.3), .green)
@@ -118,6 +133,26 @@ final class FileRepositoryTests: XCTestCase {
         info.notifications = NotificationPreference(timings: [.beforeStart(minutes: 15)])
         try FileEventMetadataRepository(file: file).save(info, for: id)
         XCTAssertEqual(FileEventMetadataRepository(file: file).allMetadata()[id], info)
+    }
+
+    func testMetadataSaveAllKeepsOthers() throws {
+        let file = JSONFile<[UUID: TimyCueEventMetadata]>(url: directory.appendingPathComponent("metadata.json"), empty: [:])
+        let repository = FileEventMetadataRepository(file: file)
+        let kept = UUID()
+        var walk = TimyCueEventMetadata()
+        walk.transport = .walk
+        try repository.save(walk, for: kept)
+
+        var entries: [UUID: TimyCueEventMetadata] = [:]
+        for _ in 0..<300 {
+            var info = TimyCueEventMetadata()
+            info.color = .mint
+            entries[UUID()] = info
+        }
+        try repository.saveAll(entries)
+        let reopened = FileEventMetadataRepository(file: file).allMetadata()
+        XCTAssertEqual(reopened.count, 301, "Apple カレンダーの予定を何百件も初めて読んでも、まとめて残る")
+        XCTAssertEqual(reopened[kept], walk, "前からあったものは消さない")
     }
 
     func testBrokenFileStartsEmpty() throws {

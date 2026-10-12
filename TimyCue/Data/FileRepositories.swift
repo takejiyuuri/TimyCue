@@ -81,6 +81,13 @@ final class FileEventMetadataRepository: EventMetadataRepository {
         try file.save(storage)
     }
 
+    /// ファイルへは 1 回だけ書く
+    func saveAll(_ entries: [UUID: TimyCueEventMetadata]) throws {
+        guard !entries.isEmpty else { return }
+        storage.merge(entries) { _, new in new }
+        try file.save(storage)
+    }
+
     func delete(for eventID: UUID) throws {
         storage[eventID] = nil
         try file.save(storage)

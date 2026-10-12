@@ -29,7 +29,8 @@ struct DayTimelineView: View {
         let isToday = day == store.today
         let events = store.timedEvents(on: day)
         let allDay = store.allDayEvents(on: day)
-        let colors = Dictionary(uniqueKeysWithValues: (events + allDay).map { ($0.id, store.color(for: $0)) })
+        // 同じ予定が 2 つ届いても落ちないように（uniqueKeysWithValues は重なると止まる）
+        let colors = Dictionary((events + allDay).map { ($0.id, store.color(for: $0)) }, uniquingKeysWith: { first, _ in first })
         let hourHeight = TimelineMetrics.hourHeight * zoom
         let placements = TimelineLayout.placements(
             for: events,

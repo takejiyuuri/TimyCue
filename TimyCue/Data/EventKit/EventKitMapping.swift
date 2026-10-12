@@ -59,6 +59,20 @@ enum EventKitMapping {
                              source: source)
     }
 
+    /// まだ読んでいない部分。読み込みを頼んだ範囲はいつも途切れない 1 本にしたいので、離れた範囲を頼まれたら間も読む
+    static func missingRanges(wanted: ClosedRange<CalendarDay>,
+                              requested: ClosedRange<CalendarDay>?) -> [ClosedRange<CalendarDay>] {
+        guard let requested else { return [wanted] }
+        var result: [ClosedRange<CalendarDay>] = []
+        if wanted.lowerBound < requested.lowerBound {
+            result.append(wanted.lowerBound...requested.lowerBound.adding(days: -1))
+        }
+        if wanted.upperBound > requested.upperBound {
+            result.append(requested.upperBound.adding(days: 1)...wanted.upperBound)
+        }
+        return result
+    }
+
     /// 繰り返しの予定は、回ごとに同じ識別子を持つので、その回の日時も足して 1 件ずつ見分ける
     static func linkKey(itemIdentifier: String, occurrenceDate: Date?) -> String {
         guard let occurrenceDate else { return itemIdentifier }
