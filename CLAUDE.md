@@ -24,7 +24,7 @@ iPhone アプリの手順は iphone-app-release スキル（見つからなけ�
 - 段階が終わるたびに、Chrome（Claude in Chrome）で Codemagic の「iOS ビルド確認（署名なし）」を始め、結果・テストの件数・画面写真を報告する。赤ならログから直す。
 
 ## Codemagic
-- アプリ：https://codemagic.io/app/6acb1f56bdf16b04f9d8fc2a （main には codemagic.yaml がまだ無いので、ビルドするブランチを選ぶ）
+- アプリ：https://codemagic.io/app/6acb1f56bdf16b04f9d8fc2a （ビルドするブランチを選ぶ。TestFlight へは「iOS → TestFlight」。アプリの Apple ID は 6821819934 で codemagic.yaml に入れてある）
 - ワークフロー：`ios-check`「iOS ビルド確認（署名なし）」（テスト・画面写真）と `ios-testflight`「iOS → TestFlight」。どちらも手動で始める。
 - 結果：test.log の `Executed N tests` と `** TEST SUCCEEDED **`、画面写真は home / calendar / settings（1320×2868）。Artifacts は 1 つの ZIP で落ちる。ダウンロードはユーザーの了解を取ってから。
 - 無料プランは始まるまで 20 分ほど待つことがある。
