@@ -1,7 +1,7 @@
 import XCTest
 @testable import TimyCue
 
-/// Apple カレンダーの予定の編集（追加仕様書 §1.7：編集できない予定）
+/// Apple カレンダーの予定の編集（追加仕様書 §1.7：編集できない予定、§1.12：ローカル予定を Apple カレンダーへ移す）
 final class AppleCalendarEditingTests: XCTestCase {
     private let day = CalendarDay(year: 2026, month: 10, day: 12)
     private let home = CalendarChoice(id: "home", title: "家", sourceTitle: "iCloud", isWritable: true, color: .orange)
@@ -50,5 +50,36 @@ final class AppleCalendarEditingTests: XCTestCase {
         try store.startEditing(eventID: event.id)
         XCTAssertFalse(store.areAppleFieldsLocked)
         XCTAssertFalse(store.isLocked(.title))
+    }
+
+    // MARK: - ローカル予定を Apple カレンダーへ移す（§1.12）
+
+    @MainActor
+    func testMovingLocalEventToAppleCalendarCarriesSettingsAndRemovesTheLocalOne() throws {
+        let localEvent = CalendarEvent(day: day, startMinute: 600, title: "歯医者")
+        let local = InMemoryEventRepository(events: [localEvent])
+        let apple = InMemoryEventRepository()
+        let metadata = InMemoryEventMetadataRepository()
+        var settings = TimyCueEventMetadata()
+        settings.arrivalTargetMinutes = 10
+        settings.transport = .walk
+        try metadata.save(settings, for: localEvent.id)
+        let store = ScheduleEditorStore(repository: CombinedEventRepository(primary: apple, local: local),
+                                        metadataRepository: metadata)
+
+        try store.startEditing(eventID: localEvent.id)
+        XCTAssertFalse(store.canMoveToAppleCalendar, "つないでいないときは出さない")
+        store.setCalendars([home], defaultCalendarID: "home")
+        XCTAssertTrue(store.canMoveToAppleCalendar, "つないだあとも、自動では移さず、編集画面で選んだときだけ")
+
+        store.content.metadata.arrivalTargetMinutes = 20
+        let moved = try store.moveToAppleCalendar()
+        XCTAssertTrue(local.allEvents().isEmpty, "元のローカル予定は消す（二重に出さない）")
+        XCTAssertEqual(apple.allEvents().map(\.title), ["歯医者"], "Apple カレンダーに新しく作る")
+        XCTAssertEqual(metadata.allMetadata()[moved.id]?.arrivalTargetMinutes, 20, "TimyCue の設定を引き継ぐ")
+        XCTAssertEqual(metadata.allMetadata()[moved.id]?.transport, .walk)
+        XCTAssertNil(metadata.allMetadata()[localEvent.id])
+        XCTAssertEqual(store.mode, .edit(eventID: moved.id), "移した予定に紐づけ替える")
+        XCTAssertFalse(store.canMoveToAppleCalendar)
     }
 }

@@ -495,6 +495,53 @@ final class ScheduleEditorStore {
         startNew(on: day)
     }
 
+    // MARK: - ローカル予定を Apple カレンダーへ移す（追加仕様書 §1.12）
+
+    /// 編集している予定が、つなぐ前から TimyCue の中にあった予定で、Apple カレンダーとつないでいるか。
+    /// 自動・一括では移さない。編集画面でユーザーが「Apple Calendarに保存」を選んだときだけ移す
+    var canMoveToAppleCalendar: Bool {
+        guard case .edit(let id) = mode, !writableCalendars.isEmpty,
+              let event = events.first(where: { $0.id == id }) else { return false }
+        return event.source == .timyCue
+    }
+
+    /// 「Apple Calendarに保存」：今の内容で Apple カレンダーに新しく作り、TimyCue の設定を引き継いで、
+    /// 元のローカル予定を消す（二重に出さない）。作った予定を返す
+    @discardableResult
+    func moveToAppleCalendar() throws -> CalendarEvent {
+        let issues = saveIssues
+        guard issues.isEmpty else {
+            present(issues)
+            throw ScheduleEditorError.notReady(issues)
+        }
+        guard canMoveToAppleCalendar, case .edit(let id) = mode,
+              let original = events.first(where: { $0.id == id }),
+              let day = selectedDays.first,
+              let start = startMinutes[day] else {
+            throw ScheduleEditorError.eventNotFound(editingEvent?.id ?? UUID())
+        }
+        let moved = content.makeEvent(id: UUID(),
+                                      day: day,
+                                      startMinute: start,
+                                      durationMinutes: durationMinutes(on: day),
+                                      isAllDay: original.isAllDay,
+                                      source: .appleCalendar)
+        try repository.insert([moved])
+        var settings = content.metadata
+        settings.overrides = nil
+        var entries = [moved.id: settings]
+        if moved.repeatRule.isRepeating, let seriesID = repository.seriesID(of: moved.id) { entries[seriesID] = settings }
+        try metadataRepository.saveAll(entries)
+        try repository.delete(id: id)
+        try metadataRepository.delete(for: id)
+
+        reloadEvents()
+        mode = .edit(eventID: moved.id)
+        showsSaveIssue = false
+        baseline = snapshot
+        return moved
+    }
+
     /// 予定詳細の吹き出しの「編集」（Q30）：その予定の編集を始め、カレンダー側に 3 分割画面を開いてもらう
     func beginEditing(_ eventID: UUID, from calendar: CalendarStore) {
         refresh()

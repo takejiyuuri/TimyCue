@@ -8,6 +8,8 @@ struct InputPane: View {
     var focusedRow: FocusState<InputRow?>.Binding
     let onCopy: () -> Void
     let onDelete: () -> Void
+    /// 「Apple Calendarに保存」（ローカル予定を移す。追加仕様書 §1.12）
+    let onMoveToApple: () -> Void
 
     var body: some View {
         VStack(spacing: 0) {
@@ -57,6 +59,9 @@ struct InputPane: View {
                                 .padding(.horizontal, Theme.Spacing.m)
                                 .padding(.bottom, Theme.Spacing.m)
                         }
+                    }
+                    if store.canMoveToAppleCalendar {
+                        MoveToAppleButton(onMove: onMoveToApple)
                     }
                     // 書き込めないカレンダーの予定は消せない（§1.7）
                     if case .edit = store.mode, !store.areAppleFieldsLocked {
@@ -604,6 +609,27 @@ private struct RepeatEditor: View {
 }
 
 /// 編集のときだけ、右の入力のいちばん下に独立して出す「予定を削除」。誤操作を防ぐため固定ヘッダーには置かない（§64・Q25）
+/// TimyCue の中の予定を Apple カレンダーへ移す（追加仕様書 §1.12）
+private struct MoveToAppleButton: View {
+    let onMove: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
+            Button(action: onMove) {
+                Label("Apple Calendarに保存", systemImage: "calendar.badge.plus")
+                    .font(EditorMetrics.chipFont)
+            }
+            .buttonStyle(.bordered)
+            Text("この予定は TimyCue の中だけにあります")
+                .font(EditorMetrics.lockNoticeFont)
+                .foregroundStyle(Theme.Colors.textSecondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, Theme.Spacing.m)
+        .padding(.top, Theme.Spacing.l)
+    }
+}
+
 private struct DeleteButton: View {
     let onDelete: () -> Void
 
