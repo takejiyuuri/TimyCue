@@ -214,6 +214,8 @@ final class EventKitEventRepository: EventRepository {
         var events: [CalendarEvent] = []
         for item in fetched {
             let id: UUID
+            // 前の id と設定を使い直すのは、鍵（予定の識別子＋繰り返しなら元の回の日時）が同じときだけ。
+            // 名前や日時が似ているだけの予定には結び付け直さない（追加仕様書 §1.5.1・Q54）
             if let existing = idByKey[item.key] {
                 id = existing
             } else {
