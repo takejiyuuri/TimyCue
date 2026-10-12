@@ -1,0 +1,49 @@
+import XCTest
+@testable import TimyCue
+
+final class TimeDragMathTests: XCTestCase {
+    private let hourHeight = 44.0
+
+    func testWheelStartsAtZeroMinutes() {
+        XCTAssertEqual(TimeDragMath.startMinute(hour: 14, minute: 0), 14 * 60, "「時」を押すと 00 分から（§38）")
+        XCTAssertEqual(TimeDragMath.startMinute(hour: 14, minute: 17), 14 * 60 + 17, "14:00 → 14:17")
+        XCTAssertEqual(TimeDragMath.startMinute(hour: 23, minute: 59), 23 * 60 + 59)
+    }
+
+    func testDraggingDraftChangesStartByTheMinute() {
+        // 44pt で 1 時間 → 11pt で 15 分
+        XCTAssertEqual(TimeDragMath.startMinute(afterDragging: 11, from: 14 * 60, hourHeight: hourHeight), 14 * 60 + 15)
+        XCTAssertEqual(TimeDragMath.startMinute(afterDragging: 27.1, from: 14 * 60, hourHeight: hourHeight), 14 * 60 + 37,
+                       "14:37 のように 1 分単位（§40）")
+        XCTAssertEqual(TimeDragMath.startMinute(afterDragging: -44, from: 14 * 60, hourHeight: hourHeight), 13 * 60)
+    }
+
+    func testDraggingStaysWithinTheDay() {
+        XCTAssertEqual(TimeDragMath.startMinute(afterDragging: -1000, from: 60, hourHeight: hourHeight), 0)
+        XCTAssertEqual(TimeDragMath.startMinute(afterDragging: 5000, from: 23 * 60, hourHeight: hourHeight), 23 * 60 + 59)
+    }
+
+    func testEndHandle() {
+        XCTAssertEqual(TimeDragMath.endMinute(afterDragging: 11, from: 15 * 60, start: 14 * 60, hourHeight: hourHeight), 15 * 60 + 15,
+                       "下端を伸ばすと終了が後ろへ（§41）")
+        XCTAssertEqual(TimeDragMath.endMinute(afterDragging: -200, from: 15 * 60, start: 14 * 60, hourHeight: hourHeight),
+                       14 * 60 + TimeDragMath.minimumDuration, "開始より前には縮めない")
+        XCTAssertEqual(TimeDragMath.endMinute(afterDragging: 5000, from: 23 * 60, start: 22 * 60, hourHeight: hourHeight), 24 * 60,
+                       "24:00 まで")
+    }
+
+    @MainActor
+    func testHandleAndEndRowStayInSync() {
+        let day = CalendarDay(year: 2026, month: 10, day: 12)
+        let store = ScheduleEditorStore(repository: InMemoryEventRepository(), metadataRepository: InMemoryEventMetadataRepository())
+        store.startNew(on: day)
+        store.setStartMinute(14 * 60)
+        // 左のハンドルを伸ばす（14:20 から 75 分ぶん下へ）→ 右の終了の行も同じ値（Q24）
+        store.setEndMinute(TimeDragMath.endMinute(afterDragging: 55, from: 14 * 60 + 20, start: 14 * 60, hourHeight: hourHeight), on: day)
+        XCTAssertEqual(store.durationMinutes(on: day), 95)
+        XCTAssertEqual(store.valueText(for: .end), "15:35")
+        // 右で 60 分を選ぶ → 左のブロックも 60 分
+        store.setDuration(60)
+        XCTAssertEqual(store.endMinute(on: day), 15 * 60)
+    }
+}

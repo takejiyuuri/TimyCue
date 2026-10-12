@@ -1,0 +1,38 @@
+import Foundation
+
+/// 時間画面で、仮予定を動かしたり伸ばしたりするときの計算（仕様 §38・§40・§41）。画面に依らない計算だけを置く。
+enum TimeDragMath {
+    /// 動かしたときに合わせる刻み（分）。例のとおり 14:37 のように 1 分単位で出す（§40）
+    static let step = 1
+    /// 終了のハンドルで縮められる、いちばん短い所要時間（分。仮）
+    static let minimumDuration = 5
+
+    /// 指を dy だけ動かしたときの、新しい開始時刻（§40）。0:00〜23:59 に収める
+    static func startMinute(afterDragging dy: Double, from start: MinuteOfDay, hourHeight: Double) -> MinuteOfDay {
+        let moved = Double(start) + minutes(for: dy, hourHeight: hourHeight)
+        return clampToDay(snap(moved))
+    }
+
+    /// 下端のハンドルを dy だけ動かしたときの、新しい終了時刻（§41）。開始より minimumDuration 分は後にする
+    static func endMinute(afterDragging dy: Double, from end: MinuteOfDay, start: MinuteOfDay, hourHeight: Double) -> MinuteOfDay {
+        let moved = snap(Double(end) + minutes(for: dy, hourHeight: hourHeight))
+        return min(max(moved, start + minimumDuration), MinuteOfDay.minutesPerDay)
+    }
+
+    /// 「時」を押して分ホイールで分を選んだときの開始時刻（§38）
+    static func startMinute(hour: Int, minute: Int) -> MinuteOfDay {
+        clampToDay(min(max(hour, 0), 23) * 60 + min(max(minute, 0), 59))
+    }
+
+    private static func minutes(for dy: Double, hourHeight: Double) -> Double {
+        hourHeight > 0 ? dy / hourHeight * 60 : 0
+    }
+
+    private static func snap(_ minute: Double) -> MinuteOfDay {
+        Int((minute / Double(step)).rounded()) * step
+    }
+
+    private static func clampToDay(_ minute: MinuteOfDay) -> MinuteOfDay {
+        min(max(minute, 0), MinuteOfDay.minutesPerDay - 1)
+    }
+}

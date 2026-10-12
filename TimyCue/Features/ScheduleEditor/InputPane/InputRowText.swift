@@ -30,7 +30,7 @@ extension ScheduleEditorStore {
     /// 到着目標の候補（仕様 §49。カスタムは入力の段階で足す）
     static let arrivalTargetChoices = [5, 10, 15, 20, 30]
 
-    /// 終了の行で素早く選べる所要時間（Q24：未設定・30・60・90・120 分・カスタム）
+    /// 終了の行で素早く選べる所要時間（Q24：未設定・30・60・90・120 分・カスタム）。時間画面の下端のハンドルと同じ値を見る
     static let durationChoices = [30, 60, 90, 120]
     /// カスタムで選べる所要時間の範囲と刻み（分。仮）
     static let customDurationRange = 5...(24 * 60)
