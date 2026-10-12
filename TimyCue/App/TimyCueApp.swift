@@ -58,7 +58,8 @@ struct TimyCueApp: App {
                 .environment(calendarStore)
                 .environment(connection)
                 // Apple カレンダー側で予定が変わったら読み直す（§68）
-                .onReceive(NotificationCenter.default.publisher(for: .EKEventStoreChanged)) { _ in
+                // この知らせは画面の処理とは別のところから届くことがあるので、画面の処理へ移してから受け取る
+                .onReceive(NotificationCenter.default.publisher(for: .EKEventStoreChanged).receive(on: DispatchQueue.main)) { _ in
                     connection.calendarDidChange()
                 }
         }

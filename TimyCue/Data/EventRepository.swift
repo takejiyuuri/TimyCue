@@ -21,7 +21,15 @@ extension EventRepository {
 protocol EventMetadataRepository: AnyObject {
     func allMetadata() -> [UUID: TimyCueEventMetadata]
     func save(_ metadata: TimyCueEventMetadata, for eventID: UUID) throws
+    /// まとめて保存する（Apple カレンダーの予定を何百件も初めて読んだときに、1 件ずつ書かないように）
+    func saveAll(_ entries: [UUID: TimyCueEventMetadata]) throws
     func delete(for eventID: UUID) throws
+}
+
+extension EventMetadataRepository {
+    func saveAll(_ entries: [UUID: TimyCueEventMetadata]) throws {
+        for (id, metadata) in entries { try save(metadata, for: id) }
+    }
 }
 
 enum EventRepositoryError: Error, Equatable {

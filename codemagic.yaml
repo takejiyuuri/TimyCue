@@ -102,7 +102,7 @@ workflows:
         # TestFlight に最初の 1 本が届いたあとで、次の行の先頭の # を消して数字を入れる。
         # これがあると、TestFlight にある最新のビルド番号の次を使う（無いと Codemagic の通し番号を使う）。
         # 空の値 "" は書けない（Codemagic が設定の誤りとして止める）ので、使わないときは # を付けたままにする
-        # APP_STORE_APPLE_ID: "0000000000"
+        APP_STORE_APPLE_ID: "6821819934"
       xcode: latest
     scripts:
       - name: XcodeGen を入れて Xcode プロジェクトを作る

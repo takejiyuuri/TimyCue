@@ -189,6 +189,8 @@ final class CalendarConnection {
         guard let localEvents else { return }
         let repository = EventKitEventRepository(store: eventStore, metadata: metadata,
                                                  preferences: { [weak self] in self?.preferences ?? CalendarPreferences() })
+        // 予定は裏で読むので、読み終わったら画面を描き直す
+        repository.onLoaded = { [weak self] in self?.notify() }
         eventKit = repository
         calendars = repository.calendars()
         systemDefaultCalendarID = repository.systemDefaultCalendarID
