@@ -454,11 +454,11 @@ final class ScheduleEditorStore {
         guard case .edit(let id) = mode else { return }
         let day = displayedDay
         let effectiveScope: RecurrenceScope = isEditingRecurringEvent ? scope : .thisEvent
-        let removed = repository.occurrenceIDs(sameSeriesAs: id, scope: effectiveScope)
+        var removed = Set(repository.occurrenceIDs(sameSeriesAs: id, scope: effectiveScope))
+        // 「すべて」ならシリーズ共通の設定も消す（追加仕様書 §2.7.1）
+        if effectiveScope == .allEvents, let seriesID = repository.seriesID(of: id) { removed.insert(seriesID) }
         try repository.delete(id: id, scope: effectiveScope)
-        for removedID in removed {
-            try metadataRepository.delete(for: removedID)
-        }
+        try metadataRepository.deleteAll(removed)
         reloadEvents()
         startNew(on: day)
     }

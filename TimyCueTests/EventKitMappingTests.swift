@@ -155,6 +155,40 @@ final class FileRepositoryTests: XCTestCase {
         XCTAssertEqual(reopened[kept], walk, "前からあったものは消さない")
     }
 
+    // MARK: - Apple カレンダー側で消えた予定（追加仕様書 §1.5）
+
+    func testVanishedAppleEventsDropLinksAndSettings() throws {
+        let single = UUID(), occurrence1 = UUID(), occurrence2 = UUID(), other = UUID(), series = UUID()
+        var links = EventKitLinks()
+        links.keys = [single: "A",
+                      occurrence1: EventKitMapping.linkKey(itemIdentifier: "B", occurrenceDate: Date(timeIntervalSince1970: 0)),
+                      occurrence2: EventKitMapping.linkKey(itemIdentifier: "B", occurrenceDate: Date(timeIntervalSince1970: 604_800)),
+                      other: "C"]
+        links.endUnset = [single, other]
+        links.seriesIDs = ["B": series]
+        XCTAssertEqual(links.itemIdentifiers, ["A", "B", "C"], "繰り返しの回はシリーズの識別子にまとめる")
+
+        let removed = links.removeVanished(["A", "B"])
+        XCTAssertEqual(removed, [single, occurrence1, occurrence2, series], "その予定の回ごとの設定とシリーズ共通の設定を消す")
+        XCTAssertEqual(links.keys, [other: "C"])
+        XCTAssertEqual(links.endUnset, [other])
+        XCTAssertNil(links.seriesIDs)
+
+        let file = JSONFile<[UUID: TimyCueEventMetadata]>(url: directory.appendingPathComponent("metadata.json"), empty: [:])
+        let repository = FileEventMetadataRepository(file: file)
+        try repository.saveAll([single: TimyCueEventMetadata(), other: TimyCueEventMetadata(), series: TimyCueEventMetadata()])
+        try repository.deleteAll(removed)
+        XCTAssertEqual(Set(FileEventMetadataRepository(file: file).allMetadata().keys), [other])
+    }
+
+    func testDoesNotTrustEverythingVanishingAtOnce() {
+        XCTAssertFalse(EventKitLinks.trustsVanished([], total: 10))
+        XCTAssertTrue(EventKitLinks.trustsVanished(["A"], total: 10))
+        XCTAssertFalse(EventKitLinks.trustsVanished(Set((0..<10).map(String.init)), total: 10),
+                       "全部が一度に見つからないのは読み込みの不具合とみなし、設定をまとめて消さない")
+        XCTAssertTrue(EventKitLinks.trustsVanished(["A"], total: 1), "予定が少ないときは消してよい")
+    }
+
     func testBrokenFileStartsEmpty() throws {
         let url = directory.appendingPathComponent("events.json")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

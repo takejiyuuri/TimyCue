@@ -35,11 +35,17 @@ protocol EventMetadataRepository: AnyObject {
     /// まとめて保存する（Apple カレンダーの予定を何百件も初めて読んだときに、1 件ずつ書かないように）
     func saveAll(_ entries: [UUID: TimyCueEventMetadata]) throws
     func delete(for eventID: UUID) throws
+    /// まとめて消す（Apple カレンダー側で消えた予定の設定を、1 件ずつ書かないように）
+    func deleteAll(_ eventIDs: Set<UUID>) throws
 }
 
 extension EventMetadataRepository {
     func saveAll(_ entries: [UUID: TimyCueEventMetadata]) throws {
         for (id, metadata) in entries { try save(metadata, for: id) }
+    }
+
+    func deleteAll(_ eventIDs: Set<UUID>) throws {
+        for id in eventIDs { try delete(for: id) }
     }
 }
 

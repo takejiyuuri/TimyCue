@@ -22,6 +22,8 @@ final class EventKitEventRepository: EventRepository {
     /// 読み込みを頼んだ範囲（内部のキャッシュ。ユーザーから見える制限ではない。Q35）
     private var requestedRange: ClosedRange<CalendarDay>?
     private var cache: [CalendarEvent] = []
+    /// 起動してから、Apple カレンダー側で消えた予定を一度見たか
+    private var checkedDeletedOnce = false
     /// 裏で読むための列。順に処理するので、結果も頼んだ順に届く
     private let fetchQueue = DispatchQueue(label: "io.github.takejiyuuri.timycue.eventkit", qos: .userInitiated)
 
@@ -77,24 +79,49 @@ final class EventKitEventRepository: EventRepository {
     /// Apple カレンダー側が変わったとき・読み込むカレンダーを変えたときに、頼んだ範囲を裏で読み直す
     func reloadCache() {
         guard let range = requestedRange else { cache = []; return }
-        load([range], replacingAll: true)
+        load([range], replacingAll: true, checksDeleted: true)
     }
 
-    /// 裏で読み、読み終わったら画面の処理の中で取り込む
-    private func load(_ ranges: [ClosedRange<CalendarDay>], replacingAll: Bool) {
+    /// 裏で読み、読み終わったら画面の処理の中で取り込む。
+    /// checksDeleted のときは、結び付けてある予定が Apple カレンダー側で消えていないかも見る（追加仕様書 §1.5）
+    private func load(_ ranges: [ClosedRange<CalendarDay>], replacingAll: Bool, checksDeleted: Bool = false) {
         let hidden = preferences().hiddenCalendarIDs
         let store = store
         let calendar = calendar
+        // 起動して初めて読むときも見る（アプリを閉じている間に消された予定）
+        let linkedItems = (checksDeleted || !checkedDeletedOnce) ? links.itemIdentifiers : []
+        checkedDeletedOnce = true
         fetchQueue.async { [weak self] in
             let fetched = ranges.flatMap { Self.fetch(store: store, hiddenCalendarIDs: hidden, range: $0, calendar: calendar) }
+            // 今読めた予定は消えていない（識別子で引けない種類の予定もあるので、先に外す）
+            let fetchedItems = Set(fetched.map { EventKitMapping.parseLinkKey($0.key).itemIdentifier })
+            let vanished = Self.vanishedItems(linkedItems.subtracting(fetchedItems), store: store)
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
                     guard let self else { return }
+                    self.removeVanished(vanished, total: linkedItems.count)
                     self.merge(fetched, ranges: ranges, replacingAll: replacingAll)
                     self.onLoaded?()
                 }
             }
         }
+    }
+
+    /// Apple カレンダー側で消えた予定の識別子。カレンダーを隠しただけ・権限がないときは消えたことにしない（§1.9・§1.10）
+    private static func vanishedItems(_ items: Set<String>, store: EKEventStore) -> Set<String> {
+        guard !items.isEmpty, EKEventStore.authorizationStatus(for: .event) == .fullAccess else { return [] }
+        return items.filter { store.calendarItem(withIdentifier: $0) == nil }
+    }
+
+    /// Apple カレンダー側で削除された予定を、TimyCue からも消し、その予定の TimyCue の設定も消す（追加仕様書 §1.5）
+    private func removeVanished(_ vanished: Set<String>, total: Int) {
+        guard EventKitLinks.trustsVanished(vanished, total: total) else { return }
+        let removed = links.removeVanished(vanished)
+        guard !removed.isEmpty else { return }
+        idByKey = idByKey.filter { !removed.contains($0.value) }
+        cache.removeAll { removed.contains($0.id) }
+        try? linksFile.save(links)
+        try? metadata.deleteAll(removed)
     }
 
     /// 書き込んだ直後に、その日だけをすぐ読み直す（1 日ぶんなので短い。保存した予定をすぐ画面に出すため）

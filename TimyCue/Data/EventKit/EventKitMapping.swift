@@ -103,4 +103,33 @@ struct EventKitLinks: Codable, Equatable {
     func id(forKey key: String) -> UUID? {
         keys.first { $0.value == key }?.key
     }
+
+    /// 結び付けている Apple カレンダーの予定の識別子（繰り返しの回は、シリーズの識別子にまとめる）
+    var itemIdentifiers: Set<String> {
+        Set(keys.values.map { EventKitMapping.parseLinkKey($0).itemIdentifier })
+    }
+
+    /// Apple カレンダー側で消えた予定の結びつきを外し、消す TimyCue の情報の id（回ごと・シリーズ共通）を返す（追加仕様書 §1.5）
+    mutating func removeVanished(_ vanished: Set<String>) -> Set<UUID> {
+        guard !vanished.isEmpty else { return [] }
+        var removed = Set<UUID>()
+        for (id, key) in keys where vanished.contains(EventKitMapping.parseLinkKey(key).itemIdentifier) {
+            keys[id] = nil
+            endUnset.remove(id)
+            removed.insert(id)
+        }
+        for item in vanished {
+            if let seriesID = seriesIDs?[item] {
+                seriesIDs?[item] = nil
+                removed.insert(seriesID)
+            }
+        }
+        if seriesIDs?.isEmpty == true { seriesIDs = nil }
+        return removed
+    }
+
+    /// 消えたと見てよいか。権限や読み込みの不具合で全部が見つからないだけのときに、設定をまとめて消さないようにする
+    static func trustsVanished(_ vanished: Set<String>, total: Int) -> Bool {
+        !vanished.isEmpty && (vanished.count < total || total <= 3)
+    }
 }

@@ -92,6 +92,13 @@ final class FileEventMetadataRepository: EventMetadataRepository {
         storage[eventID] = nil
         try file.save(storage)
     }
+
+    /// ファイルへは 1 回だけ書く
+    func deleteAll(_ eventIDs: Set<UUID>) throws {
+        guard eventIDs.contains(where: { storage[$0] != nil }) else { return }
+        for id in eventIDs { storage[id] = nil }
+        try file.save(storage)
+    }
 }
 
 /// 予定の保存先を、あとから切り替えられるようにする包み（Apple カレンダーとつないだら切り替える）
