@@ -9,11 +9,19 @@ protocol EventRepository: AnyObject {
     func delete(id: UUID) throws
     /// その期間の予定を読み込んでおく。Apple カレンダーは表示に必要な範囲だけ、必要になったときに読む（Q35）
     func ensureLoaded(from start: CalendarDay, to end: CalendarDay)
+    /// 繰り返し予定を、範囲を決めて直す・消す（Q44）。繰り返しを持たない保存先では、ふつうに直す・消す
+    func update(_ event: CalendarEvent, scope: RecurrenceScope) throws
+    func delete(id: UUID, scope: RecurrenceScope) throws
+    /// その予定と同じ繰り返しの、読み込んである回の id（範囲が「これ以降」ならその回から後、「すべて」なら全部。その予定自身も含む）
+    func occurrenceIDs(sameSeriesAs id: UUID, scope: RecurrenceScope) -> [UUID]
 }
 
 extension EventRepository {
     /// 全部を手元に持っている保存先では何もしない
     func ensureLoaded(from start: CalendarDay, to end: CalendarDay) {}
+    func update(_ event: CalendarEvent, scope: RecurrenceScope) throws { try update(event) }
+    func delete(id: UUID, scope: RecurrenceScope) throws { try delete(id: id) }
+    func occurrenceIDs(sameSeriesAs id: UUID, scope: RecurrenceScope) -> [UUID] { [id] }
 }
 
 /// TimyCue だけが使う情報の読み書き（仕様 §84）。Apple カレンダーの予定とは別に保存する（仕様 §68）。

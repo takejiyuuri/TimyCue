@@ -331,9 +331,21 @@ final class ScheduleEditorStore {
 
     // MARK: - 保存
 
-    /// 保存して、保存した予定を返す。足りないものがあれば、その項目を開いて知らせ、保存しない（仕様 §46）
+    /// 繰り返し予定（Apple カレンダーの繰り返しの 1 回）を編集しているか。保存・削除のときに範囲を聞く（Q44）
+    var isEditingRecurringEvent: Bool {
+        guard case .edit(let id) = mode else { return false }
+        return events.first { $0.id == id }?.repeatRule.isRepeating ?? false
+    }
+
+    /// 繰り返しを選べるか。繰り返しは Apple カレンダーの繰り返しを正本にするので、連携しているときだけ（Q37 の変更・Q48 は仮）
+    var canRepeat: Bool {
+        !writableCalendars.isEmpty
+    }
+
+    /// 保存して、保存した予定を返す。足りないものがあれば、その項目を開いて知らせ、保存しない（仕様 §46）。
+    /// 繰り返し予定の編集では、scope の範囲（この予定のみ／これ以降／すべて）で直す（Q44）
     @discardableResult
-    func save() throws -> [CalendarEvent] {
+    func save(scope: RecurrenceScope = .thisEvent) throws -> [CalendarEvent] {
         let issues = saveIssues
         guard issues.isEmpty else {
             present(issues)
@@ -341,10 +353,13 @@ final class ScheduleEditorStore {
         }
 
         let saved: [CalendarEvent]
+        /// TimyCue の情報（到着目標など）を保存する予定。繰り返しの「これ以降」「すべて」なら、読み込んである同じ繰り返しの回にも
+        var metadataTargets: [UUID] = []
         switch mode {
         case .new, .copy:
             saved = draftEvents
             try repository.insert(saved)
+            metadataTargets = saved.map(\.id)
         case .edit(let id):
             guard let original = events.first(where: { $0.id == id }),
                   let day = selectedDays.first,
@@ -357,12 +372,13 @@ final class ScheduleEditorStore {
                                             durationMinutes: durationMinutes(on: day),
                                             isAllDay: original.isAllDay,
                                             source: original.source)
-            try repository.update(updated)
+            let effectiveScope: RecurrenceScope = original.repeatRule.isRepeating ? scope : .thisEvent
+            metadataTargets = repository.occurrenceIDs(sameSeriesAs: id, scope: effectiveScope)
+            try repository.update(updated, scope: effectiveScope)
             saved = [updated]
         }
-        for event in saved {
-            try metadataRepository.save(content.metadata, for: event.id)
-        }
+        try metadataRepository.saveAll(Dictionary(metadataTargets.map { ($0, content.metadata) },
+                                                  uniquingKeysWith: { first, _ in first }))
 
         reloadEvents()
         showsSaveIssue = false
@@ -370,12 +386,17 @@ final class ScheduleEditorStore {
         return saved
     }
 
-    /// 編集中の予定を消す（仕様 §64。編集のときだけ）。消したら新規の状態に戻す
-    func deleteEditingEvent() throws {
+    /// 編集中の予定を消す（仕様 §64。編集のときだけ）。消したら新規の状態に戻す。
+    /// 繰り返し予定は、scope の範囲（この予定のみ／これ以降／すべて）で消す（Q44）
+    func deleteEditingEvent(scope: RecurrenceScope = .thisEvent) throws {
         guard case .edit(let id) = mode else { return }
         let day = displayedDay
-        try repository.delete(id: id)
-        try metadataRepository.delete(for: id)
+        let effectiveScope: RecurrenceScope = isEditingRecurringEvent ? scope : .thisEvent
+        let removed = repository.occurrenceIDs(sameSeriesAs: id, scope: effectiveScope)
+        try repository.delete(id: id, scope: effectiveScope)
+        for removedID in removed {
+            try metadataRepository.delete(for: removedID)
+        }
         reloadEvents()
         startNew(on: day)
     }

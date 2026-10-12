@@ -110,6 +110,11 @@ final class EventKitEventRepository: EventRepository {
     private func merge(_ fetched: [FetchedEvent], ranges: [ClosedRange<CalendarDay>], replacingAll: Bool) {
         let known = metadata.allMetadata()
         var newMetadata: [UUID: TimyCueEventMetadata] = [:]
+        // 繰り返しのまだ見ていない回は、同じ繰り返しのほかの回の TimyCue の情報（到着目標など）を引き継ぐ
+        var seriesMetadata: [String: TimyCueEventMetadata] = [:]
+        for (id, key) in links.keys {
+            if let info = known[id] { seriesMetadata[EventKitMapping.parseLinkKey(key).itemIdentifier] = info }
+        }
         var linksChanged = false
         var events: [CalendarEvent] = []
         for item in fetched {
@@ -124,9 +129,13 @@ final class EventKitEventRepository: EventRepository {
             }
             // 初めて見る Apple カレンダーの予定は、元のカレンダーの色を初期候補にする（§53）
             if known[id] == nil && newMetadata[id] == nil {
-                var info = TimyCueEventMetadata()
-                info.color = item.calendarColor
-                newMetadata[id] = info
+                if let series = seriesMetadata[EventKitMapping.parseLinkKey(item.key).itemIdentifier] {
+                    newMetadata[id] = series
+                } else {
+                    var info = TimyCueEventMetadata()
+                    info.color = item.calendarColor
+                    newMetadata[id] = info
+                }
             }
             var event = EventKitMapping.calendarEvent(from: item.record,
                                                       id: id,
@@ -174,7 +183,7 @@ final class EventKitEventRepository: EventRepository {
                 let key = linkKey(for: ekEvent)
                 guard seenKeys.insert(key).inserted else { continue }
                 result.append(FetchedEvent(key: key,
-                                           record: record(of: ekEvent),
+                                           record: record(of: ekEvent, store: store),
                                            calendarID: ekEvent.calendar?.calendarIdentifier,
                                            calendarColor: nearestColor(of: ekEvent.calendar)))
             }
@@ -197,41 +206,106 @@ final class EventKitEventRepository: EventRepository {
             }
             let ekEvent = EKEvent(eventStore: store)
             ekEvent.calendar = target
-            Self.apply(EventKitMapping.record(from: event, calendar: calendar), to: ekEvent)
-            try store.save(ekEvent, span: .thisEvent, commit: false)
+            Self.apply(EventKitMapping.record(from: event, calendar: calendar), to: ekEvent, includeRecurrence: true)
+            try store.save(ekEvent, span: event.repeatRule.isRepeating ? .futureEvents : .thisEvent, commit: false)
             setKey(Self.linkKey(for: ekEvent), for: event.id)
             setEndUnset(event)
         }
         try store.commit()
         try linksFile.save(links)
         refreshNow(days: events.map(\.day))
+        // 繰り返しはほかの日にも出るので、読み込んである範囲を読み直す（裏で）
+        if events.contains(where: \.repeatRule.isRepeating) { reloadCache() }
     }
 
     func update(_ event: CalendarEvent) throws {
-        guard let ekEvent = find(event.id) else { throw EventRepositoryError.notFound(event.id) }
-        Self.apply(EventKitMapping.record(from: event, calendar: calendar), to: ekEvent)
-        // その予定だけ保存先を変えた（Q32）
-        if let calendarID = event.calendarID, calendarID != ekEvent.calendar?.calendarIdentifier,
-           let target = store.calendar(withIdentifier: calendarID), target.allowsContentModifications {
-            ekEvent.calendar = target
-        }
+        try update(event, scope: .thisEvent)
+    }
+
+    /// 予定を直す。繰り返し予定は、この予定のみ／これ以降／すべて の範囲で直す（Q44）。
+    /// 「この予定のみ」では繰り返しの決まりは変えない。「すべて」は、系列の初めの回に、この回で動かした分だけ同じように当てる
+    func update(_ event: CalendarEvent, scope: RecurrenceScope) throws {
+        guard let occurrence = find(event.id) else { throw EventRepositoryError.notFound(event.id) }
+        let record = EventKitMapping.record(from: event, calendar: calendar)
         let oldDay = cache.first { $0.id == event.id }?.day
-        try store.save(ekEvent, span: .thisEvent, commit: true)
-        // 日時を変えると、繰り返しの回の鍵が変わることがある
-        setKey(Self.linkKey(for: ekEvent), for: event.id)
+        let wasRecurring = occurrence.hasRecurrenceRules
+
+        if !wasRecurring || scope == .thisEvent {
+            // 繰り返しでない予定に繰り返しを付けるのもここ（範囲は聞かない）
+            Self.apply(record, to: occurrence, includeRecurrence: !wasRecurring)
+            moveCalendarIfNeeded(occurrence, to: event.calendarID)
+            try store.save(occurrence, span: wasRecurring ? .thisEvent : .futureEvents, commit: true)
+            setKey(Self.linkKey(for: occurrence), for: event.id)
+        } else {
+            let target: EKEvent
+            let occurrenceDate: Date
+            if scope == .allEvents,
+               let master = store.calendarItem(withIdentifier: occurrence.calendarItemIdentifier) as? EKEvent {
+                let shift = record.startDate.timeIntervalSince(occurrence.startDate)
+                var shifted = record
+                shifted.startDate = master.startDate.addingTimeInterval(shift)
+                shifted.endDate = shifted.startDate.addingTimeInterval(record.endDate.timeIntervalSince(record.startDate))
+                Self.apply(shifted, to: master, includeRecurrence: true)
+                target = master
+                occurrenceDate = occurrence.occurrenceDate.addingTimeInterval(shift)
+            } else {
+                Self.apply(record, to: occurrence, includeRecurrence: true)
+                target = occurrence
+                occurrenceDate = record.startDate
+            }
+            moveCalendarIfNeeded(target, to: event.calendarID)
+            try store.save(target, span: .futureEvents, commit: true)
+            setKey(EventKitMapping.linkKey(itemIdentifier: target.calendarItemIdentifier,
+                                           occurrenceDate: target.hasRecurrenceRules ? occurrenceDate : nil),
+                   for: event.id)
+        }
         setEndUnset(event)
         try linksFile.save(links)
         refreshNow(days: [event.day] + (oldDay.map { [$0] } ?? []))
+        // 繰り返しが変わると、ほかの日の回も変わるので、読み込んである範囲を読み直す（裏で）
+        if (wasRecurring && scope != .thisEvent) || (!wasRecurring && record.repeatRule.isRepeating) {
+            reloadCache()
+        }
     }
 
     func delete(id: UUID) throws {
-        guard let ekEvent = find(id) else { throw EventRepositoryError.notFound(id) }
-        // 繰り返しの予定の「これ以降」「すべて」（§64）は、繰り返しを作る段階で選べるようにする。今はこの回だけ
-        try store.remove(ekEvent, span: .thisEvent, commit: true)
-        setKey(nil, for: id)
-        links.endUnset.remove(id)
+        try delete(id: id, scope: .thisEvent)
+    }
+
+    /// 予定を消す。繰り返し予定は、この予定のみ／これ以降／すべて の範囲で消す（§64・Q44）
+    func delete(id: UUID, scope: RecurrenceScope) throws {
+        guard let occurrence = find(id) else { throw EventRepositoryError.notFound(id) }
+        let wasRecurring = occurrence.hasRecurrenceRules
+        let removed = occurrenceIDs(sameSeriesAs: id, scope: wasRecurring ? scope : .thisEvent)
+        switch (wasRecurring, scope) {
+        case (true, .futureEvents):
+            try store.remove(occurrence, span: .futureEvents, commit: true)
+        case (true, .allEvents):
+            let master = (store.calendarItem(withIdentifier: occurrence.calendarItemIdentifier) as? EKEvent) ?? occurrence
+            try store.remove(master, span: .futureEvents, commit: true)
+        default:
+            try store.remove(occurrence, span: .thisEvent, commit: true)
+        }
+        for removedID in removed {
+            setKey(nil, for: removedID)
+            links.endUnset.remove(removedID)
+        }
         try linksFile.save(links)
-        cache.removeAll { $0.id == id }
+        cache.removeAll { removed.contains($0.id) }
+    }
+
+    /// 同じ繰り返しの、読み込んである回の id（「これ以降」ならその回から後、「すべて」なら全部。その予定自身も含む）
+    func occurrenceIDs(sameSeriesAs id: UUID, scope: RecurrenceScope) -> [UUID] {
+        guard scope != .thisEvent, let key = links.keys[id] else { return [id] }
+        let item = EventKitMapping.parseLinkKey(key).itemIdentifier
+        let day = cache.first { $0.id == id }?.day
+        let ids = cache.filter { other in
+            guard let otherKey = links.keys[other.id],
+                  EventKitMapping.parseLinkKey(otherKey).itemIdentifier == item else { return false }
+            if scope == .futureEvents, let day { return other.day >= day }
+            return true
+        }.map(\.id)
+        return ids.contains(id) ? ids : [id] + ids
     }
 
     // MARK: - 内部
@@ -271,16 +345,31 @@ final class EventKitEventRepository: EventRepository {
                                 occurrenceDate: ekEvent.hasRecurrenceRules ? ekEvent.occurrenceDate : nil)
     }
 
-    private static func record(of ekEvent: EKEvent) -> ExternalEventRecord {
-        ExternalEventRecord(title: ekEvent.title ?? "",
-                            location: ekEvent.location,
-                            startDate: ekEvent.startDate,
-                            endDate: ekEvent.endDate,
-                            isAllDay: ekEvent.isAllDay,
-                            notes: ekEvent.notes)
+    /// その予定だけ保存先を変えた（Q32）
+    private func moveCalendarIfNeeded(_ ekEvent: EKEvent, to calendarID: String?) {
+        if let calendarID, calendarID != ekEvent.calendar?.calendarIdentifier,
+           let target = store.calendar(withIdentifier: calendarID), target.allowsContentModifications {
+            ekEvent.calendar = target
+        }
     }
 
-    private static func apply(_ record: ExternalEventRecord, to ekEvent: EKEvent) {
+    private static func record(of ekEvent: EKEvent, store: EKEventStore) -> ExternalEventRecord {
+        var rule = ekEvent.recurrenceRules?.first
+        // 1 回だけ直した回は、繰り返しの決まりを持たないことがあるので、系列のほうから読む
+        if rule == nil, ekEvent.hasRecurrenceRules {
+            rule = (store.calendarItem(withIdentifier: ekEvent.calendarItemIdentifier) as? EKEvent)?.recurrenceRules?.first
+        }
+        return ExternalEventRecord(title: ekEvent.title ?? "",
+                                   location: ekEvent.location,
+                                   startDate: ekEvent.startDate,
+                                   endDate: ekEvent.endDate,
+                                   isAllDay: ekEvent.isAllDay,
+                                   notes: ekEvent.notes,
+                                   repeatRule: EventKitRecurrence.repeatRule(from: rule))
+    }
+
+    /// includeRecurrence：繰り返しの決まりも書き換えるか（「この予定のみ」のときは書き換えない）
+    private static func apply(_ record: ExternalEventRecord, to ekEvent: EKEvent, includeRecurrence: Bool) {
         ekEvent.title = record.title
         ekEvent.location = record.location
         ekEvent.startDate = record.startDate
@@ -288,6 +377,9 @@ final class EventKitEventRepository: EventRepository {
         ekEvent.isAllDay = record.isAllDay
         // メモは主な入力欄に出さないが、Apple カレンダーにあるものは消さない（§55）
         if let notes = record.notes { ekEvent.notes = notes }
+        if includeRecurrence {
+            ekEvent.recurrenceRules = EventKitRecurrence.rule(from: record.repeatRule).map { [$0] }
+        }
     }
 
     private static func nearestColor(of ekCalendar: EKCalendar?) -> EventColor {
