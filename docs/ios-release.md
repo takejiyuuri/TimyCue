@@ -82,7 +82,8 @@ Live Activity を入れる段階で、ウィジェット用の Bundle ID（例�
 
 ## 5. 審査に出す前に
 
-- 審査の人が触れるように、カレンダーの許可が無くても見本の予定で 3 分割画面を使えるようにする。
+- リリース版に見本の予定は入れない（Q36）。審査の人はカレンダーを許可しなくても、ホームの［予定を登録］→ 3 分割画面で予定を作って試せる（Q45）。
+  App Review の Notes に「Calendar access is optional for testing. A reviewer can create a schedule manually using the '予定を登録' button.」という趣旨を書く。
 - カレンダー・位置情報・通知の許可は使う時に聞き（Just-in-Time）、断られてもアプリ全体は使えるようにする。説明文は日本語で具体的に。
 - 画面写真は 6.9 インチ（1320×2868）。見本データだけで撮り、個人の予定は写さない。
 - サポート URL・プライバシーポリシーは、別の公開リポジトリ（例：`timycue-support`）の GitHub Pages に置き、問い合わせは Google フォーム。
