@@ -77,6 +77,6 @@ enum EditorMetrics {
     static let barMonthFocusedFont = Font.system(size: 13, weight: .bold).monospacedDigit()
     static let barBandCornerRadius: CGFloat = 6
     /// 年月バーを長押ししたときに動く速さ（週／秒）と、動き始めるまでの長さ（秒）。仮の値（実機で決める）
-    static let barHoldWeeksPerSecond: CGFloat = 1
+    static let barHoldWeeksPerSecond: CGFloat = 1.5
     static let barHoldDelay: Double = 0.3
 }
