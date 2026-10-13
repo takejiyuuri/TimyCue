@@ -54,17 +54,22 @@ final class AppleCalendarEditingTests: XCTestCase {
 
     // MARK: - 祝日など見るだけの予定（2026-10-13 ユーザー決定）
 
-    func testHolidaysAreViewOnly() {
-        let readOnly: Set<String> = ["jp"]
+    func testOnlyHolidaysAreViewOnly() {
+        XCTAssertTrue(CalendarChoice.isHolidayCalendar(title: "日本の祝日", isWritable: false))
+        XCTAssertTrue(CalendarChoice.isHolidayCalendar(title: "Holidays in Japan", isWritable: false))
+        XCTAssertFalse(CalendarChoice.isHolidayCalendar(title: "誕生日", isWritable: false), "誕生日は祝日にしない")
+        XCTAssertFalse(CalendarChoice.isHolidayCalendar(title: "チームの休み", isWritable: false), "購読・共有の終日予定も祝日にしない")
+        XCTAssertFalse(CalendarChoice.isHolidayCalendar(title: "祝日メモ", isWritable: true), "書き込めるカレンダーは祝日にしない")
+
+        let holidays: Set<String> = ["jp"]
         let holiday = CalendarEvent(day: day, startMinute: 0, title: "スポーツの日", isAllDay: true,
                                     source: .appleCalendar, calendarID: "jp")
-        XCTAssertTrue(CalendarStore.isViewOnly(holiday, readOnlyCalendarIDs: readOnly),
+        XCTAssertTrue(CalendarStore.isViewOnly(holiday, holidayCalendarIDs: holidays),
                       "祝日は編集画面を出さず、吹き出しで何の日か分かればよい")
-        let timedShared = CalendarEvent(day: day, startMinute: 600, title: "共有の会議", source: .appleCalendar, calendarID: "jp")
-        XCTAssertFalse(CalendarStore.isViewOnly(timedShared, readOnlyCalendarIDs: readOnly),
-                       "時間指定の予定は、書き込めないカレンダーでも TimyCue の設定を変えられる（§1.7）")
-        let ownAllDay = CalendarEvent(day: day, startMinute: 0, title: "休み", isAllDay: true, source: .appleCalendar, calendarID: "home")
-        XCTAssertFalse(CalendarStore.isViewOnly(ownAllDay, readOnlyCalendarIDs: readOnly), "自分のカレンダーの終日予定は編集できる")
+        let sharedAllDay = CalendarEvent(day: day, startMinute: 0, title: "チームの休み", isAllDay: true,
+                                         source: .appleCalendar, calendarID: "team")
+        XCTAssertFalse(CalendarStore.isViewOnly(sharedAllDay, holidayCalendarIDs: holidays),
+                       "祝日と判断できない編集できない予定は §1.7 のまま（TimyCue の設定は変えられる）")
     }
 
     // MARK: - ローカル予定を Apple カレンダーへ移す（§1.12）

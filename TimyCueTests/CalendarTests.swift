@@ -97,6 +97,15 @@ final class CalendarStoreTests: XCTestCase {
                       today: today)
     }
 
+    func testTodayButtonMovesToTodayAndSelectsIt() {
+        let store = makeStore([])
+        store.topWeekID = CalendarWeek(containing: today).adding(weeks: 30).id
+        XCTAssertFalse(store.isTodayVisible, "今日が画面の外なら「今日」を出す")
+        store.scrollToToday()
+        XCTAssertTrue(store.isTodayVisible, "押すと今日へ移動する")
+        XCTAssertTrue(store.isOpen(today), "今日を選ぶ")
+    }
+
     func testWeeksStartAroundTodayWithCurrentMonthOnTop() {
         let store = makeStore([])
         XCTAssertEqual(store.weeks, store.weeks.sorted(), "週は縦に順につながる（仕様 §19）")

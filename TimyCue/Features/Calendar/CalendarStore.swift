@@ -115,10 +115,12 @@ final class CalendarStore {
         return distance >= 0 && distance < max(1, rows)
     }
 
-    /// 「今日」：今日へ移動する。開いたときと同じく、今月の 1 日の週をいちばん上にする
+    /// 「今日」：今日へ移動し、今日を選ぶ（今日の吹き出しを開く。2026-10-12 決定）。
+    /// 今日を画面のどこに置くかは未決。今は仮に、開いたときと同じく今月の 1 日を含む週をいちばん上にしている
     func scrollToToday() {
         closeAllPopovers()
         topWeekID = CalendarWeek(containing: CalendarMonth(today).firstDay).id
+        if !isOpen(today) { tapDay(today) }
     }
 
     /// 画面上部の年（Q20）を決める月。一番上の週で決まる（月の sticky 表示 Q19 は 2026-10-12 にやめた）
@@ -130,23 +132,23 @@ final class CalendarStore {
         return CalendarMonth(middle.days[3])
     }
 
-    /// 書き込めない Apple カレンダー（祝日・購読など）の id
-    private(set) var readOnlyCalendarIDs: Set<String> = []
+    /// 祝日のカレンダーの id（祝日だと判断できたものだけ）
+    private(set) var holidayCalendarIDs: Set<String> = []
 
     /// Apple カレンダーとつないだ・設定を変えたとき（書き込めないカレンダーも含めて渡す）
     func setCalendars(_ calendars: [CalendarChoice]) {
-        readOnlyCalendarIDs = Set(calendars.filter { !$0.isWritable }.map(\.id))
+        holidayCalendarIDs = Set(calendars.filter(\.isHolidays).map(\.id))
     }
 
-    /// 見るだけの予定か。祝日など、書き込めない Apple カレンダーの終日の予定は、編集画面を出さず、
-    /// 吹き出しで何の日か分かればよい（2026-10-13 ユーザー決定）
+    /// 見るだけの予定か。祝日は編集画面を出さず、吹き出しで何の日か分かればよい（2026-10-13 ユーザー決定）。
+    /// 祝日だと判断できるものだけ。誕生日・購読・共有の予定は、編集できなくても §1.7 のとおり（Apple 由来の項目はロック、TimyCue の設定は変えられる）
     func isViewOnly(_ event: CalendarEvent) -> Bool {
-        Self.isViewOnly(event, readOnlyCalendarIDs: readOnlyCalendarIDs)
+        Self.isViewOnly(event, holidayCalendarIDs: holidayCalendarIDs)
     }
 
-    nonisolated static func isViewOnly(_ event: CalendarEvent, readOnlyCalendarIDs: Set<String>) -> Bool {
-        guard event.source == .appleCalendar, event.isAllDay, let calendarID = event.calendarID else { return false }
-        return readOnlyCalendarIDs.contains(calendarID)
+    nonisolated static func isViewOnly(_ event: CalendarEvent, holidayCalendarIDs: Set<String>) -> Bool {
+        guard event.source == .appleCalendar, let calendarID = event.calendarID else { return false }
+        return holidayCalendarIDs.contains(calendarID)
     }
 
     /// 予定を読み直す（予定を保存したあとなど）

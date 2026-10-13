@@ -52,7 +52,9 @@ final class EventKitEventRepository: EventRepository {
                            title: ekCalendar.title,
                            sourceTitle: ekCalendar.source?.title ?? "",
                            isWritable: ekCalendar.allowsContentModifications,
-                           color: Self.nearestColor(of: ekCalendar))
+                           color: Self.nearestColor(of: ekCalendar),
+                           isHolidays: CalendarChoice.isHolidayCalendar(title: ekCalendar.title,
+                                                                        isWritable: ekCalendar.allowsContentModifications))
         }
     }
 

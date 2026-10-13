@@ -11,6 +11,16 @@ struct CalendarChoice: Identifiable, Equatable, Hashable {
     let isWritable: Bool
     /// カレンダーの色にいちばん近い予定色（一覧で見分けるため）
     let color: EventColor
+    /// 祝日のカレンダーか。祝日だと判断できるものだけ true（2026-10-13 その4 確認）
+    var isHolidays = false
+
+    /// 祝日のカレンダーと判断できるか。EventKit には祝日の印がないので、書き込めないカレンダーで、
+    /// 名前に「祝日」「Holiday」が入っているものだけにする。判断できないものは祝日にしない（通常の編集できない予定として扱う。§1.7）
+    static func isHolidayCalendar(title: String, isWritable: Bool) -> Bool {
+        guard !isWritable else { return false }
+        let name = title.lowercased()
+        return name.contains("祝日") || name.contains("holiday")
+    }
 }
 
 /// カレンダー連携の設定（設定 ＞ カレンダー連携。Q32・Q33）。端末の中に保存する

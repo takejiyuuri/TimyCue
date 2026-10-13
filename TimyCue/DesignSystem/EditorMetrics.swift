@@ -60,7 +60,8 @@ enum EditorMetrics {
 
     /// 見える高さは、日付の行 6 行ぶん（月の行は別に数える）
     static let calendarVisibleWeeks: CGFloat = 6
-    /// 日付の行のいちばん低い高さ。キーボードが出て下カレンダーが縮んだとき（§67）は、行をつぶさず見える週を減らす。仮の値
+    /// 日付の行のいちばん低い高さ。キーボードが出て下カレンダーが縮んだとき（§67）は、行をつぶさず見える週を減らす。
+    /// 暫定値（仕様の値ではない。実機で見て直す）
     static let calendarMinRowHeight: CGFloat = 38
     /// 月の初めに空ける、月帯の高さ（日付の行を 1 として）。日付の行の半分くらい（2026-10-13 ユーザー決定）
     static let calendarMonthRowRatio: Double = 0.5
