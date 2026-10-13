@@ -17,6 +17,12 @@ enum Theme {
         static let todayCircle = Color(hex: 0xF4A96A, opacity: 0.35)
         /// 3 分割画面の下カレンダーの今日の丸は淡いグレー（2026-10-14 実機の指摘。#E4E4E4 ではグレーに見えなかったので濃くした。色は仮）
         static let editorTodayCircle = Color(hex: 0xC7C7CC)
+        /// ホームの時計（追加仕様書 §44。原色ではなく淡い色。色は仮）：60 分を表す淡い背景のリングと、
+        /// 残り時間の弧（60〜31 分は淡い緑、30〜16 分は淡いクリーム、15〜0 分は淡いコーラル。spec §6）
+        static let clockTrack = Color(hex: 0xEFE8DC)
+        static let clockPlenty = Color(hex: 0xB5D8A4)
+        static let clockHalf = Color(hex: 0xF4DE96)
+        static let clockLast = Color(hex: 0xF2A797)
         /// 3 分割画面の右の入力で、開いている行の背景。緑で、濃さは前のオレンジと同じ 0.10（2026-10-14 実機の指摘。色は仮）
         static let expandedRow = Color(hex: 0x34C759, opacity: 0.10)
         /// 警告の黄色・赤は予定色とは別の意味（仕様 §4）

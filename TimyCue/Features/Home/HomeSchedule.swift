@@ -43,6 +43,26 @@ enum HomeSchedule {
         return next.map(Main.upcoming)
     }
 
+    /// ホームの時計で数える先（spec §6・追加仕様書 §44）
+    struct ClockTarget: Equatable {
+        let date: Date
+        let isDeparture: Bool
+        /// 時計の中と下に出す呼び名（「出発まで」「出発予定」／「開始まで」「開始予定」）
+        var word: String { isDeparture ? "出発" : "開始" }
+    }
+
+    /// 時計で数える先。場所のある予定で出発時刻が分かれば出発、そうでなければ予定開始（場所のない予定は開始が基準：追加仕様書 §36）。
+    /// 暫定：出発時刻の計算（第 5 段階）ができるまでは departure が nil なので、どの予定も予定開始を数える（仕様ではない）
+    static func clockTarget(for event: CalendarEvent,
+                            calendar: Calendar = .timyCue,
+                            departure: (CalendarEvent) -> Date? = { _ in nil }) -> ClockTarget {
+        let hasPlace = !(event.locationName ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        if hasPlace, let leaveAt = departure(event) {
+            return ClockTarget(date: leaveAt, isDeparture: true)
+        }
+        return ClockTarget(date: startDate(of: event, calendar: calendar), isDeparture: false)
+    }
+
     /// まだ先なので静かに出すか（§5.2）。
     /// 暫定：出発時刻の計算（第 5 段階）までの実装途中の代用として、開始時刻で見る。仕様ではない。第 5 段階で推奨出発時刻に置き換える
     static func isQuiet(now: Date, start: Date) -> Bool {

@@ -4,7 +4,8 @@ import SwiftUI
 /// 長い初回チュートリアルは作らず、初めから通常のホームを開く（Q42-8）。
 /// カレンダー未連携なら「カレンダーを連携、または予定を登録すると…」と［カレンダーを連携］［予定を登録］を出す（Q42-8・Q43）。
 /// 予定がないときも［予定を登録］を出す（Q43。通常のホームに常設の＋は置かない：Q21）。
-/// 出発時刻・あと○分の時計（§6）・移動中（§7）などは、移動時間の計算（第 5 段階）から足す
+/// 出発（今は暫定で予定開始）まで 60 分以内は、残り時間を外周の弧で見せる時計を出す（§6・追加仕様書 §44）。
+/// 出発時刻の計算・移動中（§7）などは、移動時間の計算（第 5 段階）から足す
 struct HomeView: View {
     @Environment(CalendarStore.self) private var store
     @Environment(ScheduleEditorStore.self) private var editorStore
@@ -21,7 +22,8 @@ struct HomeView: View {
     @State private var showsDuplicates = false
 
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 30)) { context in
+        // 分が変わった瞬間に更新する（時計の針と残りの分を、iPhone の時計の表示とそろえる）
+        TimelineView(.everyMinute) { context in
             let now = context.date
             let events = store.loadedEvents
             let main = HomeSchedule.main(in: events, now: now)
@@ -97,10 +99,16 @@ struct HomeView: View {
             if case .started = main { return true }
             return false
         }()
+        // 出発（今は暫定で予定開始）まで 60 分以内は時計で見せる（§6・追加仕様書 §44）
+        let target = HomeSchedule.clockTarget(for: event)
+        let face = isStarted ? nil : HomeClockMath.face(now: now, target: target.date)
         // 60 分以上先は大きな「あと○分」にせず、静かに出す（追加仕様書 §5.2。今は暫定で開始時刻を使う。第 5 段階で推奨出発時刻へ）
-        let countdown = isStarted || HomeSchedule.isQuiet(now: now, start: start)
+        let countdown = face != nil || isStarted || HomeSchedule.isQuiet(now: now, start: start)
             ? "" : HomeSchedule.countdownText(from: now, to: start)
         return VStack(alignment: .leading, spacing: Theme.Spacing.s) {
+            if let face {
+                clock(face, word: target.word)
+            }
             VStack(alignment: .leading, spacing: 6) {
                 if isStarted {
                     // 開始時刻から最大 3 分（§5.1）
@@ -154,6 +162,20 @@ struct HomeView: View {
                 .transition(.opacity)
             }
         }
+    }
+
+    /// 時計と、その下の「16:52 → 17:15 出発予定」。時計で空いた所にカードは足さない（追加仕様書 §44）
+    private func clock(_ face: HomeClockMath.Face, word: String) -> some View {
+        VStack(spacing: Theme.Spacing.s) {
+            HomeClockView(face: face, targetWord: word)
+                .containerRelativeFrame(.horizontal) { length, _ in length * HomeMetrics.clockWidthRatio }
+                .padding(.vertical, HomeMetrics.clockLabelRoom)
+            // 「16:52 → 17:15」と「17:15 出発予定」は、同じ時刻が重なるので 1 行にまとめた（2026-10-14 の指示で整理してよい点。仮）
+            Text("\(HomeClockMath.flowText(now: face.now, target: face.target)) \(word)予定")
+                .font(HomeMetrics.flowFont)
+                .foregroundStyle(Theme.Colors.textSecondary)
+        }
+        .frame(maxWidth: .infinity)
     }
 
     private func timeText(_ event: CalendarEvent, now: Date) -> String {
