@@ -2,6 +2,14 @@ import XCTest
 @testable import TimyCue
 
 final class CalendarWeekTests: XCTestCase {
+    func testTodayButtonOnlyWhenTodayIsOutOfView() {
+        let today = CalendarDay(year: 2026, month: 10, day: 13)
+        let top = CalendarWeek(containing: CalendarDay(year: 2026, month: 9, day: 28))
+        XCTAssertTrue(CalendarStore.isDay(today, visibleFrom: top, rows: 6), "今日が見えているときは「今日」を出さない")
+        XCTAssertFalse(CalendarStore.isDay(today, visibleFrom: top, rows: 2), "今日が表示範囲の下にあるときは出す")
+        XCTAssertFalse(CalendarStore.isDay(today, visibleFrom: top.adding(weeks: 3), rows: 6), "上にあるときも出す")
+    }
+
     func testWeekStartsOnMondayAndCrossesMonthBoundary() {
         // 2026 年 10 月 31 日は土曜
         let week = CalendarWeek(containing: CalendarDay(year: 2026, month: 10, day: 31))

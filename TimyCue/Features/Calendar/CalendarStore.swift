@@ -98,6 +98,29 @@ final class CalendarStore {
         CalendarWeek(containing: topWeekID ?? CalendarMonth(today).firstDay)
     }
 
+    /// 月カレンダーに見えている週の数（画面の高さから決まる。「今日」を出すかに使う）
+    private(set) var visibleRows = 6
+
+    func setVisibleRows(_ rows: Int) {
+        if rows != visibleRows { visibleRows = max(1, rows) }
+    }
+
+    /// 今日が今の表示範囲に見えているか。見えていないときだけ「今日」を出す（2026-10-12 ユーザー決定）
+    var isTodayVisible: Bool {
+        Self.isDay(today, visibleFrom: topWeek, rows: visibleRows)
+    }
+
+    nonisolated static func isDay(_ day: CalendarDay, visibleFrom top: CalendarWeek, rows: Int) -> Bool {
+        let distance = top.weeks(to: CalendarWeek(containing: day))
+        return distance >= 0 && distance < max(1, rows)
+    }
+
+    /// 「今日」：今日へ移動する。開いたときと同じく、今月の 1 日の週をいちばん上にする
+    func scrollToToday() {
+        closeAllPopovers()
+        topWeekID = CalendarWeek(containing: CalendarMonth(today).firstDay).id
+    }
+
     /// 画面上部の年（Q20）を決める月。一番上の週で決まる（月の sticky 表示 Q19 は 2026-10-12 にやめた）
     var stickyMonth: CalendarMonth { topWeek.stickyMonth }
 

@@ -26,6 +26,11 @@ enum CalendarMetrics {
     /// 画面上部の年（Q20。2026-10-12 から真ん中に置く）
     static let yearFont = Font.system(size: 17, weight: .semibold)
     static let yearHeaderHeight: CGFloat = 30
+    /// 右上の「＋」（前の右下の 54 より少し小さく）と「今日」（2026-10-12 ユーザー決定。大きさは仮）
+    static let newEventButtonSize: CGFloat = 30
+    static let newEventButtonFont = Font.system(size: 15, weight: .semibold)
+    static let todayButtonFont = Font.system(size: 13, weight: .semibold)
+    static let headerButtonSpacing: CGFloat = 8
     /// その月の 1 日のセルに出す「10/」（2026-10-12 ユーザー決定。日付の数字より大きめ）
     static let monthStartFont = Font.system(size: 16, weight: .bold)
 

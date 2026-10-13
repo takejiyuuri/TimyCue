@@ -14,14 +14,13 @@ struct CalendarTabView: View {
         @Bindable var store = store
         NavigationStack(path: $store.path) {
             VStack(spacing: 0) {
-                CalendarHeaderView(year: store.stickyMonth.yearLabel)
+                CalendarHeaderView(year: store.stickyMonth.yearLabel,
+                                   showsToday: !store.isTodayVisible,
+                                   onToday: { withAnimation { store.scrollToToday() } },
+                                   onNewEvent: { openNewEvent() })
                     .contentShape(Rectangle())
                     .onTapGesture { store.closeAllPopovers() }
                 MonthCalendarView()
-                    .overlay(alignment: .bottomTrailing) {
-                        NewEventButton { openNewEvent() }
-                            .padding(Theme.Spacing.l)
-                    }
             }
             .background(Theme.Colors.background.ignoresSafeArea())
             .toolbar(.hidden, for: .navigationBar)

@@ -1,9 +1,13 @@
 import SwiftUI
 
 /// 画面上部の固定領域：年（Q20）と曜日の見出し（仕様 §19）。
-/// 年は真ん中に置く。土曜は淡い青、日曜は淡い赤（2026-10-12 デザインの指摘）
+/// 年は真ん中に置く。土曜は淡い青、日曜は淡い赤（2026-10-12 デザインの指摘）。
+/// 右上に少し小さめの「＋」と、今日が見えていないときだけの「今日」（Q21 を 2026-10-12 に変更）
 struct CalendarHeaderView: View {
     let year: String
+    let showsToday: Bool
+    let onToday: () -> Void
+    let onNewEvent: () -> Void
 
     var body: some View {
         VStack(spacing: 0) {
@@ -12,6 +16,18 @@ struct CalendarHeaderView: View {
                 .foregroundStyle(Theme.Colors.textPrimary)
                 .frame(maxWidth: .infinity)
                 .frame(height: CalendarMetrics.yearHeaderHeight)
+                .overlay(alignment: .trailing) {
+                    HStack(spacing: CalendarMetrics.headerButtonSpacing) {
+                        if showsToday {
+                            Button("今日", action: onToday)
+                                .font(CalendarMetrics.todayButtonFont)
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                                .tint(Theme.Colors.accent)
+                        }
+                        NewEventButton(action: onNewEvent)
+                    }
+                }
             HStack(spacing: 0) {
                 ForEach(Array(Weekday.symbols.enumerated()), id: \.offset) { index, symbol in
                     Text(symbol)
@@ -56,6 +72,9 @@ struct MonthCalendarView: View {
                 .onTapGesture { store.closeAllPopovers() }
             }
             .scrollPosition(id: $store.topWeekID, anchor: .top)
+            // 見えている週の数を覚えておく（「今日」を出すかに使う。画面の処理の中では書き換えない）
+            .onAppear { store.setVisibleRows(visibleRows) }
+            .onChange(of: visibleRows) { _, rows in store.setVisibleRows(rows) }
             .overlayPreferenceValue(OpenDayAnchorKey.self) { anchors in
                 DayPopoverLayer(anchors: anchors)
             }
