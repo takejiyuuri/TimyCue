@@ -57,6 +57,17 @@ struct CalendarSettingsView: View {
                         Text("予定を作るときに、書き込めるカレンダーが 2 つ以上あれば、その予定だけ保存先を変えられます。")
                     }
                 }
+                // 祝日カレンダー（Q55）：ふだんは自動の判定のまま。必要なときだけ手で直す
+                Section {
+                    NavigationLink {
+                        HolidayCalendarsView()
+                    } label: {
+                        LabeledContent("祝日カレンダー",
+                                       value: connection.holidayCalendars.isEmpty
+                                           ? "なし"
+                                           : connection.holidayCalendars.map(\.title).joined(separator: "・"))
+                    }
+                }
                 ForEach(groupedCalendars, id: \.source) { group in
                     Section {
                         ForEach(group.calendars) { calendar in
@@ -113,6 +124,36 @@ struct CalendarSettingsView: View {
         return groups.keys.sorted().map { key in
             (key, groups[key, default: []].sorted { $0.title < $1.title })
         }
+    }
+}
+
+/// 設定 ＞ カレンダー連携 ＞ 祝日カレンダー（Q55）。祝日カレンダーの予定は、編集画面を出さず、
+/// 吹き出しで名前と日付だけを見る。ふだんは自動の判定のままでよく、ここで直した分は自動の判定より優先する。複数選べる
+struct HolidayCalendarsView: View {
+    @Environment(CalendarConnection.self) private var connection
+
+    var body: some View {
+        List {
+            Section {
+                ForEach(connection.calendars.sorted { ($0.sourceTitle, $0.title) < ($1.sourceTitle, $1.title) }) { calendar in
+                    Toggle(isOn: Binding(
+                        get: { connection.isHolidayCalendar(calendar) },
+                        set: { connection.setHoliday($0, calendar: calendar) })) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            CalendarLabel(calendar: calendar)
+                            if calendar.isHolidays {
+                                Text("自動で祝日と判定")
+                                    .font(.caption)
+                                    .foregroundStyle(Theme.Colors.textSecondary)
+                            }
+                        }
+                    }
+                }
+            } footer: {
+                Text("ON のカレンダーの予定は祝日として扱い、押すと名前と日付だけを出します（編集画面は開きません）。名前に「祝日」「Holiday」が入った読み取りのみのカレンダーは、自動で ON になります。")
+            }
+        }
+        .navigationTitle("祝日カレンダー")
     }
 }
 

@@ -72,6 +72,22 @@ final class AppleCalendarEditingTests: XCTestCase {
                        "祝日と判断できない編集できない予定は §1.7 のまま（TimyCue の設定は変えられる）")
     }
 
+    func testHolidayCalendarsCanBeCorrectedByHand() throws {
+        let auto = CalendarChoice(id: "jp", title: "日本の祝日", sourceTitle: "購読", isWritable: false, color: .green, isHolidays: true)
+        let other = CalendarChoice(id: "cn", title: "中国の休日", sourceTitle: "購読", isWritable: false, color: .green)
+        var preferences = CalendarPreferences()
+        XCTAssertTrue(preferences.isHolidayCalendar(auto), "ふだんは自動の判定のまま")
+        XCTAssertFalse(preferences.isHolidayCalendar(other))
+
+        preferences.setHoliday(false, calendarID: "jp")
+        preferences.setHoliday(true, calendarID: "cn")
+        XCTAssertFalse(preferences.isHolidayCalendar(auto), "自動で判定されたカレンダーを祝日から外せる")
+        XCTAssertTrue(preferences.isHolidayCalendar(other), "自動で判定されなかったカレンダーを祝日にできる（手で直した分が優先）")
+
+        let old = try JSONDecoder().decode(CalendarPreferences.self, from: Data(#"{"hiddenCalendarIDs":[]}"#.utf8))
+        XCTAssertNil(old.holidayOverrides, "前の版の設定ファイルも読める")
+    }
+
     // MARK: - ローカル予定を Apple カレンダーへ移す（§1.12）
 
     @MainActor

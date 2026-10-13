@@ -11,11 +11,11 @@ struct CalendarChoice: Identifiable, Equatable, Hashable {
     let isWritable: Bool
     /// カレンダーの色にいちばん近い予定色（一覧で見分けるため）
     let color: EventColor
-    /// 祝日のカレンダーか。祝日だと判断できるものだけ true（2026-10-13 その4 確認）
+    /// 祝日のカレンダーか（自動の判定。設定 ＞ カレンダー連携 ＞ 祝日カレンダー で直した分は CalendarPreferences が持つ）
     var isHolidays = false
 
-    /// 祝日のカレンダーと判断できるか。EventKit には祝日の印がないので、書き込めないカレンダーで、
-    /// 名前に「祝日」「Holiday」が入っているものだけにする。判断できないものは祝日にしない（通常の編集できない予定として扱う。§1.7）
+    /// 祝日のカレンダーの自動の判定（Q55）。EventKit には祝日の印がないので、書き込めないカレンダーで、
+    /// 名前に「祝日」「Holiday」が入っているものを祝日カレンダーとする。当たらないものは祝日にしない（通常の編集できない予定として扱う。§1.7）
     static func isHolidayCalendar(title: String, isWritable: Bool) -> Bool {
         guard !isWritable else { return false }
         let name = title.lowercased()
@@ -38,6 +38,21 @@ struct CalendarPreferences: Codable, Equatable {
     var keptBothDuplicates: Set<String>?
     /// ホームで「重複している可能性のある予定が N 件あります」と一度知らせた組（Q50）
     var notifiedDuplicates: Set<String>?
+    /// 祝日カレンダーを手で直した分（カレンダーの id → 祝日として扱うか）。手で直した分は自動の判定より優先する（Q55）。
+    /// 古いファイルにはないので省略できる
+    var holidayOverrides: [String: Bool]?
+
+    /// そのカレンダーを祝日カレンダーとして扱うか：手で直していればそれ、なければ自動の判定（Q55）
+    func isHolidayCalendar(_ calendar: CalendarChoice) -> Bool {
+        holidayOverrides?[calendar.id] ?? calendar.isHolidays
+    }
+
+    /// 祝日カレンダーとして扱うかを手で決める（自動の判定より優先する）
+    mutating func setHoliday(_ isHoliday: Bool, calendarID: String) {
+        var overrides = holidayOverrides ?? [:]
+        overrides[calendarID] = isHoliday
+        holidayOverrides = overrides
+    }
 
     func isShown(_ calendarID: String) -> Bool {
         !hiddenCalendarIDs.contains(calendarID)
