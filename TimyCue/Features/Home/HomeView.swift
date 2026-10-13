@@ -4,8 +4,9 @@ import SwiftUI
 /// 長い初回チュートリアルは作らず、初めから通常のホームを開く（Q42-8）。
 /// カレンダー未連携なら「カレンダーを連携、または予定を登録すると…」と［カレンダーを連携］［予定を登録］を出す（Q42-8・Q43）。
 /// 予定がないときも［予定を登録］を出す（Q43。通常のホームに常設の＋は置かない：Q21）。
-/// 出発（今は暫定で予定開始）まで 60 分以内は、残り時間を外周の弧で見せる時計を出す（§6・追加仕様書 §44）。
-/// 出発時刻の計算・移動中（§7）などは、移動時間の計算（第 5 段階）から足す
+/// 何を出すかは主状態（HomeState）で 1 つだけ決める（追加仕様書 §45）。次の行動時刻（場所ありは出発、場所なしは開始）まで
+/// 60 分以内は、残り時間を外周の弧で見せる時計を出す（§6・追加仕様書 §44）。
+/// 出発時刻の計算（地図の移動時間）・移動中（§7）などは、第 5 段階の続きで足す。それまでは場所ありの予定も開始で仮に動かす
 struct HomeView: View {
     @Environment(CalendarStore.self) private var store
     @Environment(ScheduleEditorStore.self) private var editorStore
@@ -26,7 +27,8 @@ struct HomeView: View {
         TimelineView(.everyMinute) { context in
             let now = context.date
             let events = store.loadedEvents
-            let main = HomeSchedule.main(in: events, now: now)
+            // 主状態は 1 つだけ。出発時刻の計算（第 5 段階の続き）ができるまでは、開発中の見込みで動かす（追加仕様書 §44.11・§45）
+            let state = HomeState.resolve(events: events, now: now, estimate: DepartureEstimate.development(for:))
             ScrollView {
                 VStack(alignment: .leading, spacing: Theme.Spacing.l) {
                     Text(dateTitle(now))
@@ -38,10 +40,10 @@ struct HomeView: View {
                         duplicateNotice
                     }
 
-                    if let main {
-                        nextEventSection(main, now: now)
+                    if let event = state.event {
+                        nextEventSection(state, event: event, now: now)
                     } else {
-                        Text(HomeSchedule.hasOnlyAllDayToday(in: events, now: now)
+                        Text(state == .noEvents(onlyAllDayToday: true)
                              ? "今日は時間指定の予定はありません"
                              : "予定はありません")
                             .font(.headline)
@@ -50,7 +52,7 @@ struct HomeView: View {
 
                     if connection.state != .connected {
                         setupCard
-                    } else if main == nil {
+                    } else if state.event == nil {
                         registerButton
                     }
                 }
@@ -92,27 +94,18 @@ struct HomeView: View {
 
     // MARK: - 次の予定
 
-    private func nextEventSection(_ main: HomeSchedule.Main, now: Date) -> some View {
-        let event = main.event
-        let start = HomeSchedule.startDate(of: event)
-        let isStarted: Bool = {
-            if case .started = main { return true }
-            return false
-        }()
-        // 出発（今は暫定で予定開始）まで 60 分以内は時計で見せる（§6・追加仕様書 §44）
-        let target = HomeSchedule.clockTarget(for: event)
-        let face = isStarted ? nil : HomeClockMath.face(now: now, target: target.date)
-        // 60 分以上先は大きな「あと○分」にせず、静かに出す（追加仕様書 §5.2。今は暫定で開始時刻を使う。第 5 段階で推奨出発時刻へ）
-        let countdown = face != nil || isStarted || HomeSchedule.isQuiet(now: now, start: start)
-            ? "" : HomeSchedule.countdownText(from: now, to: start)
+    private func nextEventSection(_ state: HomeState, event: CalendarEvent, now: Date) -> some View {
+        // 時計は、次の行動時刻まで 60 分以内のときだけ（それより前は静かな表示。追加仕様書 §5.2・§44.12）
+        let target = state.clockTarget()
+        let face = target.flatMap { HomeClockMath.face(now: now, target: $0.date) }
         return VStack(alignment: .leading, spacing: Theme.Spacing.s) {
-            if let face {
+            if let face, let target {
                 clock(face, word: target.word)
             }
             VStack(alignment: .leading, spacing: 6) {
-                if isStarted {
-                    // 開始時刻から最大 3 分（§5.1）
-                    Text("予定時刻になりました")
+                if let headline = state.headline {
+                    // 出発時刻・出発時刻超過・予定開始の知らせ（spec §6・Q46、追加仕様書 §5.1・§8.7）
+                    Text(headline)
                         .font(.title3.weight(.semibold))
                         .foregroundStyle(Theme.Colors.accent)
                 } else {
@@ -137,12 +130,6 @@ struct HomeView: View {
                         .font(.subheadline)
                         .foregroundStyle(Theme.Colors.textSecondary)
                         .lineLimit(1)
-                }
-                if !countdown.isEmpty {
-                    Text(countdown)
-                        .font(.title3.weight(.semibold).monospacedDigit())
-                        .foregroundStyle(Theme.Colors.accent)
-                        .padding(.top, 4)
                 }
             }
             .padding(Theme.Spacing.l)

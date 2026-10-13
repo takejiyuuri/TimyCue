@@ -89,18 +89,15 @@ final class HomeClockTests: XCTestCase {
         var visit = CalendarEvent(day: day, startMinute: 17 * 60 + 15, title: "A社")
         visit.locationName = "広島駅"
         let start = HomeSchedule.startDate(of: visit, calendar: calendar)
-        XCTAssertEqual(HomeSchedule.clockTarget(for: visit, calendar: calendar),
-                       HomeSchedule.ClockTarget(date: start, isDeparture: false),
-                       "出発時刻の計算（第 5 段階）ができるまでは、暫定で予定開始を数える")
-        XCTAssertEqual(HomeSchedule.clockTarget(for: visit, calendar: calendar).word, "開始")
+        let now = at(16 * 60 + 52)
+        let developing = HomeState.resolve(events: [visit], now: now, calendar: calendar, estimate: DepartureEstimate.development(for:))
+        XCTAssertEqual(developing.clockTarget(calendar: calendar), HomeSchedule.ClockTarget(date: start, isDeparture: false),
+                       "出発時刻の計算（第 5 段階の続き）ができるまでは、開発中だけ予定開始を数える")
+        XCTAssertEqual(developing.clockTarget(calendar: calendar)?.word, "開始")
 
-        let leaveAt = at(16 * 60 + 40)
-        let withDeparture = HomeSchedule.clockTarget(for: visit, calendar: calendar, departure: { _ in leaveAt })
-        XCTAssertEqual(withDeparture, HomeSchedule.ClockTarget(date: leaveAt, isDeparture: true))
-        XCTAssertEqual(withDeparture.word, "出発")
-
-        let noPlace = CalendarEvent(day: day, startMinute: 17 * 60 + 15, title: "打合せ")
-        XCTAssertFalse(HomeSchedule.clockTarget(for: noPlace, calendar: calendar, departure: { _ in leaveAt }).isDeparture,
-                       "場所のない予定は、出発ではなく予定開始を基準にする（追加仕様書 §36）")
+        let leaveAt = at(17 * 60)
+        let calculated = HomeState.resolve(events: [visit], now: now, calendar: calendar, estimate: { _ in .available(leaveAt) })
+        XCTAssertEqual(calculated.clockTarget(calendar: calendar), HomeSchedule.ClockTarget(date: leaveAt, isDeparture: true))
+        XCTAssertEqual(calculated.clockTarget(calendar: calendar)?.word, "出発")
     }
 }

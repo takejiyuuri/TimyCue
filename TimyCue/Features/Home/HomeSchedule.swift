@@ -43,7 +43,8 @@ enum HomeSchedule {
         return next.map(Main.upcoming)
     }
 
-    /// ホームの時計で数える先（spec §6・追加仕様書 §44）
+    /// ホームの時計で数える先（spec §6・追加仕様書 §44）。時計は「次に行動すべき時刻までの残り」を見せる：
+    /// 場所のある予定は出発まで、場所のない予定は開始まで（追加仕様書 §44.11）。どちらにするかは HomeState が決める
     struct ClockTarget: Equatable {
         let date: Date
         let isDeparture: Bool
@@ -51,18 +52,9 @@ enum HomeSchedule {
         var word: String { isDeparture ? "出発" : "開始" }
     }
 
-    /// 時計で数える先。時計は「次に行動すべき時刻までの残り」を見せる：場所のある予定は出発まで、場所のない予定は開始まで
-    /// （追加仕様書 §36・§44。2026-10-14 決定）。
-    /// 開発中だけの暫定：出発時刻の計算（第 5 段階）ができるまでは departure が nil なので、どの予定も予定開始を数える。
-    /// 製品では、場所のある予定の出発時刻を計算できないときに黙って「開始まで」に替えない（「出発時刻を計算できません」などの別の状態にする）
-    static func clockTarget(for event: CalendarEvent,
-                            calendar: Calendar = .timyCue,
-                            departure: (CalendarEvent) -> Date? = { _ in nil }) -> ClockTarget {
-        let hasPlace = !(event.locationName ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        if hasPlace, let leaveAt = departure(event) {
-            return ClockTarget(date: leaveAt, isDeparture: true)
-        }
-        return ClockTarget(date: startDate(of: event, calendar: calendar), isDeparture: false)
+    /// 場所のある予定か。場所が空白だけなら場所なし（追加仕様書 §36）
+    static func hasPlace(_ event: CalendarEvent) -> Bool {
+        !(event.locationName ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     /// まだ先なので静かに出すか（§5.2）。
