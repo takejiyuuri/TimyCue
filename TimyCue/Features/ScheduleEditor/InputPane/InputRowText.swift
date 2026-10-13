@@ -17,8 +17,6 @@ extension ScheduleEditorStore {
             return info.route.displayName
         case .notifications:
             return info.notifications.summary
-        case .repeatRule:
-            return content.repeatRule.displayName
         case .color:
             return info.color.displayName
         case .end:

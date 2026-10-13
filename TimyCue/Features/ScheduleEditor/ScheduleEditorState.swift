@@ -32,7 +32,6 @@ enum InputRow: CaseIterable, Equatable {
     case transport
     case route
     case notifications
-    case repeatRule
     case color
     case end
     /// 保存先の Apple カレンダー。書き込めるカレンダーが 2 つ以上あるときだけ出す（Q32）
@@ -46,7 +45,6 @@ enum InputRow: CaseIterable, Equatable {
         case .transport: "移動手段"
         case .route: "ルート"
         case .notifications: "通知"
-        case .repeatRule: "繰り返し"
         case .color: "色"
         case .end: "終了"
         case .calendar: "カレンダー"
@@ -56,7 +54,7 @@ enum InputRow: CaseIterable, Equatable {
     /// Apple カレンダーの予定そのものの項目か。書き込めないカレンダーの予定ではロックする（追加仕様書 §1.7）
     var isAppleField: Bool {
         switch self {
-        case .title, .location, .repeatRule, .end, .calendar: true
+        case .title, .location, .end, .calendar: true
         case .arrivalTarget, .transport, .route, .notifications, .color: false
         }
     }

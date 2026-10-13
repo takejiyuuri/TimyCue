@@ -33,8 +33,6 @@ final class ScheduleEditorStore {
     var defaultArrivalTargetMinutes = TimyCueEventMetadata.defaultArrivalTargetMinutes
     /// 書き込めない Apple カレンダー（共有・購読など）の id → 名前（追加仕様書 §1.7）
     private(set) var readOnlyCalendarTitles: [String: String] = [:]
-    /// 繰り返しを決めたあとに 2 日目を選ぼうとした日。繰り返しを解除するか確かめている間だけ持つ（Q49）
-    private(set) var dayWaitingForRepeatClear: CalendarDay?
 
     /// 保存しようとして足りないものがあったか。あったら、直るまで知らせを出し続ける（仕様 §46）
     private var showsSaveIssue = false
@@ -100,9 +98,6 @@ final class ScheduleEditorStore {
         InputRow.allCases.filter { row in
             switch row {
             case .route: content.metadata.transport == .car
-            // 繰り返しの行は出さない（2026-10-13 ユーザー決定）。繰り返しは Apple カレンダー側で作る。
-            // 既存の繰り返し予定の読み込み・範囲を選んで直す・消すはそのまま
-            case .repeatRule: false
             case .calendar: writableCalendars.count > 1
             default: true
             }
@@ -237,11 +232,6 @@ final class ScheduleEditorStore {
     /// 日を選ぶ。新規・コピーでは選んだ日を足し、編集ではその日へ移動する（仕様 §34・§61）。選んだ日を表示する
     func selectDay(_ day: CalendarDay) {
         guard !areAppleFieldsLocked else { return }
-        // 繰り返しを決めたまま 2 日目は選べない。解除するか確かめる（Q49：複数日登録と繰り返しは併用しない）
-        if mode.allowsMultipleDays, content.repeatRule.isRepeating, !selectedDays.isEmpty, !selectedDays.contains(day) {
-            dayWaitingForRepeatClear = day
-            return
-        }
         if mode.allowsMultipleDays {
             if !selectedDays.contains(day) {
                 selectedDays.append(day)
@@ -253,24 +243,6 @@ final class ScheduleEditorStore {
             startMinutes = carriedStart.map { [day: $0] } ?? [:]
         }
         displayedDay = day
-    }
-
-    /// 「繰り返しを解除しますか？」に「解除する」：繰り返しを外して、選ぼうとした日を足す（Q49）
-    func clearRepeatAndSelectWaitingDay() {
-        guard let day = dayWaitingForRepeatClear else { return }
-        dayWaitingForRepeatClear = nil
-        content.repeatRule = .none
-        selectDay(day)
-    }
-
-    /// 「繰り返しを解除しますか？」に「キャンセル」：日は足さない
-    func cancelWaitingDay() {
-        dayWaitingForRepeatClear = nil
-    }
-
-    /// 2 日以上選んでいる（複数日登録）ので、繰り返しは選べない（Q49）
-    var repeatBlockedByMultipleDays: Bool {
-        selectedDays.count >= 2
     }
 
     /// 選んだ日を外す（新規・コピーのみ）。表示中の日を外したら、残りの最初の日を表示する
@@ -379,11 +351,6 @@ final class ScheduleEditorStore {
     var isEditingRecurringEvent: Bool {
         guard case .edit(let id) = mode else { return false }
         return events.first { $0.id == id }?.repeatRule.isRepeating ?? false
-    }
-
-    /// 繰り返しを選べるか。繰り返しは Apple カレンダーの繰り返しを正本にするので、連携しているときだけ（Q37 の変更・Q48 は仮）
-    var canRepeat: Bool {
-        !writableCalendars.isEmpty
     }
 
     /// 保存して、保存した予定を返す。足りないものがあれば、その項目を開いて知らせ、保存しない（仕様 §46）。
