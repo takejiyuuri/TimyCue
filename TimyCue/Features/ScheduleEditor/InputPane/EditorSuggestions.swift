@@ -128,20 +128,11 @@ extension ScheduleEditorStore {
         return result
     }
 
-    /// 場所を選ぶ。過去の場所なら、到着目標・移動手段がまだ決まっていなければ、その場所の前回の値を入れる（§48・§49）。
-    /// 到着目標の優先順位：今回の手動指定 → その場所の前回設定 → 既定値（既定値は設定画面の段階で足す）
+    /// 場所を選ぶ。過去の場所を選んでも、到着目標・移動手段は書き換えない（Q75）。
+    /// 到着目標はユーザーが決める予定側の設定で、場所から入れない（全体既定値のまま。Q70）。
+    /// 移動手段は、はっきり指定されていればそのまま、「自動」なら「自動」のまま（過去の実績は自動の判定の内部材料にだけ使う）
     func choosePlace(_ name: String?) {
         content.locationName = name
-        guard let name,
-              let last = historyNewestFirst.first(where: { $0.locationName == name }),
-              let info = metadata(for: last.id) else { return }
-        if content.metadata.arrivalTargetMinutes == nil {
-            content.metadata.arrivalTargetMinutes = info.arrivalTargetMinutes
-        }
-        if content.metadata.transport == .auto {
-            content.metadata.transport = info.transport
-            content.metadata.route = info.route
-        }
     }
 
     // MARK: - 予定の重なり（§58）

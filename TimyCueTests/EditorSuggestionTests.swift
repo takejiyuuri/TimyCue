@@ -83,19 +83,25 @@ final class EditorSuggestionTests: XCTestCase {
         XCTAssertEqual(Set(candidates.map(\.name)).count, candidates.count, "同じ場所は 1 回だけ")
     }
 
-    func testChoosingPastPlaceFillsOnlyUnsetSettings() {
+    func testChoosingPastPlaceDoesNotRewriteArrivalTargetOrTransport() {
         let past = event("現場", daysAgo: 5, place: "見本ビル")
         var info = TimyCueEventMetadata()
         info.arrivalTargetMinutes = 15
         info.transport = .publicTransit
         let store = makeStore([past], metadata: [past.id: info])
-        store.startNew(on: today)
 
-        store.content.metadata.arrivalTargetMinutes = 5
+        store.startNew(on: today)
         store.choosePlace("見本ビル")
         XCTAssertEqual(store.content.locationName, "見本ビル")
-        XCTAssertEqual(store.content.metadata.arrivalTargetMinutes, 5, "今回手で決めた到着目標が優先（§49）")
-        XCTAssertEqual(store.content.metadata.transport, .publicTransit, "決まっていない移動手段はその場所の前回の値（§48）")
+        XCTAssertNil(store.content.metadata.arrivalTargetMinutes, "その場所で前回使った到着目標は入れない（全体既定値のまま。Q70・Q75）")
+        XCTAssertEqual(store.content.metadata.transport, .auto, "「自動」は「自動」のまま。画面の設定を勝手に変えない（Q75）")
+
+        store.startNew(on: today)
+        store.content.metadata.arrivalTargetMinutes = 5
+        store.content.metadata.transport = .walk
+        store.choosePlace("見本ビル")
+        XCTAssertEqual(store.content.metadata.arrivalTargetMinutes, 5, "今回決めた到着目標はそのまま")
+        XCTAssertEqual(store.content.metadata.transport, .walk, "はっきり指定した移動手段は上書きしない（Q75）")
 
         store.choosePlace(nil)
         XCTAssertNil(store.content.locationName, "場所なし")
