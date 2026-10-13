@@ -46,7 +46,7 @@ enum MetadataField: String, Codable, CaseIterable {
 /// 予定のうち、TimyCue だけが使う情報（仕様 §84）。Apple カレンダーの予定とは別に保存する（仕様 §68）。
 struct TimyCueEventMetadata: Equatable, Codable {
     var color: EventColor = .orange
-    /// 到着目標：予定開始の何分前に着きたいか（仕様 §49）。nil は未設定（その場所の前回設定や既定値を使う）
+    /// 到着目標：予定開始の何分前に着きたいか（仕様 §49）。nil は未設定（全体既定値を使う。初期値は 0 分前＝予定開始時刻。Q70）
     var arrivalTargetMinutes: Int?
     var transport: TransportMode = .auto
     var route: RouteOption = .auto
