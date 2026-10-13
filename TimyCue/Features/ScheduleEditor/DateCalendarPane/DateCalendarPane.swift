@@ -20,7 +20,9 @@ struct DateCalendarPane: View {
     var body: some View {
         GeometryReader { geometry in
             let gridHeight = max(geometry.size.height - EditorMetrics.calendarYearHeight - EditorMetrics.calendarWeekdayHeight, 1)
-            let rowHeight = gridHeight / EditorMetrics.calendarVisibleWeeks
+            let rowHeight = CGFloat(EditorCalendarAxis.rowHeight(gridHeight: Double(gridHeight),
+                                                                 visibleWeeks: Double(EditorMetrics.calendarVisibleWeeks),
+                                                                 minimum: Double(EditorMetrics.calendarMinRowHeight)))
             let offset = scroller.offset
             HStack(spacing: 0) {
                 CalendarScrollBar(axis: axis, scroller: scroller, rowHeight: rowHeight)

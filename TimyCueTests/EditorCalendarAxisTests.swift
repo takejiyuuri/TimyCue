@@ -105,6 +105,13 @@ final class EditorCalendarAxisTests: XCTestCase {
         XCTAssertEqual(total, EditorCalendarAxis.inertiaDistance(velocity: speed), accuracy: 0.05)
     }
 
+    func testRowsDoNotSquashWhenTheKeyboardShrinksTheCalendar() {
+        XCTAssertEqual(EditorCalendarAxis.rowHeight(gridHeight: 300, visibleWeeks: 6, minimum: 38), 50,
+                       "ふだんは日付の行 6 行ぶん")
+        XCTAssertEqual(EditorCalendarAxis.rowHeight(gridHeight: 90, visibleWeeks: 6, minimum: 38), 38,
+                       "キーボードで縮んだときは行をつぶさず、見える週を減らす（§67）")
+    }
+
     func testSafetyLimit() {
         XCTAssertEqual(axis.clamp(1_000_000), EditorCalendarAxis.maxOffset)
         XCTAssertEqual(axis.clamp(-1_000_000), -EditorCalendarAxis.maxOffset)

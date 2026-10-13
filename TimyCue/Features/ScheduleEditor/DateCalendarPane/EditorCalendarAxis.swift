@@ -178,6 +178,13 @@ struct EditorCalendarAxis: Equatable {
         return CalendarMonth(day) == lineMonth ? day : nil
     }
 
+    /// 日付の行の高さ。ふだんは見える高さの 1/visibleWeeks（6 行ぶん）。
+    /// キーボードが出て下カレンダーが縮んだとき（§67）は minimum より低くせず、見える週を減らす
+    static func rowHeight(gridHeight: Double, visibleWeeks: Double, minimum: Double) -> Double {
+        guard visibleWeeks > 0 else { return minimum }
+        return max(gridHeight / visibleWeeks, minimum)
+    }
+
     // MARK: - 左右のバーでなぞって動かす（2026-10-13 ユーザー決定）
 
     /// なぞっている間は、指と同じ向き・同じだけ動く（上へなぞると先の月が下から出てくる）
