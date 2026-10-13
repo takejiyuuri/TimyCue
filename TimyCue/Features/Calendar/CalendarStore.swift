@@ -127,9 +127,15 @@ final class CalendarStore {
         if !isOpen(today) { tapDay(today) }
     }
 
-    /// 今月を、開いたときと同じ位置に出す（カレンダーのタブを押し直したとき。仮）
+    /// 今月を、開いたときと同じ位置に出す（仮）
     func showCurrentMonth() {
-        topWeekID = CalendarWeek(containing: CalendarMonth(today).firstDay).id
+        scroll(to: CalendarWeek(containing: CalendarMonth(today).firstDay).id)
+    }
+
+    /// その週をいちばん上に出す（同じ位置でもスクロールし直す）
+    func scroll(to weekID: CalendarDay?) {
+        guard let weekID else { return }
+        topWeekID = weekID
         scrollRequest += 1
     }
 

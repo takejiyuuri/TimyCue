@@ -15,8 +15,6 @@ struct CalendarTabView: View {
         NavigationStack(path: $store.path) {
             VStack(spacing: 0) {
                 CalendarHeaderView(year: store.stickyMonth.yearLabel,
-                                   showsToday: !store.isTodayVisible,
-                                   onToday: { withAnimation { store.scrollToToday() } },
                                    onNewEvent: { openNewEvent() })
                     .contentShape(Rectangle())
                     .onTapGesture { store.closeAllPopovers() }

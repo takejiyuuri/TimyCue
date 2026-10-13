@@ -2,11 +2,9 @@ import SwiftUI
 
 /// 画面上部の固定領域：年（Q20）と曜日の見出し（仕様 §19）。
 /// 年は真ん中に置く。土曜は淡い青、日曜は淡い赤（2026-10-12 デザインの指摘）。
-/// 右上に少し小さめの「＋」と、今日が見えていないときだけの「今日」（Q21 を 2026-10-12 に変更）
+/// 右上に少し小さめの「＋」（Q21 を 2026-10-12 に変更）。「今日」は 2026-10-13 に下のタブへ移した
 struct CalendarHeaderView: View {
     let year: String
-    let showsToday: Bool
-    let onToday: () -> Void
     let onNewEvent: () -> Void
 
     var body: some View {
@@ -17,21 +15,8 @@ struct CalendarHeaderView: View {
                 .frame(maxWidth: .infinity)
                 .frame(height: CalendarMetrics.yearHeaderHeight)
                 .overlay(alignment: .trailing) {
-                    HStack(spacing: CalendarMetrics.headerButtonSpacing) {
-                        if showsToday {
-                            // 「＋」と同じ丸（2026-10-13 デザインの指摘）
-                            Button(action: onToday) {
-                                Text("今日")
-                                    .font(CalendarMetrics.todayButtonFont)
-                                    .foregroundStyle(.white)
-                                    .frame(width: CalendarMetrics.newEventButtonSize, height: CalendarMetrics.newEventButtonSize)
-                                    .background(Circle().fill(Theme.Colors.accent))
-                            }
-                            .accessibilityLabel("今日へ移動")
-                        }
-                        NewEventButton(action: onNewEvent)
-                    }
-                    .padding(.trailing, CalendarMetrics.headerButtonsTrailingInset)
+                    NewEventButton(action: onNewEvent)
+                        .padding(.trailing, CalendarMetrics.headerButtonsTrailingInset)
                 }
             HStack(spacing: 0) {
                 ForEach(Array(Weekday.symbols.enumerated()), id: \.offset) { index, symbol in
@@ -73,6 +58,8 @@ struct MonthCalendarView: View {
                     }
                     .scrollTargetLayout()
                     .padding(.horizontal, CalendarMetrics.horizontalPadding)
+                    // タブの押し直しで iOS がいちばん上（20 年前）へ戻さないようにする
+                    .background(ScrollsToTopDisabler())
                     // 吹き出しの外（日付以外）を押したら、開いている吹き出しを閉じる（Q9）
                     .contentShape(Rectangle())
                     .onTapGesture { store.closeAllPopovers() }

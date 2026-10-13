@@ -46,7 +46,12 @@ extension ScheduleEditorStore {
 
     /// 到着目標の文字。0 分前は予定開始時刻と分かるようにする（文言は仮）
     nonisolated static func arrivalTargetText(_ minutes: Int) -> String {
-        minutes == 0 ? "0分前（予定開始時刻）" : "\(minutes)分前"
+        if minutes == 0 { return "0分前（予定開始時刻）" }
+        // 60 分以上は「1時間30分前」のように時間と分で（2026-10-13 実機の指摘）
+        let hours = minutes / 60
+        let rest = minutes % 60
+        if hours == 0 { return "\(minutes)分前" }
+        return rest == 0 ? "\(hours)時間前" : "\(hours)時間\(rest)分前"
     }
     static let customNotificationRange = 5...240
     static let customMinuteStep = 5

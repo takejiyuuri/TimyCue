@@ -46,4 +46,12 @@ final class TimeDragMathTests: XCTestCase {
         store.setDuration(60)
         XCTAssertEqual(store.endMinute(on: day), 15 * 60)
     }
+
+    func testStartWheelIsEveryFiveMinutesAcrossHours() {
+        let values = TimeDragMath.wheelMinutes
+        XCTAssertEqual(values.count, 24 * 12, "0:00〜23:55 を 5 分おき（2026-10-13 実機の指摘）")
+        let nine55 = values.firstIndex(of: 9 * 60 + 55)!
+        XCTAssertEqual(values[nine55 + 1], 10 * 60, "9:55 の次は 10:00（0 分をまたぐと時も変わる）")
+        XCTAssertEqual(values[nine55 - 11], 9 * 60, "上へ戻れば 9:00、さらに上は 8 時台")
+    }
 }

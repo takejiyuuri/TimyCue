@@ -19,6 +19,10 @@ enum TimeDragMath {
         return min(max(moved, start + minimumDuration), MinuteOfDay.minutesPerDay)
     }
 
+    /// 分ホイールの刻み（分）と、並べる値（0:00〜23:55 を通しで並べるので、0 分をまたぐと時も変わる。2026-10-13 実機の指摘）
+    static let wheelStep = 5
+    static let wheelMinutes: [MinuteOfDay] = Array(stride(from: 0, to: MinuteOfDay.minutesPerDay, by: wheelStep))
+
     /// 「時」を押して分ホイールで分を選んだときの開始時刻（§38）
     static func startMinute(hour: Int, minute: Int) -> MinuteOfDay {
         clampToDay(min(max(hour, 0), 23) * 60 + min(max(minute, 0), 59))

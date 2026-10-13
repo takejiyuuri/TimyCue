@@ -32,19 +32,18 @@ struct RootTabView: View {
 
     var body: some View {
         TabView(selection: Binding(get: { selection }, set: { tab in
-            // カレンダーのタブを押し直すと、iOS が画面をいちばん上（20 年前の週）までスクロールしてしまう。
-            // 押し直しを見つけたら、そのスクロールのあとで今月へ戻す（2026-10-13 実機の不具合。戻す先は仮）
-            if tab == selection, tab == .calendar {
-                Task { @MainActor in
-                    try? await Task.sleep(for: .milliseconds(450))
-                    calendarStore.showCurrentMonth()
-                }
-            }
+            if tab == selection, tab == .calendar { calendarTabTappedAgain() }
             selection = tab
         })) {
             ForEach(RootTab.allCases, id: \.self) { tab in
                 screen(for: tab)
-                    .tabItem { Label(tab.title, systemImage: tab.systemImage) }
+                    .tabItem {
+                        if tab == .calendar && showsTodayInTab {
+                            Label("今日", systemImage: "calendar.badge.clock")
+                        } else {
+                            Label(tab.title, systemImage: tab.systemImage)
+                        }
+                    }
                     .tag(tab)
             }
         }
@@ -63,6 +62,26 @@ struct RootTabView: View {
                 .environment(editorStore)
                 .environment(calendarStore)
                 .environment(connection)
+        }
+    }
+
+    /// カレンダーを見ていて今日が画面の外にあるときは、下のカレンダーのタブが「今日」になる（2026-10-13 ユーザー。前の右上の「今日」の代わり）
+    private var showsTodayInTab: Bool {
+        selection == .calendar && !calendarStore.isTodayVisible
+    }
+
+    /// カレンダーのタブの押し直し：「今日」になっていれば今日へ移動して今日を選ぶ。今日が見えていれば今の位置のまま。
+    /// iOS の「いちばん上へ戻る」は止めてあるが、もし動いてしまったら元の場所へ戻す（ぐるぐる回らないように、すぐ動かす）
+    private func calendarTabTappedAgain() {
+        let goesToToday = showsTodayInTab
+        let keep = calendarStore.topWeekID
+        if goesToToday { calendarStore.scrollToToday() }
+        let target = calendarStore.topWeekID
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(450))
+            if calendarStore.topWeekID != target {
+                if goesToToday { calendarStore.showCurrentMonth() } else { calendarStore.scroll(to: keep) }
+            }
         }
     }
 

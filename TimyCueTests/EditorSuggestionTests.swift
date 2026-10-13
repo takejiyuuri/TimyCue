@@ -104,6 +104,13 @@ final class EditorSuggestionTests: XCTestCase {
         XCTAssertEqual(roundTrip, saved)
     }
 
+    func testArrivalTargetTextUsesHoursAndMinutes() {
+        XCTAssertEqual(ScheduleEditorStore.arrivalTargetText(0), "0分前（予定開始時刻）")
+        XCTAssertEqual(ScheduleEditorStore.arrivalTargetText(45), "45分前")
+        XCTAssertEqual(ScheduleEditorStore.arrivalTargetText(60), "1時間前")
+        XCTAssertEqual(ScheduleEditorStore.arrivalTargetText(95), "1時間35分前", "60 分以上は時間と分で（2026-10-13 実機の指摘）")
+    }
+
     func testArrivalTargetWheelIsEveryFiveMinutes() {
         let values = ScheduleEditorStore.arrivalTargetWheelValues(including: 10)
         XCTAssertEqual(values.first, 0, "0 分前（予定開始時刻）から")

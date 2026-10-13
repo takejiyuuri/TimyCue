@@ -67,7 +67,7 @@ private struct EditorTimeAxis: View {
     let day: CalendarDay
     @Environment(ScheduleEditorStore.self) private var store
 
-    /// 分ホイールを出している「時」（§38）
+    /// 分ホイールを出している「時」（§38。ホイールを置く位置）と、ホイールで選んでいる時刻（0:00 からの分。5 分おき）
     @State private var wheelHour: Int?
     @State private var wheelMinute = 0
     /// 仮予定を動かしている間の開始時刻・終了時刻（§40・§41）。指を離したら store に入れる
@@ -76,6 +76,7 @@ private struct EditorTimeAxis: View {
 
     private let hourHeight = EditorMetrics.hourRowHeight
     private let topInset: CGFloat = 6
+    private static let timelineSpace = "editorTimeline"
 
     private func y(_ minute: MinuteOfDay) -> CGFloat {
         CGFloat(minute) / 60 * hourHeight + topInset
@@ -132,19 +133,21 @@ private struct EditorTimeAxis: View {
                         }
 
                         if let hour = wheelHour {
-                            MinuteWheelCard(hour: hour, minute: $wheelMinute, onConfirm: confirmWheel)
+                            MinuteWheelCard(value: $wheelMinute, onConfirm: confirmWheel)
                                 .alignmentGuide(.leading) { _ in -(EditorMetrics.hourLabelWidth + 4) }
                                 .alignmentGuide(.top) { _ in -(y(hour * 60) + 2) }
                                 .zIndex(1)
                         }
                     }
                     .frame(width: geometry.size.width, alignment: .topLeading)
+                    // 指の動きは、この時間軸の上で測る（伸びていくブロックやハンドルの上で測ると、動きに合わせて基準もずれる）
+                    .coordinateSpace(name: Self.timelineSpace)
                 }
                 .onAppear { scroll(proxy) }
                 .onChange(of: wheelMinute) { _, minute in
-                    // ホイールを回すと、その場で仮予定の開始時刻が変わる（§38・§39）
-                    if let hour = wheelHour {
-                        store.setStartMinute(TimeDragMath.startMinute(hour: hour, minute: minute), on: day)
+                    // ホイールを回すと、その場で仮予定の開始時刻が変わる（§38・§39）。0 分をまたげば時も変わる
+                    if wheelHour != nil {
+                        store.setStartMinute(minute, on: day)
                     }
                 }
             }
@@ -208,7 +211,7 @@ private struct EditorTimeAxis: View {
 
     /// 仮予定を上下に動かす：開始時刻を変える。所要時間は保つ（§40）
     private func moveDrag(for event: CalendarEvent) -> some Gesture {
-        DragGesture(minimumDistance: 3)
+        DragGesture(minimumDistance: 3, coordinateSpace: .named(Self.timelineSpace))
             .onChanged { value in
                 guard !store.areAppleFieldsLocked else { return }
                 wheelHour = nil
@@ -223,7 +226,7 @@ private struct EditorTimeAxis: View {
 
     /// 下端のハンドルを伸ばす：終了時刻を決める。何もしなければ終了なし。右の「終了」の行と同じ値（§41・Q24）
     private func endDrag(for event: CalendarEvent) -> some Gesture {
-        DragGesture(minimumDistance: 1)
+        DragGesture(minimumDistance: 1, coordinateSpace: .named(Self.timelineSpace))
             .onChanged { value in
                 wheelHour = nil
                 let start = store.startMinutes[day] ?? event.startMinute
@@ -245,8 +248,8 @@ private struct EditorTimeAxis: View {
     private func tapHour(_ hour: Int) {
         guard !store.areAppleFieldsLocked else { return }
         wheelHour = hour
-        wheelMinute = 0
-        store.setStartMinute(TimeDragMath.startMinute(hour: hour, minute: 0), on: day)
+        wheelMinute = TimeDragMath.startMinute(hour: hour, minute: 0)
+        store.setStartMinute(wheelMinute, on: day)
     }
 
     /// 分を決める：時刻のまだない次の日へ移る（§36）
@@ -277,16 +280,18 @@ private struct EndHandle: View {
 
 /// 「時」を押した位置に出す、小さな分ホイール（§38）。初めは 00。標準の Picker を大きく出さず、TimyCue に馴染む小ささにする
 private struct MinuteWheelCard: View {
-    let hour: Int
-    @Binding var minute: Int
+    /// 0:00 からの分（5 分おき）
+    @Binding var value: Int
     let onConfirm: () -> Void
 
     var body: some View {
         HStack(spacing: 2) {
-            Text("\(hour):")
+            // 時は、ホイールで選んでいる時刻に合わせて変わる
+            Text("\(value / 60):")
                 .font(EditorMetrics.wheelFont)
                 .foregroundStyle(Theme.Colors.textPrimary)
-            MinuteWheel(minute: $minute)
+                .monospacedDigit()
+            MinuteWheel(value: $value)
             Button(action: onConfirm) {
                 Image(systemName: "checkmark")
                     .font(.system(size: 13, weight: .bold))
@@ -306,9 +311,10 @@ private struct MinuteWheelCard: View {
     }
 }
 
-/// 分の小さなホイール。上下に回して止まった位置の分を選ぶ
+/// 分の小さなホイール。5 分おき。上下に回して止まった位置の分を選ぶ。0 分をまたぐと時も変わる（2026-10-13 実機の指摘）
 private struct MinuteWheel: View {
-    @Binding var minute: Int
+    /// 0:00 からの分
+    @Binding var value: Int
 
     private let rowHeight = EditorMetrics.wheelRowHeight
     private let visibleRows: CGFloat = 3
@@ -316,18 +322,18 @@ private struct MinuteWheel: View {
     var body: some View {
         ScrollView(.vertical, showsIndicators: false) {
             LazyVStack(spacing: 0) {
-                ForEach(0..<60, id: \.self) { value in
-                    Text(String(format: "%02d", value))
-                        .font(value == minute ? EditorMetrics.wheelSelectedFont : EditorMetrics.wheelFont)
-                        .foregroundStyle(value == minute ? Theme.Colors.textPrimary : Theme.Colors.textSecondary)
+                ForEach(TimeDragMath.wheelMinutes, id: \.self) { item in
+                    Text(String(format: "%02d", item % 60))
+                        .font(item == value ? EditorMetrics.wheelSelectedFont : EditorMetrics.wheelFont)
+                        .foregroundStyle(item == value ? Theme.Colors.textPrimary : Theme.Colors.textSecondary)
                         .frame(width: EditorMetrics.wheelWidth, height: rowHeight)
-                        .id(value)
+                        .id(item)
                 }
             }
             .scrollTargetLayout()
         }
         .scrollTargetBehavior(.viewAligned)
-        .scrollPosition(id: Binding<Int?>(get: { minute }, set: { if let value = $0 { minute = value } }), anchor: .center)
+        .scrollPosition(id: Binding<Int?>(get: { value }, set: { if let new = $0 { value = new } }), anchor: .center)
         .contentMargins(.vertical, rowHeight * (visibleRows - 1) / 2, for: .scrollContent)
         .frame(width: EditorMetrics.wheelWidth, height: rowHeight * visibleRows)
         .overlay {
