@@ -24,13 +24,13 @@ struct TimePane: View {
     }
 }
 
-/// 時間画面の上の日付。複数日を選んでいても、表示中の 1 日だけを「10月2日（金）」のように出す。色は付けない
-/// （2026-10-14 ユーザー決定。前の日付タブの一覧はやめた。別の日は下のカレンダーでその日をタップして出す）
+/// 時間画面の上の日付。複数日を選んでいても、表示中の 1 日だけを「10月2日（金）」のように、時間画面の幅の真ん中に出す。色は付けない
+/// （2026-10-14 ユーザー決定。前の日付タブの一覧はやめた。別の日は下のカレンダーでその日をタップして出す。真ん中は 2026-10-14 実機の指摘）
 private struct DateHeader: View {
     @Environment(ScheduleEditorStore.self) private var store
 
     var body: some View {
-        HStack(spacing: 0) {
+        Group {
             if let day = store.displayedDay {
                 Text("\(day.month)月\(day.day)日（\(day.weekdaySymbol())）")
                     .font(EditorMetrics.dateTabFont)
@@ -38,9 +38,9 @@ private struct DateHeader: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
             }
-            Spacer(minLength: 0)
         }
         .padding(.horizontal, 10)
+        .frame(maxWidth: .infinity, alignment: .center)
         .frame(height: EditorMetrics.dateTabHeight)
         .overlay(alignment: .bottom) {
             Theme.Colors.separator.frame(height: 1)
@@ -186,16 +186,18 @@ private struct EditorTimeAxis: View {
             // ブロックを上下に動かす。書き込めない Apple カレンダーの予定は動かさない（§1.7）
             .highPriorityGesture(moveDrag(for: event), including: store.areAppleFieldsLocked ? .subviews : .all)
             .overlay(alignment: .topTrailing) {
-                // 動かしている間は正確な時刻を出す（§40・§41）
-                if dragStart != nil || dragEnd != nil {
-                    Text(dragEnd != nil ? "〜\(TimeText.hourMinute(end ?? start))" : TimeText.hourMinute(start))
-                        .font(EditorMetrics.dragTimeFont)
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 2)
-                        .background(Capsule().fill(Theme.Colors.textPrimary.opacity(0.85)))
-                        .offset(y: dragEnd != nil ? height - 6 : -18)
-                        .fixedSize()
+                // 動かしている間は正確な時刻を出す（§40）。ブロックの上に出す
+                if dragStart != nil && dragEnd == nil {
+                    DragTimeLabel(text: TimeText.hourMinute(start))
+                        .offset(y: -18)
+                }
+            }
+            .overlay(alignment: .topLeading) {
+                // 終了を伸ばしている間は、終了の時刻を出す（§41）。下端を押さえている指で隠れないよう、
+                // 指より上・左寄りに出す（2026-10-14 実機の指摘。どれだけ上げるかは仮）
+                if let dragEnd {
+                    DragTimeLabel(text: "〜\(TimeText.hourMinute(dragEnd))")
+                        .offset(x: 2, y: height - EditorMetrics.dragEndLabelLift)
                 }
             }
             .overlay(alignment: .bottomLeading) {
@@ -276,6 +278,22 @@ private struct EditorTimeAxis: View {
         let minute = store.suggestedScrollMinute(for: day)
             ?? (day == CalendarDay(Date()) ? max(Clock.minuteOfDay(Date()) - 60, 0) : 8 * 60)
         proxy.scrollTo(min(max(minute / 60, 0), 23), anchor: .top)
+    }
+}
+
+/// 仮予定を動かしている間・終了を伸ばしている間に出す、正確な時刻（§40・§41）
+private struct DragTimeLabel: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .font(EditorMetrics.dragTimeFont)
+            .foregroundStyle(.white)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 2)
+            .background(Capsule().fill(Theme.Colors.textPrimary.opacity(0.85)))
+            .fixedSize()
+            .allowsHitTesting(false)
     }
 }
 

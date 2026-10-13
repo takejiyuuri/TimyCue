@@ -40,6 +40,8 @@ enum EditorMetrics {
     static let endHandleOverlap: CGFloat = 6
     /// これより短い動きは「触れただけ」として、終了を変えない
     static let endHandleMinimumMove: CGFloat = 3
+    /// 終了を伸ばしている間の時刻を、ブロックの下端からどれだけ上に出すか（指で隠れないように。2026-10-14 実機の指摘。仮）
+    static let dragEndLabelLift: CGFloat = 44
     /// 重なりの警告を出す位置（ブロックの下端から下へ）
     static let warningOffsetBelowBlock: CGFloat = 20
     /// 分ホイール（§38。形は実機で確かめて決める）
