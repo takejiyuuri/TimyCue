@@ -8,7 +8,7 @@ enum HomeClockMath {
     /// 時計を出すのは、出発（今は暫定で予定開始）まで 60 分以内のとき（spec §6「出発 60 分前から」）。リング 1 周が 60 分
     static let windowMinutes = 60
     static let degreesPerMinute = 6.0
-    /// 「いま」と「出発」がこの分数より近いときは、「いま」の文字を出さない（重ならないように。仮）
+    /// 時計の上で「いま」と「出発」がこの分数以内に近づいたら、「いま」の文字を出さない（2026-10-14 決定）
     static let labelGapMinutes = 5
 
     /// 残り時間の弧の色の段階（spec §6：60〜31 分・30〜16 分・15〜0 分）
@@ -32,11 +32,15 @@ enum HomeClockMath {
         var ringStartDegrees: Double { minuteHandDegrees }
         var ringSweepDegrees: Double { Double(remainingMinutes) * HomeClockMath.degreesPerMinute }
         var band: Band { HomeClockMath.band(remainingMinutes: remainingMinutes) }
-        /// 「いま」の文字を出すか（弧の両端が近いとき＝残りがごく少ない・ほぼ 1 周のときは出さない）
-        var showsNowLabel: Bool {
-            remainingMinutes >= HomeClockMath.labelGapMinutes
-                && remainingMinutes <= HomeClockMath.windowMinutes - HomeClockMath.labelGapMinutes
+        /// 時計の上での「いま」と「出発」の近さ（分）。残り 3 分も 57 分も 3（60 分前は同じ位置なので 0）
+        var markerDistanceMinutes: Int {
+            let rest = remainingMinutes % HomeClockMath.windowMinutes
+            return min(rest, HomeClockMath.windowMinutes - rest)
         }
+        /// 「いま」の文字を出すか。2 点が 5 分以内に近づいたら（残り 0〜5 分・55〜60 分）出さない。丸と「出発」の文字は出す（2026-10-14 決定）
+        var showsNowLabel: Bool { markerDistanceMinutes > HomeClockMath.labelGapMinutes }
+        /// 「いま」と「出発」の丸がちょうど重なるか（60 分前）。重なるときは、いまの丸を少し内側、出発の丸を少し外側へずらす
+        var markersCoincide: Bool { markerDistanceMinutes == 0 }
     }
 
     /// いまから target までが 60 分以内（0 分より多い）なら、時計に描くものを返す

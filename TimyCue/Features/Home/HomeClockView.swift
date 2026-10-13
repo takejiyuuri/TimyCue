@@ -3,7 +3,8 @@ import SwiftUI
 /// ホームの時計（spec §6・追加仕様書 §44。2026-10-14 の修正指示）。
 /// 時計そのものは現在時刻を指す普通のアナログ時計（時針・分針はいまの時刻。カウントダウンの針にはしない）。
 /// 外周に 60 分を表す淡いリングを置き、その上に、いまの分の位置から出発（今は暫定で予定開始）の分の位置まで、
-/// 時計回りに残り時間の弧を描く。弧の両端に「いま」「出発」、15 分ごとに少し長い目盛り。中央に「出発まで」と残りの分。
+/// 時計回りに残り時間の弧を描く。弧の両端に「いま」「出発」、15 分ごとに少し長い目盛り。
+/// 中央は小さな円形プレートに「出発まで」と残りの分。針はプレートの下を通る（針 → プレート → 文字の重なり。2026-10-14 決定）。
 /// 1 分たつごとに、弧と針を穏やかに動かす（秒では動かさない）
 struct HomeClockView: View {
     let face: HomeClockMath.Face
@@ -54,10 +55,12 @@ struct HomeClockView: View {
                 hand(length: faceRadius * HomeMetrics.minuteHandLengthRatio,
                      width: HomeMetrics.minuteHandWidth,
                      degrees: face.minuteHandDegrees)
+                // 針の根元を隠す中央のプレートと、その上の「出発まで／23分」（文字に縁取りはしない）
                 Circle()
-                    .fill(Theme.Colors.textPrimary)
-                    .frame(width: HomeMetrics.hubSize, height: HomeMetrics.hubSize)
-                centerText(faceRadius: faceRadius)
+                    .fill(Theme.Colors.clockPlate)
+                    .overlay { Circle().strokeBorder(Theme.Colors.separator, lineWidth: HomeMetrics.centerPlateBorderWidth) }
+                    .frame(width: faceRadius * HomeMetrics.centerPlateRatio, height: faceRadius * HomeMetrics.centerPlateRatio)
+                centerText
                 markers(ringRadius: ringRadius, ringWidth: ringWidth, labelRadius: size / 2 + HomeMetrics.markerLabelGap)
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
@@ -86,9 +89,9 @@ struct HomeClockView: View {
             .rotationEffect(.degrees(degrees))
     }
 
-    /// 中央の「出発まで」と「23分」。針と重なっても読めるよう、文字のまわりを文字盤の色でふちどる
-    private func centerText(faceRadius: CGFloat) -> some View {
-        VStack(spacing: 0) {
+    /// 中央の「出発まで」と「23分」（プレートの上に載せる）
+    private var centerText: some View {
+        VStack(spacing: -4) {
             Text("\(targetWord)まで")
                 .font(HomeMetrics.centerCaptionFont)
                 .foregroundStyle(Theme.Colors.textSecondary)
@@ -100,25 +103,24 @@ struct HomeClockView: View {
             }
             .foregroundStyle(Theme.Colors.textPrimary)
         }
-        .shadow(color: Theme.Colors.surface, radius: 2)
-        .shadow(color: Theme.Colors.surface, radius: 2)
-        .offset(y: -faceRadius * HomeMetrics.centerTextLiftRatio)
     }
 
-    /// 弧の両端の印。始まりは「いま」（小さな丸）、終わりは「出発」（少し大きく濃い丸）。文字はリングの外に小さく
+    /// 弧の両端の印。始まりは「いま」（小さな丸）、終わりは「出発」（少し大きく濃い丸）。文字はリングの外に小さく。
+    /// 2 つの丸がちょうど重なるとき（60 分前）は、いまの丸を少し内側、出発の丸を少し外側へずらして見分けられるようにする
     @ViewBuilder
     private func markers(ringRadius: CGFloat, ringWidth: CGFloat, labelRadius: CGFloat) -> some View {
         let start = face.ringStartDegrees
         let end = face.ringStartDegrees + face.ringSweepDegrees
+        let shift = face.markersCoincide ? ringWidth * HomeMetrics.coincideShiftRatio : 0
         Circle()
             .fill(Theme.Colors.surface)
             .overlay { Circle().strokeBorder(Theme.Colors.textPrimary, lineWidth: 1.5) }
             .frame(width: ringWidth * HomeMetrics.nowDotRatio, height: ringWidth * HomeMetrics.nowDotRatio)
-            .offset(Self.offset(start, radius: ringRadius))
+            .offset(Self.offset(start, radius: ringRadius - shift))
         Circle()
             .fill(Theme.Colors.textPrimary)
             .frame(width: ringWidth * HomeMetrics.targetDotRatio, height: ringWidth * HomeMetrics.targetDotRatio)
-            .offset(Self.offset(end, radius: ringRadius))
+            .offset(Self.offset(end, radius: ringRadius + shift))
         if face.showsNowLabel {
             Text("いま")
                 .font(HomeMetrics.nowLabelFont)

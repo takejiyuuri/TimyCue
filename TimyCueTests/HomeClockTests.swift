@@ -66,10 +66,19 @@ final class HomeClockTests: XCTestCase {
         XCTAssertEqual(HomeClockMath.band(remainingMinutes: 1), .last, "15〜0 分")
     }
 
-    func testNowLabelIsHiddenWhenBothEndsMeet() {
+    func testNowLabelIsHiddenWhenBothEndsAreWithinFiveMinutesOnTheFace() {
         XCTAssertEqual(clockFace(16 * 60 + 52, 17 * 60 + 15)?.showsNowLabel, true)
-        XCTAssertEqual(clockFace(17 * 60 + 12, 17 * 60 + 15)?.showsNowLabel, false, "残りがごく少ないときは「出発」と重なるので出さない")
-        XCTAssertEqual(clockFace(16 * 60 + 15, 17 * 60 + 13)?.showsNowLabel, false, "ほぼ 1 周のときも重なるので出さない")
+        XCTAssertEqual(clockFace(17 * 60 + 9, 17 * 60 + 15)?.showsNowLabel, true, "残り 6 分なら出す")
+        XCTAssertEqual(clockFace(17 * 60 + 10, 17 * 60 + 15)?.showsNowLabel, false, "残り 5 分以内は「出発」と近いので出さない（2026-10-14 決定）")
+        XCTAssertEqual(clockFace(16 * 60 + 21, 17 * 60 + 15)?.showsNowLabel, true, "残り 54 分なら出す")
+        XCTAssertEqual(clockFace(16 * 60 + 20, 17 * 60 + 15)?.showsNowLabel, false, "残り 55〜60 分も、時計の上では 5 分以内なので出さない")
+        XCTAssertEqual(clockFace(16 * 60 + 15, 17 * 60 + 15)?.markerDistanceMinutes, 0, "60 分前は同じ位置")
+    }
+
+    func testMarkersAreShiftedOnlyWhenTheyCoincide() {
+        XCTAssertEqual(clockFace(16 * 60 + 15, 17 * 60 + 15)?.markersCoincide, true, "60 分前は丸がちょうど重なるので、内と外へずらす")
+        XCTAssertEqual(clockFace(16 * 60 + 16, 17 * 60 + 15)?.markersCoincide, false)
+        XCTAssertEqual(clockFace(17 * 60 + 14, 17 * 60 + 15)?.markersCoincide, false)
     }
 
     func testFlowText() {
