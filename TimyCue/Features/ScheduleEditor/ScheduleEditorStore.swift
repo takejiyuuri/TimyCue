@@ -24,7 +24,6 @@ final class ScheduleEditorStore {
     var content = EventContent()
     /// 右上で開いている行（仕様 §45：同時に 1 行だけ）
     private(set) var expandedRow: InputRow?
-    private(set) var predictionState: PredictionState = .idle
     private(set) var events: [CalendarEvent] = []
     private(set) var metadataByEventID: [UUID: TimyCueEventMetadata] = [:]
     /// 予定を書き込める Apple カレンダー（つないでいないときは空）と、新しい予定の既定の保存先（Q32）
@@ -42,15 +41,12 @@ final class ScheduleEditorStore {
 
     @ObservationIgnored private let repository: EventRepository
     @ObservationIgnored private let metadataRepository: EventMetadataRepository
-    @ObservationIgnored private let predictor: PredictionService
     @ObservationIgnored private var baseline = Snapshot()
 
     init(repository: EventRepository,
-         metadataRepository: EventMetadataRepository,
-         predictor: PredictionService = SameTitlePredictionService()) {
+         metadataRepository: EventMetadataRepository) {
         self.repository = repository
         self.metadataRepository = metadataRepository
-        self.predictor = predictor
         reloadEvents()
         baseline = snapshot
     }
@@ -104,6 +100,9 @@ final class ScheduleEditorStore {
         InputRow.allCases.filter { row in
             switch row {
             case .route: content.metadata.transport == .car
+            // 繰り返しの行は出さない（2026-10-13 ユーザー決定）。繰り返しは Apple カレンダー側で作る。
+            // 既存の繰り返し予定の読み込み・範囲を選んで直す・消すはそのまま
+            case .repeatRule: false
             case .calendar: writableCalendars.count > 1
             default: true
             }
@@ -361,19 +360,6 @@ final class ScheduleEditorStore {
         durationOverrides = [:]
     }
 
-    // MARK: - 予測で一括
-
-    /// 時刻のない日だけに予測の候補を入れる。自分で入れた時刻は上書きしない（Q2）。保存はしない（仕様 §36）
-    func applyPrediction() {
-        let unset = selectedDays.filter { startMinutes[$0] == nil }
-        let suggestions = predictor.suggestStartMinutes(for: unset, content: content, existing: events)
-        let applied = unset.filter { suggestions[$0] != nil }
-        for day in applied {
-            if let minute = suggestions[day] { startMinutes[day] = clampToDay(minute) }
-        }
-        predictionState = applied.isEmpty ? .noSuggestion : .applied(applied)
-    }
-
     // MARK: - 右上の行
 
     /// 行を開く。別の行が開いていたら閉じる。開いている行をもう一度押したら閉じる（仕様 §45）
@@ -592,7 +578,6 @@ final class ScheduleEditorStore {
 
     private func resetTransientState() {
         expandedRow = nil
-        predictionState = .idle
         showsSaveIssue = false
     }
 

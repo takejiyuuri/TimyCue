@@ -41,6 +41,8 @@ enum EditorMetrics {
     static let wheelSelectedFont = Font.system(size: 16, weight: .bold).monospacedDigit()
     static let wheelRowHeight: CGFloat = 24
     static let wheelWidth: CGFloat = 36
+    /// 到着目標・移動手段・色のドラムロールの高さ（2026-10-13。値は仮）
+    static let wheelPickerHeight: CGFloat = 130
 
     // MARK: 予定入力（§44・§45）
 

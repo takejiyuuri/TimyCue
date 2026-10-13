@@ -79,15 +79,6 @@ enum SaveIssue: Equatable {
     }
 }
 
-/// 「予測で一括」の状態（仕様 §36）
-enum PredictionState: Equatable {
-    case idle
-    /// 候補を入れた日。保存はしていない
-    case applied([CalendarDay])
-    /// 候補を出せなかった
-    case noSuggestion
-}
-
 enum ScheduleEditorError: Error, Equatable {
     case notReady([SaveIssue])
     case eventNotFound(UUID)

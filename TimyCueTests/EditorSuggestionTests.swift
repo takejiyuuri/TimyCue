@@ -104,6 +104,15 @@ final class EditorSuggestionTests: XCTestCase {
         XCTAssertEqual(roundTrip, saved)
     }
 
+    func testArrivalTargetWheelIsEveryFiveMinutes() {
+        let values = ScheduleEditorStore.arrivalTargetWheelValues(including: 10)
+        XCTAssertEqual(values.first, 0, "0 分前（予定開始時刻）から")
+        XCTAssertEqual(values.last, 180)
+        XCTAssertEqual(values.count, 37, "5 分おき（2026-10-13 実機の指摘）")
+        XCTAssertTrue(ScheduleEditorStore.arrivalTargetWheelValues(including: 7).contains(7),
+                      "前の版の 5 分おきでない値も並べ、開いただけで変わらないようにする")
+    }
+
     func testChoosingPastPlaceDoesNotRewriteArrivalTargetOrTransport() {
         let past = event("現場", daysAgo: 5, place: "見本ビル")
         var info = TimyCueEventMetadata()

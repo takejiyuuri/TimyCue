@@ -35,6 +35,17 @@ extension ScheduleEditorStore {
     /// カスタムで選べる到着目標・通知の分（仮）
     static let customArrivalRange = 0...180
 
+    /// 到着目標のドラムロールの値：0〜180 分前を 5 分おき（2026-10-13 実機の指摘）。
+    /// 前の版で 5 分おきでない値を保存していたら、その値も並べて、開いただけで変わらないようにする
+    nonisolated static func arrivalTargetWheelValues(including current: Int) -> [Int] {
+        var values = Array(stride(from: 0, through: 180, by: 5))
+        if !values.contains(current) {
+            values.append(current)
+            values.sort()
+        }
+        return values
+    }
+
     /// 到着目標の文字。0 分前は予定開始時刻と分かるようにする（文言は仮）
     nonisolated static func arrivalTargetText(_ minutes: Int) -> String {
         minutes == 0 ? "0分前（予定開始時刻）" : "\(minutes)分前"

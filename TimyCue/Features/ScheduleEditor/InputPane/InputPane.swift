@@ -152,12 +152,16 @@ private struct InlineEditor: View {
         case .location:
             LocationEditor(focusedRow: focusedRow)
         case .arrivalTarget:
-            ArrivalTargetEditor()
+            // ドラムロール。5 分おき（2026-10-13 実機の指摘）
+            WheelPicker(options: ScheduleEditorStore.arrivalTargetWheelValues(including: store.content.metadata.arrivalTargetMinutes),
+                        selection: $store.content.metadata.arrivalTargetMinutes) { minutes in
+                Text(ScheduleEditorStore.arrivalTargetText(minutes))
+            }
         case .transport:
-            ChipRow(options: TransportMode.allCases,
-                    label: \.displayName,
-                    isSelected: { store.content.metadata.transport == $0 },
-                    onTap: { store.content.metadata.transport = $0 })
+            // ドラムロール（2026-10-13 実機の指摘）
+            WheelPicker(options: TransportMode.allCases, selection: $store.content.metadata.transport) { mode in
+                Text(mode.displayName)
+            }
         case .route:
             ChipRow(options: RouteOption.allCases,
                     label: \.displayName,
@@ -185,17 +189,13 @@ private struct InlineEditor: View {
         case .repeatRule:
             RepeatEditor()
         case .color:
-            HStack(spacing: Theme.Spacing.m) {
-                ForEach(EventColor.allCases, id: \.self) { color in
+            // ドラムロール（2026-10-13 実機の指摘）
+            WheelPicker(options: EventColor.allCases, selection: $store.content.metadata.color) { color in
+                HStack(spacing: Theme.Spacing.s) {
                     Circle()
                         .fill(EventPalette.color(for: color))
-                        .frame(width: 26, height: 26)
-                        .overlay {
-                            if store.content.metadata.color == color {
-                                Circle().strokeBorder(Theme.Colors.textPrimary, lineWidth: 2)
-                            }
-                        }
-                        .onTapGesture { store.content.metadata.color = color }
+                        .frame(width: 14, height: 14)
+                    Text(color.displayName)
                 }
             }
         case .end:
@@ -310,7 +310,27 @@ private struct LocationEditor: View {
     }
 }
 
-/// 到着目標（§49）：5・10・15・20・30 分前・カスタム・未設定
+/// 行の直下に出すドラムロール（到着目標・移動手段・色。2026-10-13 実機の指摘）
+private struct WheelPicker<Option: Hashable, Row: View>: View {
+    let options: [Option]
+    @Binding var selection: Option
+    @ViewBuilder let label: (Option) -> Row
+
+    var body: some View {
+        Picker("", selection: $selection) {
+            ForEach(options, id: \.self) { option in
+                label(option).tag(option)
+            }
+        }
+        .pickerStyle(.wheel)
+        .labelsHidden()
+        .frame(maxWidth: .infinity)
+        .frame(height: EditorMetrics.wheelPickerHeight)
+        .clipped()
+    }
+}
+
+/// 到着目標（§49）：5・10・15・20・30 分前・カスタム・未設定（2026-10-13 にドラムロールへ替えたので使わない）
 private struct ArrivalTargetEditor: View {
     @Environment(ScheduleEditorStore.self) private var store
     @State private var showsCustom = false

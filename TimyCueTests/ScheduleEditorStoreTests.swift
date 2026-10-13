@@ -403,36 +403,6 @@ final class ScheduleEditorStoreTests: XCTestCase {
         XCTAssertFalse(store.hasUnsavedChanges)
     }
 
-    // MARK: - 予測で一括（仕様 §36・Q2。アルゴリズムはモック）
-
-    func testPredictionNeverOverwritesManualTimeAndDoesNotSave() {
-        let history = [
-            makeEvent("A社打合せ", on: CalendarDay(year: 2026, month: 9, day: 1), at: 570),
-            makeEvent("A社打合せ", on: CalendarDay(year: 2026, month: 9, day: 8), at: 570),
-            makeEvent("A社打合せ", on: CalendarDay(year: 2026, month: 9, day: 15), at: 600),
-        ]
-        let (store, events, _) = makeStore(history)
-        store.startNew()
-        [d1, d2, d3].forEach(store.selectDay)
-        store.content.title = "A社打合せ"
-        store.setStartMinute(14 * 60, on: d1)
-
-        store.applyPrediction()
-        XCTAssertEqual(store.predictionState, .applied([d2, d3]))
-        XCTAssertEqual(store.startMinutes[d1], 14 * 60, "自分で入れた時刻は予測で上書きしない（Q2）")
-        XCTAssertEqual(store.startMinutes[d2], 570)
-        XCTAssertEqual(store.startMinutes[d3], 570)
-        XCTAssertEqual(events.allEvents().count, 3, "予測しただけでは保存しない")
-    }
-
-    func testPredictionWithoutHistory() {
-        let store = makeStore().store
-        store.startNew(on: d1)
-        store.content.title = "初めての予定"
-        store.applyPrediction()
-        XCTAssertEqual(store.predictionState, .noSuggestion)
-    }
-
     // MARK: - 右上の行（仕様 §44・§45・§52）
 
     func testOnlyOneRowIsExpandedAtATime() {
@@ -453,7 +423,8 @@ final class ScheduleEditorStoreTests: XCTestCase {
         store.content.metadata.transport = .car
         XCTAssertTrue(store.visibleRows.contains(.route))
         XCTAssertEqual(store.visibleRows.map(\.label),
-                       ["予定名", "場所", "到着目標", "移動手段", "ルート", "通知", "繰り返し", "色", "終了"])
+                       ["予定名", "場所", "到着目標", "移動手段", "ルート", "通知", "色", "終了"],
+                       "繰り返しの行は出さない（2026-10-13 ユーザー決定）")
     }
 
     // MARK: - 時間画面の表示（仕様 §37・§43）

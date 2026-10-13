@@ -25,7 +25,7 @@ struct TimePane: View {
 }
 
 /// 複数日を選んだときの日付タブ（§35）。入りきらなければ横スクロール。押した日の時間軸を出す。
-/// 1 日だけのときは、その日を見出しとして出す。複数日で時刻のない日があれば「予測で一括」（§36・Q2）
+/// 1 日だけのときは、その日を見出しとして出す。「予測で一括」は 2026-10-13 にやめた（ユーザー決定）
 private struct DateTabs: View {
     @Environment(ScheduleEditorStore.self) private var store
 
@@ -55,39 +55,10 @@ private struct DateTabs: View {
                 .padding(.horizontal, 4)
             }
             .frame(height: EditorMetrics.dateTabHeight)
-
-            if store.selectedDays.count > 1 && store.selectedDays.contains(where: { store.startMinutes[$0] == nil }) {
-                PredictionBar()
-            }
         }
         .overlay(alignment: .bottom) {
             Theme.Colors.separator.frame(height: 1)
         }
-    }
-}
-
-/// 「予測で一括」（§36）。時刻のまだない日だけに候補を入れる。自分で入れた時刻は上書きしない（Q2）。保存はしない
-private struct PredictionBar: View {
-    @Environment(ScheduleEditorStore.self) private var store
-
-    var body: some View {
-        HStack(spacing: Theme.Spacing.s) {
-            Button("予測で一括") { store.applyPrediction() }
-                .font(EditorMetrics.chipFont)
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-            if store.predictionState == .noSuggestion {
-                // 文言は仮
-                Text("候補を出せませんでした")
-                    .font(EditorMetrics.inputLabelFont)
-                    .foregroundStyle(Theme.Colors.textSecondary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 6)
-        .padding(.bottom, 4)
     }
 }
 
