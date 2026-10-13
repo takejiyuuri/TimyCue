@@ -48,20 +48,20 @@ struct HomeClockView: View {
                         .offset(y: -(faceRadius - HomeMetrics.hourTickInset - HomeMetrics.hourTickLength / 2))
                         .rotationEffect(.degrees(Double(hour) * 30))
                 }
-                // 針（いまの時刻。時針は分に合わせて少しずつ進む）
-                hand(length: faceRadius * HomeMetrics.hourHandLengthRatio,
+                // 針（いまの時刻。時針は分に合わせて少しずつ進む）。長さ・大きさの割合は、どれも時計の外径（size）に対する割合
+                hand(length: size * HomeMetrics.hourHandLengthRatio,
                      width: HomeMetrics.hourHandWidth,
                      degrees: face.hourHandDegrees)
-                hand(length: faceRadius * HomeMetrics.minuteHandLengthRatio,
+                hand(length: size * HomeMetrics.minuteHandLengthRatio,
                      width: HomeMetrics.minuteHandWidth,
                      degrees: face.minuteHandDegrees)
                 // 針の根元を隠す中央のプレートと、その上の「出発まで／23分」（文字に縁取りはしない）
                 Circle()
                     .fill(Theme.Colors.clockPlate)
                     .overlay { Circle().strokeBorder(Theme.Colors.separator, lineWidth: HomeMetrics.centerPlateBorderWidth) }
-                    .frame(width: faceRadius * HomeMetrics.centerPlateRatio, height: faceRadius * HomeMetrics.centerPlateRatio)
+                    .frame(width: size * HomeMetrics.centerPlateRatio, height: size * HomeMetrics.centerPlateRatio)
                 centerText
-                markers(ringRadius: ringRadius, ringWidth: ringWidth, labelRadius: size / 2 + HomeMetrics.markerLabelGap)
+                markers(size: size, ringRadius: ringRadius, labelRadius: size / 2 + HomeMetrics.markerLabelGap)
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
         }
@@ -108,18 +108,18 @@ struct HomeClockView: View {
     /// 弧の両端の印。始まりは「いま」（小さな丸）、終わりは「出発」（少し大きく濃い丸）。文字はリングの外に小さく。
     /// 2 つの丸がちょうど重なるとき（60 分前）は、いまの丸を少し内側、出発の丸を少し外側へずらして見分けられるようにする
     @ViewBuilder
-    private func markers(ringRadius: CGFloat, ringWidth: CGFloat, labelRadius: CGFloat) -> some View {
+    private func markers(size: CGFloat, ringRadius: CGFloat, labelRadius: CGFloat) -> some View {
         let start = face.ringStartDegrees
         let end = face.ringStartDegrees + face.ringSweepDegrees
-        let shift = face.markersCoincide ? ringWidth * HomeMetrics.coincideShiftRatio : 0
+        let shift = face.markersCoincide ? size * HomeMetrics.coincideShiftRatio : 0
         Circle()
             .fill(Theme.Colors.surface)
             .overlay { Circle().strokeBorder(Theme.Colors.textPrimary, lineWidth: 1.5) }
-            .frame(width: ringWidth * HomeMetrics.nowDotRatio, height: ringWidth * HomeMetrics.nowDotRatio)
+            .frame(width: size * HomeMetrics.nowDotRatio, height: size * HomeMetrics.nowDotRatio)
             .offset(Self.offset(start, radius: ringRadius - shift))
         Circle()
             .fill(Theme.Colors.textPrimary)
-            .frame(width: ringWidth * HomeMetrics.targetDotRatio, height: ringWidth * HomeMetrics.targetDotRatio)
+            .frame(width: size * HomeMetrics.targetDotRatio, height: size * HomeMetrics.targetDotRatio)
             .offset(Self.offset(end, radius: ringRadius + shift))
         if face.showsNowLabel {
             Text("いま")
