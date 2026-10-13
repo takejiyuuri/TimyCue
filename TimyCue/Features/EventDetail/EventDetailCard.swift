@@ -1,10 +1,12 @@
 import SwiftUI
 
 /// 予定詳細の中身（v1.1「予定詳細画面」・Q27）。別の画面にはせず、各画面の吹き出しの中に出す。
-/// ここでは直接編集しない。「編集」を押した時だけ 3 分割の予定編集画面を開く（Q30）
+/// ここでは直接編集しない。「編集」を押した時だけ 3 分割の予定編集画面を開く（Q30）。
+/// 祝日など見るだけの予定は、何の日か（名前と日時）だけを出し、「編集」は出さない（2026-10-13 ユーザー決定）
 struct EventDetailCard: View {
     let event: CalendarEvent
     let metadata: TimyCueEventMetadata?
+    var isViewOnly = false
     let onEdit: () -> Void
     @Environment(\.openURL) private var openURL
 
@@ -20,29 +22,39 @@ struct EventDetailCard: View {
                     .foregroundStyle(Theme.Colors.textPrimary)
                     .lineLimit(2)
                 Spacer(minLength: 4)
-                Button("編集", action: onEdit)
-                    .font(CalendarMetrics.popoverSecondaryFont.weight(.semibold))
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
+                if !isViewOnly {
+                    Button("編集", action: onEdit)
+                        .font(CalendarMetrics.popoverSecondaryFont.weight(.semibold))
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                }
             }
             DetailLine(label: "日時", value: rows.dateTime)
-            if let place = rows.place {
-                // 場所を押すと外部の地図へ渡す。TimyCue 自身はナビをしない（v1.1「外部地図」）
-                Button {
-                    if let url = EventDetailRows.mapsURL(for: place) { openURL(url) }
-                } label: {
-                    DetailLine(label: "場所", value: place, systemImage: "map")
-                }
-                .buttonStyle(.plain)
-            } else {
-                DetailLine(label: "場所", value: "なし")
+            if !isViewOnly {
+                details(rows)
             }
-            DetailLine(label: "到着目標", value: rows.arrivalTarget)
-            DetailLine(label: "移動手段", value: rows.route.map { "\(rows.transport)（\($0)）" } ?? rows.transport)
-            DetailLine(label: "通知", value: rows.notifications)
-            DetailLine(label: "出発目安", value: rows.departure)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// 場所・到着目標など（見るだけの予定では出さない）
+    @ViewBuilder
+    private func details(_ rows: EventDetailRows) -> some View {
+        if let place = rows.place {
+            // 場所を押すと外部の地図へ渡す。TimyCue 自身はナビをしない（v1.1「外部地図」）
+            Button {
+                if let url = EventDetailRows.mapsURL(for: place) { openURL(url) }
+            } label: {
+                DetailLine(label: "場所", value: place, systemImage: "map")
+            }
+            .buttonStyle(.plain)
+        } else {
+            DetailLine(label: "場所", value: "なし")
+        }
+        DetailLine(label: "到着目標", value: rows.arrivalTarget)
+        DetailLine(label: "移動手段", value: rows.route.map { "\(rows.transport)（\($0)）" } ?? rows.transport)
+        DetailLine(label: "通知", value: rows.notifications)
+        DetailLine(label: "出発目安", value: rows.departure)
     }
 }
 

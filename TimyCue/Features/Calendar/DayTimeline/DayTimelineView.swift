@@ -216,7 +216,7 @@ private struct TimelineDetailLayer: View {
                     sizes: [CGSize(width: width, height: measuredHeight ?? DayPopoverLayer.estimatedDetailHeight)],
                     gap: CalendarMetrics.popoverGap,
                     margin: CalendarMetrics.popoverMargin)[0]
-                EventDetailCard(event: event, metadata: store.metadata(for: id)) {
+                EventDetailCard(event: event, metadata: store.metadata(for: id), isViewOnly: store.isViewOnly(event)) {
                     editorStore.beginEditing(id, from: store)
                 }
                 .popoverBubble()

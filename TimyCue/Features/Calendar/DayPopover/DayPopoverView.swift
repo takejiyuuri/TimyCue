@@ -28,7 +28,8 @@ struct DayPopoverLayer: View {
                 DayPopoverView(day: day,
                                rows: store.popoverRows(on: day),
                                detail: store.detailEventID(inPopoverOf: day).flatMap { id in
-                                   store.event(id: id).map { DayPopoverDetail(event: $0, metadata: store.metadata(for: id)) }
+                                   store.event(id: id).map { DayPopoverDetail(event: $0, metadata: store.metadata(for: id),
+                                                                              isViewOnly: store.isViewOnly($0)) }
                                },
                                onOpenTimeline: { store.openTimeline(day) },
                                onSelectRow: { store.showDetail(in: day, eventID: $0) },
@@ -84,6 +85,8 @@ struct PopoverHeightKey: PreferenceKey {
 struct DayPopoverDetail {
     let event: CalendarEvent
     let metadata: TimyCueEventMetadata?
+    /// 祝日など、見るだけの予定（編集を出さない）
+    var isViewOnly = false
 }
 
 /// 日付吹き出し（仕様 §22）。予定は開始時刻順。予定名が主、場所が補助。多いときは中で縦スクロール。
@@ -103,7 +106,7 @@ struct DayPopoverView: View {
     var body: some View {
         Group {
             if let detail {
-                EventDetailCard(event: detail.event, metadata: detail.metadata) {
+                EventDetailCard(event: detail.event, metadata: detail.metadata, isViewOnly: detail.isViewOnly) {
                     onEdit(detail.event.id)
                 }
                 .contentShape(Rectangle())

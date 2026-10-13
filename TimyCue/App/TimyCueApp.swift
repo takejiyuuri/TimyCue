@@ -37,6 +37,7 @@ struct TimyCueApp: App {
             localEvents: localEvents,
             metadata: metadata,
             onChange: { calendars, defaultCalendarID in
+                calendar.setCalendars(calendars)
                 calendar.reload()
                 editor.refresh()
                 editor.setCalendars(calendars, defaultCalendarID: defaultCalendarID)

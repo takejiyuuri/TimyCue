@@ -107,6 +107,25 @@ final class CalendarStore {
         return CalendarMonth(middle.days[3])
     }
 
+    /// 書き込めない Apple カレンダー（祝日・購読など）の id
+    private(set) var readOnlyCalendarIDs: Set<String> = []
+
+    /// Apple カレンダーとつないだ・設定を変えたとき（書き込めないカレンダーも含めて渡す）
+    func setCalendars(_ calendars: [CalendarChoice]) {
+        readOnlyCalendarIDs = Set(calendars.filter { !$0.isWritable }.map(\.id))
+    }
+
+    /// 見るだけの予定か。祝日など、書き込めない Apple カレンダーの終日の予定は、編集画面を出さず、
+    /// 吹き出しで何の日か分かればよい（2026-10-13 ユーザー決定）
+    func isViewOnly(_ event: CalendarEvent) -> Bool {
+        Self.isViewOnly(event, readOnlyCalendarIDs: readOnlyCalendarIDs)
+    }
+
+    nonisolated static func isViewOnly(_ event: CalendarEvent, readOnlyCalendarIDs: Set<String>) -> Bool {
+        guard event.source == .appleCalendar, event.isAllDay, let calendarID = event.calendarID else { return false }
+        return readOnlyCalendarIDs.contains(calendarID)
+    }
+
     /// 予定を読み直す（予定を保存したあとなど）
     func reload() {
         loadWeeks()

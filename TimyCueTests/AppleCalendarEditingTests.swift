@@ -52,6 +52,21 @@ final class AppleCalendarEditingTests: XCTestCase {
         XCTAssertFalse(store.isLocked(.title))
     }
 
+    // MARK: - 祝日など見るだけの予定（2026-10-13 ユーザー決定）
+
+    func testHolidaysAreViewOnly() {
+        let readOnly: Set<String> = ["jp"]
+        let holiday = CalendarEvent(day: day, startMinute: 0, title: "スポーツの日", isAllDay: true,
+                                    source: .appleCalendar, calendarID: "jp")
+        XCTAssertTrue(CalendarStore.isViewOnly(holiday, readOnlyCalendarIDs: readOnly),
+                      "祝日は編集画面を出さず、吹き出しで何の日か分かればよい")
+        let timedShared = CalendarEvent(day: day, startMinute: 600, title: "共有の会議", source: .appleCalendar, calendarID: "jp")
+        XCTAssertFalse(CalendarStore.isViewOnly(timedShared, readOnlyCalendarIDs: readOnly),
+                       "時間指定の予定は、書き込めないカレンダーでも TimyCue の設定を変えられる（§1.7）")
+        let ownAllDay = CalendarEvent(day: day, startMinute: 0, title: "休み", isAllDay: true, source: .appleCalendar, calendarID: "home")
+        XCTAssertFalse(CalendarStore.isViewOnly(ownAllDay, readOnlyCalendarIDs: readOnly), "自分のカレンダーの終日予定は編集できる")
+    }
+
     // MARK: - ローカル予定を Apple カレンダーへ移す（§1.12）
 
     @MainActor
