@@ -19,14 +19,19 @@ struct CalendarHeaderView: View {
                 .overlay(alignment: .trailing) {
                     HStack(spacing: CalendarMetrics.headerButtonSpacing) {
                         if showsToday {
-                            Button("今日", action: onToday)
-                                .font(CalendarMetrics.todayButtonFont)
-                                .buttonStyle(.bordered)
-                                .controlSize(.small)
-                                .tint(Theme.Colors.accent)
+                            // 「＋」と同じ丸（2026-10-13 デザインの指摘）
+                            Button(action: onToday) {
+                                Text("今日")
+                                    .font(CalendarMetrics.todayButtonFont)
+                                    .foregroundStyle(.white)
+                                    .frame(width: CalendarMetrics.newEventButtonSize, height: CalendarMetrics.newEventButtonSize)
+                                    .background(Circle().fill(Theme.Colors.accent))
+                            }
+                            .accessibilityLabel("今日へ移動")
                         }
                         NewEventButton(action: onNewEvent)
                     }
+                    .padding(.trailing, CalendarMetrics.headerButtonsTrailingInset)
                 }
             HStack(spacing: 0) {
                 ForEach(Array(Weekday.symbols.enumerated()), id: \.offset) { index, symbol in
