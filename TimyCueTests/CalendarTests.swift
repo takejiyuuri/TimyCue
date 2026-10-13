@@ -124,6 +124,27 @@ final class CalendarStoreTests: XCTestCase {
                        "位置が同じでも毎回スクロールし直す合図を出す（iOS が勝手にスクロールしたあとでも戻せるように）")
     }
 
+    func testTabTappedAgainKeepsThePlaceWhenTodayIsVisible() {
+        let store = makeStore([])
+        store.setVisibleRows(6)
+        XCTAssertTrue(store.isTodayVisible)
+        let place = store.topWeekID
+        let before = store.scrollRequest
+        XCTAssertEqual(store.tabTappedAgain(), place, "今日が見えていれば今の位置のまま")
+        XCTAssertEqual(store.scrollRequest, before + 1,
+                       "それでもすぐスクロールし直す合図を出す（iOS がいちばん上へ動かし始めても、すぐ戻す。2026-10-14 実機の指摘）")
+        XCTAssertFalse(store.isOpen(today), "今日の吹き出しは開かない")
+    }
+
+    func testTabTappedAgainGoesToTodayWhenItIsNotVisible() {
+        let store = makeStore([])
+        store.setVisibleRows(6)
+        store.scroll(to: CalendarWeek(containing: today.adding(days: 120)).id)
+        XCTAssertFalse(store.isTodayVisible)
+        XCTAssertEqual(store.tabTappedAgain(), CalendarWeek(containing: CalendarMonth(today).firstDay).id, "タブが「今日」なら今月へ")
+        XCTAssertTrue(store.isOpen(today), "今日を選ぶ")
+    }
+
     func testTodayButtonMovesToTodayAndSelectsIt() {
         let store = makeStore([])
         store.topWeekID = CalendarWeek(containing: today).adding(weeks: 30).id

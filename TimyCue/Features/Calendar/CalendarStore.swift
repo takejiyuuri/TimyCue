@@ -139,6 +139,19 @@ final class CalendarStore {
         scrollRequest += 1
     }
 
+    /// カレンダーのタブを押し直したとき（2026-10-13 ユーザー決定）。今日が見えていなければ（タブが「今日」のとき）今日へ移動して今日を選び、
+    /// 見えていれば今の位置のまま。iOS が押し直しで画面をいちばん上へ動かし始めるので、どちらでもすぐ決めた週へスクロールし直す。
+    /// 戻す先の週を返す
+    @discardableResult
+    func tabTappedAgain() -> CalendarDay? {
+        if isTodayVisible {
+            scroll(to: topWeekID)
+        } else {
+            scrollToToday()
+        }
+        return topWeekID
+    }
+
     /// 画面上部の年（Q20）を決める月。一番上の週で決まる（月の sticky 表示 Q19 は 2026-10-12 にやめた）
     var stickyMonth: CalendarMonth { topWeek.stickyMonth }
 

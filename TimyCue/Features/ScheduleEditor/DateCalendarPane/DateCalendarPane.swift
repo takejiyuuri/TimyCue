@@ -4,7 +4,8 @@ import SwiftUI
 /// いちばん上の真ん中に年月（例：2026年　10月）を固定。月ごとに区切り、月の初めに 1 行空けて月帯を出す（月をまたぐ週は 2 行に分ける）。
 /// 月帯がいちばん上に重なったら、上の年月が切り替わる。
 /// 見える高さは日付の行 6 行ぶん（月の行は別）。左右にスクロールバーを置き、どちらをなぞってもカレンダーが動く。
-/// カレンダー本体は指で縦スクロールさせない。本体：タップで 1 日選択／解除、指でなぞると複数日選択（仕様 §34）
+/// カレンダー本体は指で縦スクロールさせない。本体：タップで左上に出す日を選ぶ（選んでいない日なら左上の日をその日へ動かす）。
+/// 右の「同じ内容で追加」を開いている間だけ、タップ・なぞりで日を足す・外す（仕様 §34、2026-10-14 ユーザー決定）
 struct DateCalendarPane: View {
     @Environment(ScheduleEditorStore.self) private var store
 
@@ -71,6 +72,8 @@ private struct DateGrid: View {
     /// なぞって選んでいる間に通った日（同じ日を何度も選び直さない）
     @State private var touchedDays: Set<CalendarDay> = []
     @State private var isDragSelecting = false
+    /// なぞって足していくか（false なら外していく）。なぞり始めた日で決める（2026-10-14 ユーザー指摘「なぞって選択解除ができない」）
+    @State private var paintsSelection = true
 
     var body: some View {
         GeometryReader { geometry in
@@ -96,16 +99,22 @@ private struct DateGrid: View {
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { value in
-                        let moved = hypot(value.translation.width, value.translation.height)
-                        if moved > EditorMetrics.dragSelectThreshold { isDragSelecting = true }
-                        guard isDragSelecting, store.mode.allowsMultipleDays,
-                              let day = dayAt(value.location, columnWidth: columnWidth),
-                              !touchedDays.contains(day) else { return }
-                        touchedDays.insert(day)
-                        store.selectDay(day)
+                        // なぞって日を足す・外すのは「同じ内容で追加」を開いている間だけ（2026-10-14 ユーザー決定）
+                        guard store.isAddingDays else { return }
+                        if !isDragSelecting {
+                            guard hypot(value.translation.width, value.translation.height) > EditorMetrics.dragSelectThreshold else { return }
+                            isDragSelecting = true
+                            // なぞり始めた日が足してある日なら外していき、そうでなければ足していく
+                            let first = dayAt(value.startLocation, columnWidth: columnWidth)
+                            paintsSelection = !(first.map { store.additionalDays.contains($0) } ?? false)
+                            if let first { paint(first) }
+                        }
+                        if let day = dayAt(value.location, columnWidth: columnWidth) { paint(day) }
                     }
                     .onEnded { value in
-                        if !isDragSelecting, let day = dayAt(value.startLocation, columnWidth: columnWidth) {
+                        let isTap = !isDragSelecting
+                            && hypot(value.translation.width, value.translation.height) <= EditorMetrics.dragSelectThreshold
+                        if isTap, let day = dayAt(value.startLocation, columnWidth: columnWidth) {
                             tap(day)
                         }
                         touchedDays = []
@@ -120,12 +129,28 @@ private struct DateGrid: View {
                  rowHeight: Double(rowHeight), columnWidth: Double(columnWidth))
     }
 
-    /// タップ：新規・コピーでは 1 日選択／解除。編集ではその日へ移動（仕様 §34・§61）
+    /// タップ：「同じ内容で追加」を開いている間は 1 日ずつ足す・外す。ふだんは左上に出す日を選ぶ
+    /// （選んでいない日なら左上の日をその日へ動かす。編集の移動も同じ。仕様 §34・§61）
     private func tap(_ day: CalendarDay) {
-        if store.mode.allowsMultipleDays && store.selectedDays.contains(day) {
-            store.deselectDay(day)
+        if store.isAddingDays {
+            if store.additionalDays.contains(day) {
+                store.removeDay(day)
+            } else {
+                store.addDay(day)
+            }
         } else {
             store.selectDay(day)
+        }
+    }
+
+    /// なぞって通った日を足す、または外す（1 回のなぞりで同じ日は 1 度だけ）
+    private func paint(_ day: CalendarDay) {
+        guard !touchedDays.contains(day) else { return }
+        touchedDays.insert(day)
+        if paintsSelection {
+            store.addDay(day)
+        } else {
+            store.removeDay(day)
         }
     }
 }
@@ -220,7 +245,7 @@ private struct CalendarScrollBar: View {
     }
 }
 
-/// 下カレンダーの 1 日。選んだ日は塗り、時間画面に出している日は枠。今日は数字の後ろに淡いオレンジ。
+/// 下カレンダーの 1 日。選んだ日は塗り、時間画面に出している日は枠。今日は数字の後ろに淡いグレー（2026-10-14 実機の指摘）。
 /// 予定がある日は、数字の下に予定色のドットを最大 3 個（4 件以上は「+N」）。丸・塗り・枠とは重ならない所に置く（Q23）
 private struct EditorDayCell: View {
     let day: CalendarDay
@@ -242,7 +267,7 @@ private struct EditorDayCell: View {
                     if isSelected {
                         Circle().fill(Theme.Colors.accent)
                     } else if isToday {
-                        Circle().fill(Theme.Colors.todayCircle)
+                        Circle().fill(Theme.Colors.editorTodayCircle)
                     }
                 }
                 .overlay {

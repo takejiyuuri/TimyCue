@@ -35,7 +35,13 @@ enum EditorMetrics {
     static let dragTimeFont = Font.system(size: 11, weight: .bold).monospacedDigit()
     /// 仮予定の下端の、終了時刻のハンドル（§41）
     static let endHandleWidth: CGFloat = 28
-    static let endHandleHeight: CGFloat = 16
+    /// ハンドルを押さえられる所の高さと、そのうちブロックの下端より上に重ねる分（2026-10-14。指で押さえやすい大きさ。仮）
+    static let endHandleHitHeight: CGFloat = 30
+    static let endHandleOverlap: CGFloat = 6
+    /// これより短い動きは「触れただけ」として、終了を変えない
+    static let endHandleMinimumMove: CGFloat = 3
+    /// 重なりの警告を出す位置（ブロックの下端から下へ）
+    static let warningOffsetBelowBlock: CGFloat = 20
     /// 分ホイール（§38。形は実機で確かめて決める）
     static let wheelFont = Font.system(size: 14, weight: .medium).monospacedDigit()
     static let wheelSelectedFont = Font.system(size: 16, weight: .bold).monospacedDigit()

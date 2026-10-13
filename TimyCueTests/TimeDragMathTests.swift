@@ -23,6 +23,16 @@ final class TimeDragMathTests: XCTestCase {
         XCTAssertEqual(TimeDragMath.startMinute(afterDragging: 5000, from: 23 * 60, hourHeight: hourHeight), 23 * 60 + 59)
     }
 
+    func testEndHandleSnapsToFiveMinutesOnTheClock() {
+        // 44pt で 1 時間。8pt ≒ 10.9 分 → 15:10、10pt ≒ 13.6 分 → 15:15（時計の 5 分おき。2026-10-14 実機の指摘。刻みは仮）
+        XCTAssertEqual(TimeDragMath.endMinute(afterDragging: 8, from: 15 * 60, start: 14 * 60, hourHeight: hourHeight), 15 * 60 + 10)
+        XCTAssertEqual(TimeDragMath.endMinute(afterDragging: 10, from: 15 * 60, start: 14 * 60, hourHeight: hourHeight), 15 * 60 + 15)
+        XCTAssertEqual(TimeDragMath.endMinute(afterDragging: 0.5, from: 15 * 60 + 7, start: 14 * 60, hourHeight: hourHeight), 15 * 60 + 10,
+                       "前の終了が 5 分おきでなくても、伸ばせば 5 分おきにそろう")
+        XCTAssertEqual(TimeDragMath.endMinute(afterDragging: -200, from: 15 * 60, start: 14 * 60 + 37, hourHeight: hourHeight),
+                       14 * 60 + 37 + TimeDragMath.minimumDuration, "いちばん短くても開始の 5 分後")
+    }
+
     func testEndHandle() {
         XCTAssertEqual(TimeDragMath.endMinute(afterDragging: 11, from: 15 * 60, start: 14 * 60, hourHeight: hourHeight), 15 * 60 + 15,
                        "下端を伸ばすと終了が後ろへ（§41）")

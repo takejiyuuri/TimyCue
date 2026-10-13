@@ -15,6 +15,10 @@ enum Theme {
         static let separator = Color(hex: 0xE9E1D4)
         /// 今日の日付の後ろの淡いオレンジの丸（仕様 §20。仮）
         static let todayCircle = Color(hex: 0xF4A96A, opacity: 0.35)
+        /// 3 分割画面の下カレンダーの今日の丸は淡いグレー（2026-10-14 実機の指摘。色は仮）
+        static let editorTodayCircle = Color(hex: 0xE4E4E4)
+        /// 3 分割画面の右の入力で、開いている行の背景。緑で、濃さは前のオレンジと同じ 0.10（2026-10-14 実機の指摘。色は仮）
+        static let expandedRow = Color(hex: 0x34C759, opacity: 0.10)
         /// 警告の黄色・赤は予定色とは別の意味（仕様 §4）
         static let warning = Color(hex: 0xE8B931)
         static let danger = Color(hex: 0xE0645A)

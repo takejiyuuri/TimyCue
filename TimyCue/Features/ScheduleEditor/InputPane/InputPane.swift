@@ -48,7 +48,7 @@ struct InputPane: View {
                     }
                     ForEach(store.visibleRows, id: \.self) { row in
                         InputRowView(row: row,
-                                     value: store.valueText(for: row),
+                                     values: store.valueTexts(for: row),
                                      isExpanded: store.expandedRow == row,
                                      isLocked: store.isLocked(row),
                                      color: row == .color ? store.content.metadata.color : nil)
@@ -100,7 +100,8 @@ private struct CopyBar: View {
 /// 右上の 1 行（左に項目名、右に今の値）
 private struct InputRowView: View {
     let row: InputRow
-    let value: String
+    /// 今の値。長い順の候補で、1 行に入るいちばん長いものを出す（「同じ内容で追加」の「+3」）
+    let values: [String]
     let isExpanded: Bool
     /// 書き込めない Apple カレンダーの予定の、Apple 由来の項目（§1.7）
     let isLocked: Bool
@@ -108,20 +109,26 @@ private struct InputRowView: View {
 
     var body: some View {
         HStack(spacing: Theme.Spacing.s) {
+            // 項目名は折り返さない。ふだんはそろえた幅、「同じ内容で追加」だけは名前が長いのでその分だけ広げる
             Text(row.label)
                 .font(EditorMetrics.inputLabelFont)
                 .foregroundStyle(Theme.Colors.textSecondary)
-                .frame(width: EditorMetrics.inputLabelWidth, alignment: .leading)
+                .fixedSize()
+                .frame(width: row == .additionalDays ? nil : EditorMetrics.inputLabelWidth, alignment: .leading)
             if let color {
                 Circle()
                     .fill(EventPalette.color(for: color))
                     .frame(width: 12, height: 12)
             }
-            Text(value)
-                .font(EditorMetrics.inputValueFont)
-                .foregroundStyle(isLocked ? Theme.Colors.textSecondary : Theme.Colors.textPrimary)
-                .lineLimit(1)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            ViewThatFits(in: .horizontal) {
+                ForEach(values, id: \.self) { value in
+                    Text(value)
+                        .lineLimit(1)
+                }
+            }
+            .font(EditorMetrics.inputValueFont)
+            .foregroundStyle(isLocked ? Theme.Colors.textSecondary : Theme.Colors.textPrimary)
+            .frame(maxWidth: .infinity, alignment: .leading)
             if isLocked {
                 Image(systemName: "lock.fill")
                     .font(EditorMetrics.lockIconFont)
@@ -130,7 +137,8 @@ private struct InputRowView: View {
         }
         .padding(.horizontal, Theme.Spacing.m)
         .frame(height: EditorMetrics.inputRowHeight)
-        .background(isExpanded ? Theme.Colors.accent.opacity(0.10) : Color.clear)
+        // 開いている行は緑（2026-10-14 実機の指摘。濃さは前のオレンジと同じ）
+        .background(isExpanded ? Theme.Colors.expandedRow : Color.clear)
         .overlay(alignment: .bottom) {
             Theme.Colors.separator.frame(height: 1)
         }
@@ -168,10 +176,10 @@ private struct InlineEditor: View {
                     isSelected: { store.content.metadata.route == $0 },
                     onTap: { store.content.metadata.route = $0 })
         case .notifications:
-            // 複数選べる。何も選ばなければ「通知なし」（§17）
+            // 決まった候補を複数オン・オフする。「通知なし」はほかと一緒に選べない。カスタムの分は作らない（追加仕様書 vNext §11）
             VStack(alignment: .leading, spacing: Theme.Spacing.s) {
                 ChipRow(options: NotificationTiming.presets,
-                        label: { $0 == .atDeparture ? "出発時" : "出発\($0.label)前" },
+                        label: \.fullLabel,
                         isSelected: { store.content.metadata.notifications.timings.contains($0) },
                         onTap: { timing in
                             if store.content.metadata.notifications.timings.contains(timing) {
@@ -184,7 +192,6 @@ private struct InlineEditor: View {
                         label: { _ in "通知なし" },
                         isSelected: { _ in store.content.metadata.notifications.isOff },
                         onTap: { _ in store.content.metadata.notifications = .off })
-                CustomNotificationEditor()
             }
         case .color:
             // ドラムロール（2026-10-13 実機の指摘）
@@ -204,6 +211,12 @@ private struct InlineEditor: View {
                     label: \.title,
                     isSelected: { $0.id == (store.content.calendarID ?? store.defaultCalendarID) },
                     onTap: { store.content.calendarID = $0.id })
+        case .additionalDays:
+            // この行を開いている間だけ、下のカレンダーをなぞって日を足したり外したりできる（2026-10-14 ユーザー決定。文言は仮）
+            Text("下のカレンダーで日をなぞって選んでください（選んだ日をなぞると外れます）。時刻は日ごとに決めます")
+                .font(EditorMetrics.lockNoticeFont)
+                .foregroundStyle(Theme.Colors.textSecondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 }
@@ -325,91 +338,6 @@ private struct WheelPicker<Option: Hashable, Row: View>: View {
         .frame(maxWidth: .infinity)
         .frame(height: EditorMetrics.wheelPickerHeight)
         .clipped()
-    }
-}
-
-/// 到着目標（§49）：5・10・15・20・30 分前・カスタム・未設定（2026-10-13 にドラムロールへ替えたので使わない）
-private struct ArrivalTargetEditor: View {
-    @Environment(ScheduleEditorStore.self) private var store
-    @State private var showsCustom = false
-
-    private enum Choice: Hashable {
-        case minutes(Int)
-        case custom
-    }
-
-    /// 到着目標は必ず値を持つので、「未設定」は出さない（Q70）
-    var body: some View {
-        let current = store.content.metadata.arrivalTargetMinutes
-        let isPreset = ScheduleEditorStore.arrivalTargetChoices.contains(current)
-        VStack(alignment: .leading, spacing: Theme.Spacing.s) {
-            ChipRow(options: ScheduleEditorStore.arrivalTargetChoices.map(Choice.minutes) + [Choice.custom],
-                    label: { choice in
-                        switch choice {
-                        case .minutes(let minutes): "\(minutes)分前"
-                        case .custom: isPreset ? "カスタム" : "\(current)分前"
-                        }
-                    },
-                    isSelected: { choice in
-                        switch choice {
-                        case .minutes(let minutes): current == minutes && !showsCustom
-                        case .custom: showsCustom || !isPreset
-                        }
-                    },
-                    onTap: { choice in
-                        switch choice {
-                        case .minutes(let minutes):
-                            showsCustom = false
-                            store.content.metadata.arrivalTargetMinutes = minutes
-                        case .custom:
-                            showsCustom = true
-                        }
-                    })
-            if showsCustom {
-                Stepper("到着目標 \(current)分前",
-                        value: Binding(get: { current }, set: { store.content.metadata.arrivalTargetMinutes = $0 }),
-                        in: ScheduleEditorStore.customArrivalRange)
-                    .font(EditorMetrics.chipFont)
-            }
-        }
-    }
-}
-
-/// 通知のカスタム（§17）：出発○分前・予定開始○分前を、好きな分で足す。足したものは押すと外せる
-private struct CustomNotificationEditor: View {
-    @Environment(ScheduleEditorStore.self) private var store
-    @State private var minutes = 15
-    @State private var basedOnStart = false
-
-    var body: some View {
-        let custom = store.content.metadata.notifications.timings
-            .filter { !NotificationTiming.presets.contains($0) }
-            .sorted { $0.label < $1.label }
-        VStack(alignment: .leading, spacing: Theme.Spacing.s) {
-            if !custom.isEmpty {
-                ChipRow(options: custom,
-                        label: { "\($0.fullLabel) ×" },
-                        isSelected: { _ in true },
-                        onTap: { store.content.metadata.notifications.timings.remove($0) })
-            }
-            HStack(spacing: Theme.Spacing.s) {
-                Picker("基準", selection: $basedOnStart) {
-                    Text("出発").tag(false)
-                    Text("予定開始").tag(true)
-                }
-                .pickerStyle(.segmented)
-                .frame(width: 130)
-                Stepper("\(minutes)分前", value: $minutes, in: ScheduleEditorStore.customNotificationRange,
-                        step: ScheduleEditorStore.customMinuteStep)
-                    .font(EditorMetrics.chipFont)
-            }
-            Button("この通知を足す") {
-                let timing: NotificationTiming = basedOnStart ? .beforeStart(minutes: minutes) : .beforeDeparture(minutes: minutes)
-                store.content.metadata.notifications.timings.insert(timing)
-            }
-            .font(EditorMetrics.chipFont)
-            .buttonStyle(.bordered)
-        }
     }
 }
 

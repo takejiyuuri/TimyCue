@@ -172,8 +172,11 @@ final class EditorSuggestionTests: XCTestCase {
         XCTAssertEqual(try store.save().count, 1, "警告があっても保存できる（Soft Constraint）")
     }
 
-    func testCustomNotificationLabels() {
-        XCTAssertEqual(NotificationTiming.beforeDeparture(minutes: 45).fullLabel, "出発45分前")
-        XCTAssertEqual(NotificationTiming.beforeStart(minutes: 15).fullLabel, "予定開始15分前", "Q7")
+    func testNotificationLabels() {
+        XCTAssertEqual(NotificationTiming.beforeDeparture(minutes: 60).fullLabel, "出発60分前")
+        XCTAssertEqual(NotificationTiming.atDeparture.fullLabel, "出発時刻", "vNext §11.1")
+        XCTAssertEqual(NotificationTiming.atStart.fullLabel, "予定開始", "vNext §11.1")
+        XCTAssertEqual(NotificationTiming.beforeStart(minutes: 15).fullLabel, "予定開始15分前",
+                       "前の版で足したカスタムは、出発基準と取り違えない書き方のまま（Q7）")
     }
 }

@@ -71,16 +71,15 @@ struct RootTabView: View {
     }
 
     /// カレンダーのタブの押し直し：「今日」になっていれば今日へ移動して今日を選ぶ。今日が見えていれば今の位置のまま。
-    /// iOS の「いちばん上へ戻る」は止めてあるが、もし動いてしまったら元の場所へ戻す（ぐるぐる回らないように、すぐ動かす）
+    /// iOS はタブの押し直しで画面をいちばん上（20 年前）へ動かし始めるので、どちらの場合もすぐ決めた週へスクロールし直す
+    /// （今日が見えているときに何もしないでいると、上へ回ってから戻ってきていた。2026-10-14 実機の指摘）。
+    /// iOS の動きが遅れて始まったときのために、少しあとにもう一度だけ確かめる
     private func calendarTabTappedAgain() {
-        let goesToToday = showsTodayInTab
-        let keep = calendarStore.topWeekID
-        if goesToToday { calendarStore.scrollToToday() }
-        let target = calendarStore.topWeekID
+        guard let target = calendarStore.tabTappedAgain() else { return }
         Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(450))
-            if calendarStore.topWeekID != target {
-                if goesToToday { calendarStore.showCurrentMonth() } else { calendarStore.scroll(to: keep) }
+            for delay in [100, 350] {
+                try? await Task.sleep(for: .milliseconds(delay))
+                if calendarStore.topWeekID != target { calendarStore.scroll(to: target) }
             }
         }
     }
@@ -93,9 +92,8 @@ struct RootTabView: View {
         let today = CalendarDay(Date())
         let days = raw.split(separator: ",").compactMap { Int($0.trimmingCharacters(in: .whitespaces)) }.map { today.adding(days: $0) }
         guard let first = days.first else { return }
-        editorStore.startNew()
-        days.forEach(editorStore.selectDay)
-        editorStore.displayDay(first)
+        editorStore.startNew(on: first)
+        days.dropFirst().forEach(editorStore.addDay)
         editorStore.setStartMinute(14 * 60, on: first)
         editorStore.content.title = "見本の打合せ"
         showsEditorForScreenshot = true

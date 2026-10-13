@@ -1,13 +1,13 @@
 import SwiftUI
 
-/// 3 分割画面の左上：時間画面（仕様 §35〜§43）。上に日付タブ、その下にその日の縦タイムライン。
+/// 3 分割画面の左上：時間画面（仕様 §35〜§43）。上に表示中の 1 日の日付、その下にその日の縦タイムライン。
 /// 「時」を押すとその位置に分ホイール（§38）。仮予定は上下にドラッグして開始時刻を変え（§40）、下端のハンドルで終了時刻を決める（§41）
 struct TimePane: View {
     @Environment(ScheduleEditorStore.self) private var store
 
     var body: some View {
         VStack(spacing: 0) {
-            DateTabs()
+            DateHeader()
             if let day = store.displayedDay {
                 EditorTimeAxis(day: day)
                     .id(day)
@@ -24,38 +24,24 @@ struct TimePane: View {
     }
 }
 
-/// 複数日を選んだときの日付タブ（§35）。入りきらなければ横スクロール。押した日の時間軸を出す。
-/// 1 日だけのときは、その日を見出しとして出す。「予測で一括」は 2026-10-13 にやめた（ユーザー決定）
-private struct DateTabs: View {
+/// 時間画面の上の日付。複数日を選んでいても、表示中の 1 日だけを「10月2日（金）」のように出す。色は付けない
+/// （2026-10-14 ユーザー決定。前の日付タブの一覧はやめた。別の日は下のカレンダーでその日をタップして出す）
+private struct DateHeader: View {
     @Environment(ScheduleEditorStore.self) private var store
 
     var body: some View {
-        VStack(spacing: 0) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 4) {
-                    if store.selectedDays.count <= 1, let day = store.displayedDay ?? store.selectedDays.first {
-                        Text("\(day.month)月\(day.day)日（\(day.weekdaySymbol())）")
-                            .font(EditorMetrics.dateTabFont)
-                            .foregroundStyle(Theme.Colors.textPrimary)
-                            .padding(.horizontal, 6)
-                    } else {
-                        ForEach(store.selectedDays, id: \.self) { day in
-                            let isShown = store.displayedDay == day
-                            let hasTime = store.startMinutes[day] != nil
-                            Text(day.shortLabel)
-                                .font(EditorMetrics.dateTabFont)
-                                .foregroundStyle(isShown ? Color.white : (hasTime ? Theme.Colors.textPrimary : Theme.Colors.textSecondary))
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 4)
-                                .background(Capsule().fill(isShown ? Theme.Colors.accent : Theme.Colors.surface))
-                                .onTapGesture { store.displayDay(day) }
-                        }
-                    }
-                }
-                .padding(.horizontal, 4)
+        HStack(spacing: 0) {
+            if let day = store.displayedDay {
+                Text("\(day.month)月\(day.day)日（\(day.weekdaySymbol())）")
+                    .font(EditorMetrics.dateTabFont)
+                    .foregroundStyle(Theme.Colors.textPrimary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
             }
-            .frame(height: EditorMetrics.dateTabHeight)
+            Spacer(minLength: 0)
         }
+        .padding(.horizontal, 10)
+        .frame(height: EditorMetrics.dateTabHeight)
         .overlay(alignment: .bottom) {
             Theme.Colors.separator.frame(height: 1)
         }
@@ -70,9 +56,10 @@ private struct EditorTimeAxis: View {
     /// 分ホイールを出している「時」（§38。ホイールを置く位置）と、ホイールで選んでいる時刻（0:00 からの分。5 分おき）
     @State private var wheelHour: Int?
     @State private var wheelMinute = 0
-    /// 仮予定を動かしている間の開始時刻・終了時刻（§40・§41）。指を離したら store に入れる
-    @State private var dragStart: MinuteOfDay?
-    @State private var dragEnd: MinuteOfDay?
+    /// 仮予定を動かしている間・下端のハンドルを伸ばしている間の指の動き（時間軸の上で測る。§40・§41）。
+    /// 指を離したら store に入れる。iOS に操作を止められても自然に消える
+    @GestureState private var moveDistance: CGFloat? = nil
+    @GestureState private var endDistance: CGFloat? = nil
 
     private let hourHeight = EditorMetrics.hourRowHeight
     private let topInset: CGFloat = 6
@@ -123,13 +110,15 @@ private struct EditorTimeAxis: View {
                                 .alignmentGuide(.top) { _ in -y(event.startMinute) }
                         }
 
-                        // 仮予定（新規・コピーの予定、編集中の予定）。上下にドラッグ、下端のハンドルで終了
-                        ForEach(drafts) { event in
+                        // 仮予定（新規・コピーの予定、編集中の予定）。上下にドラッグ、下端のハンドルで終了。
+                        // 仮予定は描き直すたびに id が新しくなるので、日で見分ける（id で見分けると、指で動かしている途中で
+                        // 別の物に置き換わり、操作が切れていた。2026-10-14 実機の「終了がうまく伸ばせない」）
+                        ForEach(drafts, id: \.day) { event in
                             let placement = placements[event.id] ?? TimelinePlacement(column: 0, columnCount: 1)
                             let columnWidth = laneWidth / CGFloat(max(placement.columnCount, 1))
                             draftBlock(event, width: max(columnWidth - 2, 0))
                                 .alignmentGuide(.leading) { _ in -(EditorMetrics.hourLabelWidth + columnWidth * CGFloat(placement.column)) }
-                                .alignmentGuide(.top) { _ in -y(dragStart ?? event.startMinute) }
+                                .alignmentGuide(.top) { _ in -y(draggedStart(of: event) ?? event.startMinute) }
                         }
 
                         if let hour = wheelHour {
@@ -143,6 +132,8 @@ private struct EditorTimeAxis: View {
                     // 指の動きは、この時間軸の上で測る（伸びていくブロックやハンドルの上で測ると、動きに合わせて基準もずれる）
                     .coordinateSpace(name: Self.timelineSpace)
                 }
+                // 仮予定を動かしている間・終了を伸ばしている間は、時間軸をスクロールさせない（指の動きを取り合わない）
+                .scrollDisabled(moveDistance != nil || endDistance != nil)
                 .onAppear { scroll(proxy) }
                 .onChange(of: wheelMinute) { _, minute in
                     // ホイールを回すと、その場で仮予定の開始時刻が変わる（§38・§39）。0 分をまたげば時も変わる
@@ -160,8 +151,30 @@ private struct EditorTimeAxis: View {
         duration.map { max(CGFloat($0) / 60 * hourHeight, EditorMetrics.noEndBlockHeight) } ?? EditorMetrics.noEndBlockHeight
     }
 
+    /// 動かしている途中の開始時刻（動かしていなければ nil）
+    private func draggedStart(of event: CalendarEvent) -> MinuteOfDay? {
+        moveDistance.map {
+            TimeDragMath.startMinute(afterDragging: Double($0), from: event.startMinute, hourHeight: Double(hourHeight))
+        }
+    }
+
+    /// 伸ばしている途中の終了時刻（伸ばしていなければ nil）
+    private func draggedEnd(of event: CalendarEvent) -> MinuteOfDay? {
+        endDistance.map { endMinute(of: event, afterDragging: $0) }
+    }
+
+    /// 下端のハンドルを dy だけ動かしたときの終了時刻。終了がまだなければ、低い固定のブロックの下端から伸ばし始める
+    private func endMinute(of event: CalendarEvent, afterDragging dy: CGFloat) -> MinuteOfDay {
+        let start = store.startMinutes[day] ?? event.startMinute
+        let base = store.endMinute(on: day)
+            ?? start + Int((EditorMetrics.noEndBlockHeight / hourHeight * 60).rounded())
+        return TimeDragMath.endMinute(afterDragging: Double(dy), from: base, start: start, hourHeight: Double(hourHeight))
+    }
+
     @ViewBuilder
     private func draftBlock(_ event: CalendarEvent, width: CGFloat) -> some View {
+        let dragStart = draggedStart(of: event)
+        let dragEnd = draggedEnd(of: event)
         let start = dragStart ?? event.startMinute
         let end = dragEnd ?? store.endMinute(on: day)
         let duration = end.map { $0 - start }
@@ -170,8 +183,8 @@ private struct EditorTimeAxis: View {
         EditorEventBlock(event: event, color: store.content.metadata.color, isDraft: true)
             .frame(width: width, height: height)
             .contentShape(Rectangle())
-            // ブロックを動かす操作は、下端のハンドルより内側にだけ付ける（ハンドルの操作を奪わないように）
-            .highPriorityGesture(moveDrag(for: event))
+            // ブロックを上下に動かす。書き込めない Apple カレンダーの予定は動かさない（§1.7）
+            .highPriorityGesture(moveDrag(for: event), including: store.areAppleFieldsLocked ? .subviews : .all)
             .overlay(alignment: .topTrailing) {
                 // 動かしている間は正確な時刻を出す（§40・§41）
                 if dragStart != nil || dragEnd != nil {
@@ -195,15 +208,16 @@ private struct EditorTimeAxis: View {
                         .padding(.vertical, 2)
                         .background(Capsule().fill(Theme.Colors.warning.opacity(0.9)))
                         .fixedSize()
-                        .offset(y: EditorMetrics.endHandleHeight + 4)
+                        .offset(y: EditorMetrics.warningOffsetBelowBlock)
                         .allowsHitTesting(false)
                 }
             }
-            .overlay(alignment: .bottom) {
-                // 書き込めない Apple カレンダーの予定は、時刻を動かせない（§1.7）
+            .overlay(alignment: .top) {
+                // 書き込めない Apple カレンダーの予定は、時刻を動かせない（§1.7）。
+                // 指で押さえやすいように、ブロックの幅いっぱい・下端の少し上からブロックの下まで広く取る（2026-10-14。大きさは仮）
                 if !store.areAppleFieldsLocked {
-                    EndHandle()
-                        .offset(y: EditorMetrics.endHandleHeight / 2)
+                    EndHandle(width: width)
+                        .offset(y: height - EditorMetrics.endHandleOverlap)
                         .highPriorityGesture(endDrag(for: event))
                 }
             }
@@ -212,33 +226,32 @@ private struct EditorTimeAxis: View {
     /// 仮予定を上下に動かす：開始時刻を変える。所要時間は保つ（§40）
     private func moveDrag(for event: CalendarEvent) -> some Gesture {
         DragGesture(minimumDistance: 3, coordinateSpace: .named(Self.timelineSpace))
-            .onChanged { value in
-                guard !store.areAppleFieldsLocked else { return }
-                wheelHour = nil
-                dragStart = TimeDragMath.startMinute(afterDragging: Double(value.translation.height),
-                                                     from: event.startMinute, hourHeight: Double(hourHeight))
+            .updating($moveDistance) { value, distance, _ in
+                distance = value.translation.height
             }
-            .onEnded { _ in
-                if let start = dragStart { store.setStartMinute(start, on: day) }
-                dragStart = nil
+            .onChanged { _ in
+                if wheelHour != nil { wheelHour = nil }
+            }
+            .onEnded { value in
+                store.setStartMinute(TimeDragMath.startMinute(afterDragging: Double(value.translation.height),
+                                                              from: event.startMinute, hourHeight: Double(hourHeight)),
+                                     on: day)
             }
     }
 
-    /// 下端のハンドルを伸ばす：終了時刻を決める。何もしなければ終了なし。右の「終了」の行と同じ値（§41・Q24）
+    /// 下端のハンドルを伸ばす：終了時刻を決める。何もしなければ終了なし。右の「終了」の行と同じ値（§41・Q24）。
+    /// 触れたらすぐ時間軸のスクロールを止める。触れただけで離したときは何もしない（終了のない予定に、触れただけで終了を入れない）
     private func endDrag(for event: CalendarEvent) -> some Gesture {
-        DragGesture(minimumDistance: 1, coordinateSpace: .named(Self.timelineSpace))
-            .onChanged { value in
-                wheelHour = nil
-                let start = store.startMinutes[day] ?? event.startMinute
-                // 終了がまだなければ、低い固定のブロックの下端から伸ばし始める
-                let base = store.endMinute(on: day)
-                    ?? start + Int((EditorMetrics.noEndBlockHeight / hourHeight * 60).rounded())
-                dragEnd = TimeDragMath.endMinute(afterDragging: Double(value.translation.height),
-                                                 from: base, start: start, hourHeight: Double(hourHeight))
+        DragGesture(minimumDistance: 0, coordinateSpace: .named(Self.timelineSpace))
+            .updating($endDistance) { value, distance, _ in
+                distance = value.translation.height
             }
-            .onEnded { _ in
-                if let end = dragEnd { store.setEndMinute(end, on: day) }
-                dragEnd = nil
+            .onChanged { _ in
+                if wheelHour != nil { wheelHour = nil }
+            }
+            .onEnded { value in
+                guard abs(value.translation.height) >= EditorMetrics.endHandleMinimumMove else { return }
+                store.setEndMinute(endMinute(of: event, afterDragging: value.translation.height), on: day)
             }
     }
 
@@ -266,13 +279,19 @@ private struct EditorTimeAxis: View {
     }
 }
 
-/// 仮予定の下端のハンドル（§41）
+/// 仮予定の下端のハンドル（§41）。見た目は下端の小さなつまみだけ。押さえられる所はブロックの幅いっぱいで、下へ広く取る
 private struct EndHandle: View {
+    let width: CGFloat
+
     var body: some View {
-        Capsule()
-            .fill(Theme.Colors.textPrimary.opacity(0.7))
-            .frame(width: EditorMetrics.endHandleWidth, height: 4)
-            .frame(width: EditorMetrics.endHandleWidth + 20, height: EditorMetrics.endHandleHeight)
+        Color.clear
+            .frame(width: width, height: EditorMetrics.endHandleHitHeight)
+            .overlay(alignment: .top) {
+                Capsule()
+                    .fill(Theme.Colors.textPrimary.opacity(0.7))
+                    .frame(width: EditorMetrics.endHandleWidth, height: 4)
+                    .padding(.top, EditorMetrics.endHandleOverlap - 2)
+            }
             .contentShape(Rectangle())
             .accessibilityLabel("終了時刻")
     }

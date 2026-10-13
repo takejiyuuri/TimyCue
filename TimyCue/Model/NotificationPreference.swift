@@ -2,19 +2,22 @@ import Foundation
 
 /// 通知のタイミング 1 つ（仕様 §17）
 enum NotificationTiming: Hashable, Codable {
-    /// 出発の○分前（60・30・10 分前、またはカスタム）
+    /// 出発の○分前（60・30・10 分前）
     case beforeDeparture(minutes: Int)
-    /// 出発時
+    /// 出発時刻
     case atDeparture
-    /// 予定開始の○分前
+    /// 予定開始の○分前。カスタムの通知は廃止したので、前の版で足したものを読むためだけに残す（追加仕様書 vNext §11.2）
     case beforeStart(minutes: Int)
+    /// 予定開始（追加仕様書 vNext §11.1）
+    case atStart
 
-    /// 選択肢に並べる決まったタイミング。これ以外はカスタムで足す
+    /// 予定編集画面で複数オン・オフする決まった候補（追加仕様書 vNext §11.1）。ほかに「通知なし」。カスタムの分は作らない
     static let presets: [NotificationTiming] = [
         .beforeDeparture(minutes: 60),
         .beforeDeparture(minutes: 30),
         .beforeDeparture(minutes: 10),
         .atDeparture,
+        .atStart,
     ]
 
     /// 右上の通知行に並べる短い表記（仕様 §17 の例「30分・10分・出発」）。
@@ -24,24 +27,27 @@ enum NotificationTiming: Hashable, Codable {
         case .beforeDeparture(let minutes): "\(minutes)分"
         case .atDeparture: "出発"
         case .beforeStart(let minutes): "予定開始\(minutes)分前"
+        case .atStart: "予定開始"
         }
     }
 
-    /// 通知の行で、カスタムを外すときに出す長い表記（例：出発45分前・予定開始15分前）
+    /// 通知の行を開いたときの候補の表記（追加仕様書 vNext §11.1：出発60分前・出発時刻・予定開始 など）
     var fullLabel: String {
         switch self {
         case .beforeDeparture(let minutes): "出発\(minutes)分前"
-        case .atDeparture: "出発時"
+        case .atDeparture: "出発時刻"
         case .beforeStart(let minutes): "予定開始\(minutes)分前"
+        case .atStart: "予定開始"
         }
     }
 
-    /// 並べる順：出発の○分前（早い順）→ 出発 → 開始の○分前（早い順）
+    /// 並べる順：出発の○分前（早い順）→ 出発 → 開始の○分前（早い順）→ 予定開始
     fileprivate var sortKey: (Int, Int) {
         switch self {
         case .beforeDeparture(let minutes): (0, -minutes)
         case .atDeparture: (1, 0)
         case .beforeStart(let minutes): (2, -minutes)
+        case .atStart: (2, 0)
         }
     }
 }
