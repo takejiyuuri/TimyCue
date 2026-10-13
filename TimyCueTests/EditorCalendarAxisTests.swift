@@ -112,6 +112,83 @@ final class EditorCalendarAxisTests: XCTestCase {
                        "キーボードで縮んだときは行をつぶさず、見える週を減らす（§67）")
     }
 
+    // MARK: - 前後数年・遠くまで動かしてもずれない（2026-10-13 ユーザー決定の形を守る）
+
+    func testMonthTopsStayConsistentForYearsInBothDirections() {
+        // 前後 5 年：月の上端の差が、その月の高さ（月帯＋週の行）とちょうど合う。年の境目（12 月→1 月）も含む
+        for k in -60...60 {
+            let month = october.adding(months: k)
+            let next = month.adding(months: 1)
+            XCTAssertEqual(axis.top(of: next) - axis.top(of: month), axis.height(of: month),
+                           "\(month.year)年\(month.month)月の上端と次の月の上端が合う")
+            XCTAssertEqual(axis.month(at: axis.top(of: month)), month, "月の上端の位置はその月")
+            XCTAssertEqual(axis.month(at: axis.top(of: next) - 0.01), month, "次の月の上端のすぐ上はまだその月")
+        }
+    }
+
+    func testYearBoundaryBothWays() {
+        let december = CalendarMonth(year: 2026, month: 12)
+        let january = CalendarMonth(year: 2027, month: 1)
+        XCTAssertEqual(axis.top(of: january) - axis.top(of: december), axis.height(of: december), "下へ年をまたぐ")
+        let lastYearDecember = CalendarMonth(year: 2025, month: 12)
+        let thisYearJanuary = CalendarMonth(year: 2026, month: 1)
+        XCTAssertEqual(axis.top(of: thisYearJanuary) - axis.top(of: lastYearDecember), axis.height(of: lastYearDecember),
+                       "基準の月より前（上へ）でも年をまたいでずれない")
+        XCTAssertEqual(axis.topMonth(at: axis.top(of: thisYearJanuary) - 0.01).year, 2025)
+    }
+
+    func testFarScrollDoesNotDrift() {
+        // 30 年先・30 年前でも、月の上端・中身がずれない（曜日を足し算でたどっても、暦で数えたのと同じ）
+        for month in [october.adding(months: 360), october.adding(months: -360)] {
+            let next = month.adding(months: 1)
+            XCTAssertEqual(axis.top(of: next) - axis.top(of: month), axis.height(of: month))
+            XCTAssertEqual(axis.month(at: axis.top(of: month) + 0.25), month, "月帯の中の位置はその月")
+            let lines = axis.lines(of: month)
+            XCTAssertEqual(lines.first?.line, .month(month))
+            let firstWeek = lines.dropFirst().first
+            XCTAssertEqual(firstWeek?.line, .week(month, CalendarWeek(containing: month.firstDay)),
+                           "最初の週の行は、その月の 1 日を含む週")
+        }
+    }
+
+    func testEveryDayOfTheMonthAppearsOnce() {
+        // 前後 2 年：月の週の行に、その月の日が 1 回ずつだけ並ぶ（ほかの月の日は出さない）
+        for k in -24...24 {
+            let month = october.adding(months: k)
+            let days = axis.lines(of: month).flatMap { placed -> [CalendarDay] in
+                guard case .week(let lineMonth, let week) = placed.line else { return [] }
+                return week.days.filter { CalendarMonth($0) == lineMonth }
+            }
+            XCTAssertEqual(days.count, EditorCalendarAxis.dayCount(of: month))
+            XCTAssertEqual(Set(days).count, days.count)
+            XCTAssertEqual(days.first, month.firstDay)
+        }
+    }
+
+    // MARK: - 左右のスクロールバー
+
+    @MainActor
+    func testScrollBarFollowsTheFingerAndEndsDragging() {
+        let scroller = EditorCalendarScroller()
+        scroller.drag(translation: 0, rowHeight: 40, axis: axis)
+        XCTAssertTrue(scroller.isDragging, "なぞっている間")
+        scroller.drag(translation: -80, rowHeight: 40, axis: axis)
+        XCTAssertEqual(scroller.offset, 2, "指と同じだけ動く（上へ 2 行ぶん → 先へ 2 行）")
+        scroller.drag(translation: -20, rowHeight: 40, axis: axis)
+        XCTAssertEqual(scroller.offset, 0.5, "なぞり始めの位置からの移動で決まる")
+
+        scroller.endDrag(velocity: 0, rowHeight: 40, axis: axis)
+        XCTAssertFalse(scroller.isDragging, "指を離したら、なぞっている状態は外れる")
+        XCTAssertEqual(scroller.offset, 0.5, "止まった指で離したら、その位置のまま")
+
+        scroller.drag(translation: 40, rowHeight: 40, axis: axis)
+        XCTAssertEqual(scroller.offset, -0.5, "次になぞるときは、今の位置から動く")
+        // 速く離したときも、なぞっている状態はすぐ外れる（滑る時間には頼らない）
+        scroller.endDrag(velocity: -2000, rowHeight: 40, axis: axis)
+        XCTAssertFalse(scroller.isDragging)
+        scroller.stopInertia()
+    }
+
     func testSafetyLimit() {
         XCTAssertEqual(axis.clamp(1_000_000), EditorCalendarAxis.maxOffset)
         XCTAssertEqual(axis.clamp(-1_000_000), -EditorCalendarAxis.maxOffset)

@@ -97,6 +97,23 @@ final class CalendarStoreTests: XCTestCase {
                       today: today)
     }
 
+    func testHolidayCalendarEventsAreViewOnlyInTheMonthCalendar() {
+        let holidays = CalendarChoice(id: "jp", title: "日本の祝日", sourceTitle: "購読", isWritable: false, color: .green,
+                                      isHolidays: true)
+        let shared = CalendarChoice(id: "team", title: "チーム", sourceTitle: "共有", isWritable: false, color: .blue)
+        let holiday = CalendarEvent(day: today, startMinute: 0, title: "スポーツの日", isAllDay: true,
+                                    source: .appleCalendar, calendarID: "jp")
+        let local = CalendarEvent(day: today, startMinute: 600, title: "TimyCue の中の予定", source: .timyCue, calendarID: "jp")
+        let sharedAllDay = CalendarEvent(day: today, startMinute: 0, title: "チームの休み", isAllDay: true,
+                                         source: .appleCalendar, calendarID: "team")
+        let store = makeStore([holiday, local, sharedAllDay])
+        store.setCalendars([holidays, shared])
+
+        XCTAssertTrue(store.isViewOnly(holiday), "祝日カレンダーの予定は見るだけ（編集を出さない。Q55）")
+        XCTAssertFalse(store.isViewOnly(local), "同じカレンダー ID でも、TimyCue の中の予定は祝日にしない")
+        XCTAssertFalse(store.isViewOnly(sharedAllDay), "祝日でない編集できないカレンダーは §1.7 のまま")
+    }
+
     func testTodayButtonMovesToTodayAndSelectsIt() {
         let store = makeStore([])
         store.topWeekID = CalendarWeek(containing: today).adding(weeks: 30).id
