@@ -41,7 +41,8 @@ struct EventDetailCard: View {
     @ViewBuilder
     private func details(_ rows: EventDetailRows) -> some View {
         if let place = rows.place {
-            // 場所を押すと外部の地図へ渡す。TimyCue 自身はナビをしない（v1.1「外部地図」）
+            // 暫定：場所を押すと外部の地図（Apple マップ）へ渡す。簡易ルートを作ったら、TimyCue 内の簡易ルートを開くに置き換え、
+            // 外部の地図／ナビを開く役目は「ナビ開始」へ移す（追加仕様書 §28.4・§29.1・Q57。2026-10-13 確認）
             Button {
                 if let url = EventDetailRows.mapsURL(for: place) { openURL(url) }
             } label: {
