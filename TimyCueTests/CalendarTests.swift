@@ -100,7 +100,7 @@ final class CalendarStoreTests: XCTestCase {
     func testHolidayCalendarEventsAreViewOnlyInTheMonthCalendar() {
         let holidays = CalendarChoice(id: "jp", title: "日本の祝日", sourceTitle: "購読", isWritable: false, color: .green,
                                       isHolidays: true)
-        let shared = CalendarChoice(id: "team", title: "チーム", sourceTitle: "共有", isWritable: false, color: .blue)
+        let shared = CalendarChoice(id: "team", title: "チーム", sourceTitle: "共有", isWritable: false, color: .saxeBlue)
         let holiday = CalendarEvent(day: today, startMinute: 0, title: "スポーツの日", isAllDay: true,
                                     source: .appleCalendar, calendarID: "jp")
         let local = CalendarEvent(day: today, startMinute: 600, title: "TimyCue の中の予定", source: .timyCue, calendarID: "jp")
