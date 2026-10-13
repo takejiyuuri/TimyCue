@@ -62,21 +62,27 @@ struct MonthCalendarView: View {
         GeometryReader { proxy in
             let visibleRows = Int(proxy.size.height / CalendarMetrics.cellHeight)
             let focusMonth = store.focusMonth(visibleRows: visibleRows)
-            ScrollView {
-                LazyVStack(spacing: 0) {
-                    ForEach(store.weeks) { week in
-                        WeekRowView(week: week, focusMonth: focusMonth)
-                            .id(week.id)
-                            .onAppear { store.weekDidAppear(week) }
+            ScrollViewReader { scroller in
+                ScrollView {
+                    LazyVStack(spacing: 0) {
+                        ForEach(store.weeks) { week in
+                            WeekRowView(week: week, focusMonth: focusMonth)
+                                .id(week.id)
+                                .onAppear { store.weekDidAppear(week) }
+                        }
                     }
+                    .scrollTargetLayout()
+                    .padding(.horizontal, CalendarMetrics.horizontalPadding)
+                    // 吹き出しの外（日付以外）を押したら、開いている吹き出しを閉じる（Q9）
+                    .contentShape(Rectangle())
+                    .onTapGesture { store.closeAllPopovers() }
                 }
-                .scrollTargetLayout()
-                .padding(.horizontal, CalendarMetrics.horizontalPadding)
-                // 吹き出しの外（日付以外）を押したら、開いている吹き出しを閉じる（Q9）
-                .contentShape(Rectangle())
-                .onTapGesture { store.closeAllPopovers() }
+                .scrollPosition(id: $store.topWeekID, anchor: .top)
+                // 「今日」・タブの押し直しで、決めた週へスクロールし直す
+                .onChange(of: store.scrollRequest) { _, _ in
+                    if let id = store.topWeekID { scroller.scrollTo(id, anchor: .top) }
+                }
             }
-            .scrollPosition(id: $store.topWeekID, anchor: .top)
             // 見えている週の数を覚えておく（「今日」を出すかに使う。画面の処理の中では書き換えない）
             .onAppear { store.setVisibleRows(visibleRows) }
             .onChange(of: visibleRows) { _, rows in store.setVisibleRows(rows) }

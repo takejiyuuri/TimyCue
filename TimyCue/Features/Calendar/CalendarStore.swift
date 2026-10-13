@@ -115,12 +115,22 @@ final class CalendarStore {
         return distance >= 0 && distance < max(1, rows)
     }
 
+    /// 月カレンダーを動かす合図。数が変わったら、画面が topWeekID の週へスクロールし直す
+    /// （iOS が勝手にスクロールしたあとは topWeekID が同じ値のままのことがあり、値を入れ直すだけでは動かないため）
+    private(set) var scrollRequest = 0
+
     /// 「今日」：今日へ移動し、今日を選ぶ（今日の吹き出しを開く。2026-10-12 決定）。
     /// 今日を画面のどこに置くかは未決。今は仮に、開いたときと同じく今月の 1 日を含む週をいちばん上にしている
     func scrollToToday() {
         closeAllPopovers()
-        topWeekID = CalendarWeek(containing: CalendarMonth(today).firstDay).id
+        showCurrentMonth()
         if !isOpen(today) { tapDay(today) }
+    }
+
+    /// 今月を、開いたときと同じ位置に出す（カレンダーのタブを押し直したとき。仮）
+    func showCurrentMonth() {
+        topWeekID = CalendarWeek(containing: CalendarMonth(today).firstDay).id
+        scrollRequest += 1
     }
 
     /// 画面上部の年（Q20）を決める月。一番上の週で決まる（月の sticky 表示 Q19 は 2026-10-12 にやめた）

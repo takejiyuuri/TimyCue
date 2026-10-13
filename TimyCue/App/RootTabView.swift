@@ -31,7 +31,17 @@ struct RootTabView: View {
     @State private var showsEditorForScreenshot = false
 
     var body: some View {
-        TabView(selection: $selection) {
+        TabView(selection: Binding(get: { selection }, set: { tab in
+            // カレンダーのタブを押し直すと、iOS が画面をいちばん上（20 年前の週）までスクロールしてしまう。
+            // 押し直しを見つけたら、そのスクロールのあとで今月へ戻す（2026-10-13 実機の不具合。戻す先は仮）
+            if tab == selection, tab == .calendar {
+                Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(450))
+                    calendarStore.showCurrentMonth()
+                }
+            }
+            selection = tab
+        })) {
             ForEach(RootTab.allCases, id: \.self) { tab in
                 screen(for: tab)
                     .tabItem { Label(tab.title, systemImage: tab.systemImage) }

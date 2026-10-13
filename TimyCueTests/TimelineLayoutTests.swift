@@ -159,7 +159,7 @@ final class EventDetailRowsTests: XCTestCase {
         let rows = EventDetailRows(event: event, metadata: nil)
         XCTAssertEqual(rows.dateTime, "10月12日（月） 10:00", "終了未設定なら開始だけ")
         XCTAssertNil(rows.place)
-        XCTAssertEqual(rows.arrivalTarget, "未設定")
+        XCTAssertEqual(rows.arrivalTarget, "0分前（予定開始時刻）", "到着目標は必ず値を持つ。TimyCue の情報がなければ初期値（Q70）")
         XCTAssertEqual(rows.transport, "自動")
         XCTAssertNil(rows.route)
     }

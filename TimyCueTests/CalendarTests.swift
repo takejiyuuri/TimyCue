@@ -114,6 +114,16 @@ final class CalendarStoreTests: XCTestCase {
         XCTAssertFalse(store.isViewOnly(sharedAllDay), "祝日でない編集できないカレンダーは §1.7 のまま")
     }
 
+    func testShowCurrentMonthAsksTheCalendarToScrollEvenIfAlreadyThere() {
+        let store = makeStore([])
+        let before = store.scrollRequest
+        store.showCurrentMonth()
+        XCTAssertEqual(store.topWeekID, CalendarWeek(containing: CalendarMonth(today).firstDay).id, "開いたときと同じ今月の位置")
+        store.showCurrentMonth()
+        XCTAssertEqual(store.scrollRequest, before + 2,
+                       "位置が同じでも毎回スクロールし直す合図を出す（iOS が勝手にスクロールしたあとでも戻せるように）")
+    }
+
     func testTodayButtonMovesToTodayAndSelectsIt() {
         let store = makeStore([])
         store.topWeekID = CalendarWeek(containing: today).adding(weeks: 30).id
