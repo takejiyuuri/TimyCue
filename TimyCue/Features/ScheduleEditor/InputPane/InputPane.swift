@@ -97,7 +97,7 @@ private struct CopyBar: View {
     }
 }
 
-/// 右上の 1 行（左に項目名、右に今の値）
+/// 右上の 1 行（左に項目名、右に今の値）。「同じ内容で追加」だけは、足した日を項目名の 1 段下に出す
 private struct InputRowView: View {
     let row: InputRow
     /// 今の値。長い順の候補で、1 行に入るいちばん長いものを出す（「同じ内容で追加」の「+3」）
@@ -108,41 +108,61 @@ private struct InputRowView: View {
     let color: EventColor?
 
     var body: some View {
-        HStack(spacing: Theme.Spacing.s) {
-            // 項目名は折り返さない。ふだんはそろえた幅、「同じ内容で追加」だけは名前が長いのでその分だけ広げる
-            Text(row.label)
-                .font(EditorMetrics.inputLabelFont)
-                .foregroundStyle(Theme.Colors.textSecondary)
-                .fixedSize()
-                .frame(width: row == .additionalDays ? nil : EditorMetrics.inputLabelWidth, alignment: .leading)
-            if let color {
-                Circle()
-                    .fill(EventPalette.color(for: color))
-                    .frame(width: 12, height: 12)
-            }
-            ViewThatFits(in: .horizontal) {
-                ForEach(values, id: \.self) { value in
-                    Text(value)
-                        .lineLimit(1)
+        Group {
+            if row == .additionalDays {
+                // 名前が長く、横に並べると日付が少ししか入らないので、足した日は名前の 1 段下に 1 行で出す（2026-10-14 実機の指摘）
+                VStack(alignment: .leading, spacing: 2) {
+                    label
+                    value
                 }
-            }
-            .font(EditorMetrics.inputValueFont)
-            .foregroundStyle(isLocked ? Theme.Colors.textSecondary : Theme.Colors.textPrimary)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            if isLocked {
-                Image(systemName: "lock.fill")
-                    .font(EditorMetrics.lockIconFont)
-                    .foregroundStyle(Theme.Colors.textSecondary)
+                .padding(.vertical, 6)
+                .frame(minHeight: EditorMetrics.inputRowHeight)
+            } else {
+                HStack(spacing: Theme.Spacing.s) {
+                    label
+                        .frame(width: EditorMetrics.inputLabelWidth, alignment: .leading)
+                    if let color {
+                        Circle()
+                            .fill(EventPalette.color(for: color))
+                            .frame(width: 12, height: 12)
+                    }
+                    value
+                    if isLocked {
+                        Image(systemName: "lock.fill")
+                            .font(EditorMetrics.lockIconFont)
+                            .foregroundStyle(Theme.Colors.textSecondary)
+                    }
+                }
+                .frame(height: EditorMetrics.inputRowHeight)
             }
         }
         .padding(.horizontal, Theme.Spacing.m)
-        .frame(height: EditorMetrics.inputRowHeight)
+        .frame(maxWidth: .infinity, alignment: .leading)
         // 開いている行は緑（2026-10-14 実機の指摘。濃さは前のオレンジと同じ）
         .background(isExpanded ? Theme.Colors.expandedRow : Color.clear)
         .overlay(alignment: .bottom) {
             Theme.Colors.separator.frame(height: 1)
         }
         .contentShape(Rectangle())
+    }
+
+    private var label: some View {
+        Text(row.label)
+            .font(EditorMetrics.inputLabelFont)
+            .foregroundStyle(Theme.Colors.textSecondary)
+            .lineLimit(1)
+    }
+
+    private var value: some View {
+        ViewThatFits(in: .horizontal) {
+            ForEach(values, id: \.self) { text in
+                Text(text)
+                    .lineLimit(1)
+            }
+        }
+        .font(EditorMetrics.inputValueFont)
+        .foregroundStyle(isLocked ? Theme.Colors.textSecondary : Theme.Colors.textPrimary)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
