@@ -30,6 +30,8 @@ final class ScheduleEditorStore {
     /// 予定を書き込める Apple カレンダー（つないでいないときは空）と、新しい予定の既定の保存先（Q32）
     private(set) var writableCalendars: [CalendarChoice] = []
     private(set) var defaultCalendarID: String?
+    /// 到着目標の全体既定値（Q70。設定画面で変えられるようにするのは後の段階）
+    var defaultArrivalTargetMinutes = TimyCueEventMetadata.defaultArrivalTargetMinutes
     /// 書き込めない Apple カレンダー（共有・購読など）の id → 名前（追加仕様書 §1.7）
     private(set) var readOnlyCalendarTitles: [String: String] = [:]
     /// 繰り返しを決めたあとに 2 日目を選ぼうとした日。繰り返しを解除するか確かめている間だけ持つ（Q49）
@@ -188,6 +190,8 @@ final class ScheduleEditorStore {
     func startNew(on day: CalendarDay? = nil) {
         mode = .new
         content = EventContent()
+        // 到着目標は作った瞬間の全体既定値を入れる（Q70。全体既定値の設定は後の段階。今は初期値の 0 分前）
+        content.metadata.arrivalTargetMinutes = defaultArrivalTargetMinutes
         selectedDays = []
         startMinutes = [:]
         commonDurationMinutes = nil

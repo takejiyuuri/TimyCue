@@ -104,7 +104,7 @@ struct EventDetailRows: Equatable {
         dateTime = event.isAllDay ? "\(date) 終日" : "\(date) \(CalendarStore.timeText(for: event))"
         place = event.locationName.flatMap { $0.isEmpty ? nil : $0 }
         let info = metadata ?? TimyCueEventMetadata()
-        arrivalTarget = info.arrivalTargetMinutes.map { "\($0)分前" } ?? "未設定"
+        arrivalTarget = ScheduleEditorStore.arrivalTargetText(info.arrivalTargetMinutes)
         transport = info.transport.displayName
         route = info.transport == .car ? info.route.displayName : nil
         notifications = info.notifications.summary

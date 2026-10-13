@@ -10,7 +10,7 @@ extension ScheduleEditorStore {
         case .location:
             return content.locationName.flatMap { $0.isEmpty ? nil : $0 } ?? "なし"
         case .arrivalTarget:
-            return info.arrivalTargetMinutes.map { "\($0)分前" } ?? "未設定"
+            return Self.arrivalTargetText(info.arrivalTargetMinutes)
         case .transport:
             return info.transport.displayName
         case .route:
@@ -30,10 +30,15 @@ extension ScheduleEditorStore {
         }
     }
 
-    /// 到着目標の候補（仕様 §49）。ほかはカスタムで選ぶ
-    static let arrivalTargetChoices = [5, 10, 15, 20, 30]
+    /// 到着目標の候補（仕様 §49）。0 分前（予定開始時刻）は全体既定値の初期値へ戻せるように足した（Q70。並びは仮）。ほかはカスタムで選ぶ
+    static let arrivalTargetChoices = [0, 5, 10, 15, 20, 30]
     /// カスタムで選べる到着目標・通知の分（仮）
-    static let customArrivalRange = 1...180
+    static let customArrivalRange = 0...180
+
+    /// 到着目標の文字。0 分前は予定開始時刻と分かるようにする（文言は仮）
+    nonisolated static func arrivalTargetText(_ minutes: Int) -> String {
+        minutes == 0 ? "0分前（予定開始時刻）" : "\(minutes)分前"
+    }
     static let customNotificationRange = 5...240
     static let customMinuteStep = 5
 

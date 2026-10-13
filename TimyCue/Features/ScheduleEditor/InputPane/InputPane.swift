@@ -318,26 +318,24 @@ private struct ArrivalTargetEditor: View {
     private enum Choice: Hashable {
         case minutes(Int)
         case custom
-        case unset
     }
 
+    /// 到着目標は必ず値を持つので、「未設定」は出さない（Q70）
     var body: some View {
         let current = store.content.metadata.arrivalTargetMinutes
-        let isPreset = current.map { ScheduleEditorStore.arrivalTargetChoices.contains($0) } ?? true
+        let isPreset = ScheduleEditorStore.arrivalTargetChoices.contains(current)
         VStack(alignment: .leading, spacing: Theme.Spacing.s) {
-            ChipRow(options: ScheduleEditorStore.arrivalTargetChoices.map(Choice.minutes) + [Choice.custom, Choice.unset],
+            ChipRow(options: ScheduleEditorStore.arrivalTargetChoices.map(Choice.minutes) + [Choice.custom],
                     label: { choice in
                         switch choice {
                         case .minutes(let minutes): "\(minutes)分前"
-                        case .custom: isPreset ? "カスタム" : "\(current ?? 0)分前"
-                        case .unset: "未設定"
+                        case .custom: isPreset ? "カスタム" : "\(current)分前"
                         }
                     },
                     isSelected: { choice in
                         switch choice {
                         case .minutes(let minutes): current == minutes && !showsCustom
                         case .custom: showsCustom || !isPreset
-                        case .unset: current == nil && !showsCustom
                         }
                     },
                     onTap: { choice in
@@ -347,15 +345,11 @@ private struct ArrivalTargetEditor: View {
                             store.content.metadata.arrivalTargetMinutes = minutes
                         case .custom:
                             showsCustom = true
-                            if current == nil { store.content.metadata.arrivalTargetMinutes = 10 }
-                        case .unset:
-                            showsCustom = false
-                            store.content.metadata.arrivalTargetMinutes = nil
                         }
                     })
-            if showsCustom, let minutes = current {
-                Stepper("到着目標 \(minutes)分前",
-                        value: Binding(get: { minutes }, set: { store.content.metadata.arrivalTargetMinutes = $0 }),
+            if showsCustom {
+                Stepper("到着目標 \(current)分前",
+                        value: Binding(get: { current }, set: { store.content.metadata.arrivalTargetMinutes = $0 }),
                         in: ScheduleEditorStore.customArrivalRange)
                     .font(EditorMetrics.chipFont)
             }

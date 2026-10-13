@@ -10,7 +10,7 @@ enum SampleEvents {
 
         func add(_ dayOffset: Int, _ hour: Int, _ minute: Int, _ title: String,
                  place: String? = nil, color: EventColor, duration: Int? = nil,
-                 arrival: Int? = nil, transport: TransportMode = .auto, allDay: Bool = false) {
+                 arrival: Int = 0, transport: TransportMode = .auto, allDay: Bool = false) {
             let event = CalendarEvent(day: today.adding(days: dayOffset),
                                       startMinute: hour * 60 + minute,
                                       durationMinutes: duration,

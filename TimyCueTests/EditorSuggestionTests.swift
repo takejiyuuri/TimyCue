@@ -83,6 +83,27 @@ final class EditorSuggestionTests: XCTestCase {
         XCTAssertEqual(Set(candidates.map(\.name)).count, candidates.count, "同じ場所は 1 回だけ")
     }
 
+    func testArrivalTargetAlwaysHasAValue() throws {
+        let store = makeStore([])
+        store.startNew(on: today)
+        XCTAssertEqual(store.content.metadata.arrivalTargetMinutes, 0, "新しい予定は作った瞬間の全体既定値（初期値は 0 分前＝予定開始時刻）")
+
+        store.defaultArrivalTargetMinutes = 10
+        store.startNew(on: today)
+        XCTAssertEqual(store.content.metadata.arrivalTargetMinutes, 10, "全体既定値を変えたら、以後の新しい予定にその値")
+
+        // 前の版の「未設定」（到着目標のないファイル）は 0 分前として読む。保存した値は全体既定値を変えても変わらない
+        let old = #"{"color":"mint","transport":"walk","route":"auto"}"#
+        let decoded = try JSONDecoder().decode(TimyCueEventMetadata.self, from: Data(old.utf8))
+        XCTAssertEqual(decoded.arrivalTargetMinutes, 0)
+        XCTAssertEqual(decoded.color, .mint)
+        XCTAssertEqual(decoded.transport, .walk)
+        var saved = TimyCueEventMetadata()
+        saved.arrivalTargetMinutes = 15
+        let roundTrip = try JSONDecoder().decode(TimyCueEventMetadata.self, from: JSONEncoder().encode(saved))
+        XCTAssertEqual(roundTrip, saved)
+    }
+
     func testChoosingPastPlaceDoesNotRewriteArrivalTargetOrTransport() {
         let past = event("現場", daysAgo: 5, place: "見本ビル")
         var info = TimyCueEventMetadata()
@@ -93,7 +114,7 @@ final class EditorSuggestionTests: XCTestCase {
         store.startNew(on: today)
         store.choosePlace("見本ビル")
         XCTAssertEqual(store.content.locationName, "見本ビル")
-        XCTAssertNil(store.content.metadata.arrivalTargetMinutes, "その場所で前回使った到着目標は入れない（全体既定値のまま。Q70・Q75）")
+        XCTAssertEqual(store.content.metadata.arrivalTargetMinutes, 0, "その場所で前回使った到着目標は入れない（全体既定値のまま。Q70・Q75）")
         XCTAssertEqual(store.content.metadata.transport, .auto, "「自動」は「自動」のまま。画面の設定を勝手に変えない（Q75）")
 
         store.startNew(on: today)
