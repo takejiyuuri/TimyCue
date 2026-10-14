@@ -30,7 +30,7 @@ struct HomeView: View {
         // 分が変わった瞬間に更新する（時計の針と残りの分を、iPhone の時計の表示とそろえる）
         TimelineView(.everyMinute) { context in
             let now = context.date
-            let events = store.loadedEvents
+            let events = store.guidanceEvents
             // 主状態は 1 つだけ。場所ありの予定は推奨出発時刻、場所なしの予定は開始が基準（追加仕様書 §45）
             let state = HomeState.resolve(events: events, now: now, estimate: departures.estimate(for:))
             ScrollView {
@@ -223,7 +223,7 @@ struct HomeView: View {
 
     /// 出発時刻を計算し直す（5 分たった・入力が変わった・現在地が大きく動いた予定だけ。force なら全部すぐ）
     private func refreshDepartures(now: Date, force: Bool = false) {
-        departures.refresh(events: store.loadedEvents, metadata: store.metadata(for:), now: now, force: force)
+        departures.refresh(events: store.guidanceEvents, metadata: store.metadata(for:), now: now, force: force)
     }
 
     /// 時計と、その下の「16:52 → 17:15 出発予定」。時計で空いた所にカードは足さない（追加仕様書 §44）

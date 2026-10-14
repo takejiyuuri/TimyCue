@@ -44,7 +44,7 @@ struct EventDetailCard: View {
     @ViewBuilder
     private func details(_ rows: EventDetailRows) -> some View {
         if let place = rows.place {
-            // 暫定：地図のマークを押すと外部の地図（Apple マップ）へ渡す。住所の文字を押しても開かない（2026-10-14 実機の指摘。仮）。
+            // 暫定：地図のマークを押すと外部の地図（Apple マップ）へ渡す。住所は表示だけで、押しても開かない（2026-10-14 決定）。
             // 簡易ルートを作ったら、TimyCue 内の簡易ルートを開くに置き換え、外部の地図／ナビを開く役目は「ナビ開始」へ移す
             // （追加仕様書 §28.4・§29.1・Q57。2026-10-13 確認）
             DetailLine(label: "場所", value: place, systemImage: "map") {

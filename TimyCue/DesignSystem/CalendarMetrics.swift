@@ -55,7 +55,8 @@ enum CalendarMetrics {
     /// 保存のあとの軽い知らせ（「3件コピーしました」など）の位置と、出しておく秒数（2026-10-14。仮）
     static let completionToastBottomPadding: CGFloat = 16
     static let completionToastSeconds: Double = 2
-    /// 予定詳細の場所の行の、押せる地図のマーク（2026-10-14。押せる範囲は指で押しやすい大きさ。仮）
+    /// 予定詳細の場所の行の、押せる地図のマーク（2026-10-14 決定。住所は表示だけ、マークは「地図を開く」。
+    /// 小さいマークだけを押せる範囲にせず、周りを 44pt ほどの押しやすいボタンの範囲にする）
     static let detailActionIconFont = Font.system(size: 14, weight: .semibold)
-    static let detailActionTapSize: CGFloat = 32
+    static let detailActionTapSize: CGFloat = 44
 }

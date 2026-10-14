@@ -98,6 +98,17 @@ final class CalendarStoreTests: XCTestCase {
                       today: today)
     }
 
+    func testViewOnlyCalendarEventsAreNotGuidedOnHome() {
+        let holidays = CalendarChoice(id: "jp", title: "日本の祝日", sourceTitle: "購読", isWritable: false, color: .green,
+                                      isHolidays: true)
+        let viewOnly = CalendarEvent(day: today, startMinute: 600, title: "表示のみの予定", source: .appleCalendar, calendarID: "jp")
+        let mine = CalendarEvent(day: today, startMinute: 660, title: "自分の予定", source: .appleCalendar, calendarID: "work")
+        let store = makeStore([viewOnly, mine])
+        store.setCalendars([holidays])
+        XCTAssertEqual(store.guidanceEvents.map(\.title), ["自分の予定"],
+                       "表示のみのカレンダー（祝日など）の予定は、出発案内の対象にしない（2026-10-14 決定）")
+    }
+
     func testHolidayCalendarEventsAreViewOnlyInTheMonthCalendar() {
         let holidays = CalendarChoice(id: "jp", title: "日本の祝日", sourceTitle: "購読", isWritable: false, color: .green,
                                       isHolidays: true)

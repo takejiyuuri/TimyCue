@@ -180,6 +180,11 @@ final class CalendarStore {
         Self.isViewOnly(event, holidayCalendarIDs: holidayCalendarIDs)
     }
 
+    /// ホームと出発時刻の計算に使う予定。表示のみのカレンダー（祝日など）の予定は、編集も出発案内もしない（2026-10-14 決定）
+    var guidanceEvents: [CalendarEvent] {
+        loadedEvents.filter { !isViewOnly($0) }
+    }
+
     nonisolated static func isViewOnly(_ event: CalendarEvent, holidayCalendarIDs: Set<String>) -> Bool {
         guard event.source == .appleCalendar, let calendarID = event.calendarID else { return false }
         return holidayCalendarIDs.contains(calendarID)

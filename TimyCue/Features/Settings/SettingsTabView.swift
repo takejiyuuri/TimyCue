@@ -81,7 +81,7 @@ struct CalendarSettingsView: View {
                     NavigationLink {
                         HolidayCalendarsView()
                     } label: {
-                        LabeledContent("祝日カレンダー",
+                        LabeledContent("表示のみのカレンダー（祝日など）",
                                        value: connection.holidayCalendars.isEmpty
                                            ? "なし"
                                            : connection.holidayCalendars.map(\.title).joined(separator: "・"))
@@ -162,7 +162,7 @@ struct HolidayCalendarsView: View {
                         VStack(alignment: .leading, spacing: 2) {
                             CalendarLabel(calendar: calendar)
                             if calendar.isHolidays {
-                                Text("自動で祝日と判定")
+                                Text("自動で ON")
                                     .font(.caption)
                                     .foregroundStyle(Theme.Colors.textSecondary)
                             }
@@ -171,10 +171,11 @@ struct HolidayCalendarsView: View {
                     .tint(Theme.Colors.accent)
                 }
             } footer: {
-                Text("ON のカレンダーの予定は祝日として扱い、押すと名前と日付だけを出します（編集画面は開きません）。名前に「祝日」「Holiday」が入った読み取りのみのカレンダーは、自動で ON になります。")
+                // 補足の文は 2026-10-14 決定
+                Text("このカレンダーの予定は表示だけで、編集や出発案内の対象にしません。名前に「祝日」「Holiday」が入った読み取りのみのカレンダーは、自動で ON になります。")
             }
         }
-        .navigationTitle("祝日カレンダー")
+        .navigationTitle("表示のみのカレンダー")
     }
 }
 
