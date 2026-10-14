@@ -57,12 +57,13 @@ final class HomeStateTests: XCTestCase {
         XCTAssertEqual(state([first, second], 9 * 60 + 3), .startCountdown(second), "3 分たったら次の予定（40 分前なので時計）")
     }
 
-    // MARK: - 場所ありの予定：開発中は開始で仮に動かす（追加仕様書 §44.11）
+    // MARK: - 場所ありの予定：まだ計算していないあいだは開始で出す
 
-    func testEventWithPlaceUsesTheStartOnlyWhileDepartureIsNotImplemented() {
+    func testEventWithPlaceUsesTheStartWhileTheDepartureIsPending() {
         let visit = event("A社", at: 17 * 60 + 15, place: "広島駅")
-        XCTAssertEqual(DepartureEstimate.development(for: visit), .notImplemented)
-        XCTAssertEqual(state([visit], 16 * 60 + 52), .startCountdown(visit), "開発中だけ「開始まで」")
+        XCTAssertEqual(DepartureEstimate.development(for: visit), .pending)
+        XCTAssertEqual(state([visit], 16 * 60 + 52), .startCountdown(visit), "初めの計算が終わるまで（見本の予定では計算しない）は「開始まで」")
+        XCTAssertNil(state([visit], 16 * 60 + 52).problem, "計算の途中なので、原因は出さない")
     }
 
     // MARK: - 場所ありの予定：出発時刻が分かるとき
@@ -95,13 +96,17 @@ final class HomeStateTests: XCTestCase {
                        "次の予定の出発時刻になったら、「予定時刻になりました」の途中でも次の案内を優先（追加仕様書 §5.1・§5.4）")
     }
 
-    // MARK: - 出発時刻を計算できないとき（追加仕様書 §44.11）
+    // MARK: - 出発時刻を計算できないとき（追加仕様書 §45.3、2026-10-14 決定）
 
-    func testUnavailableDepartureIsItsOwnStateNotTheStartCountdown() {
+    func testUnavailableDepartureShowsTheStartClockWithTheReason() {
         let visit = event("A社", at: 17 * 60 + 15, place: "広島駅")
-        let result = state([visit], 16 * 60 + 52, estimate: { _ in .unavailable })
-        XCTAssertEqual(result, .departureUnavailable(visit), "製品では黙って開始のカウントダウンへ切り替えない")
-        XCTAssertNil(result.clockTarget(calendar: calendar))
+        let result = state([visit], 16 * 60 + 52, estimate: { _ in .unavailable(.placeUnconfirmed) })
+        XCTAssertEqual(result, .departureUnavailable(visit, .placeUnconfirmed), "黙って開始のカウントダウンにせず、別の状態にする")
+        XCTAssertEqual(result.clockTarget(calendar: calendar), HomeSchedule.ClockTarget(date: at(17 * 60 + 15), isDeparture: false),
+                       "出発時刻を推測して出さず、開始までの時計を主にする")
+        XCTAssertEqual(result.problem?.message, "場所を確認してください", "原因を小さく出す")
         XCTAssertEqual(result.event, visit)
+        XCTAssertEqual(state([visit], 15 * 60, estimate: { _ in .unavailable(.transitUnavailable) }).problem, .transitUnavailable,
+                       "時計が出る前（60 分より前）も、原因は出す")
     }
 }

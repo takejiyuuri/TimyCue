@@ -24,14 +24,14 @@ enum HomeState: Equatable {
     case eventStarted(CalendarEvent)
     /// 10. 競合などの例外（両方へ行けない予定 §6 などができてから。まだ判定しない）
     case conflict(CalendarEvent)
-    /// 場所はあるが、出発時刻を計算できない（製品で計算に失敗したとき）。黙って開始のカウントダウンへ切り替えない（追加仕様書 §44.11）。
-    /// どう見せるかは未決（追加仕様書 §45.3）
-    case departureUnavailable(CalendarEvent)
+    /// 場所はあるが、出発時刻を計算できない。出発時刻を推測して出さず、開始までの時計を主にして、原因を小さく出す
+    /// （追加仕様書 §45.3、2026-10-14 決定）
+    case departureUnavailable(CalendarEvent, DepartureProblem)
 
     /// 出発時刻を過ぎてから「出発時刻を○分過ぎています」に切り替えるまでの分（spec Q46：3 分以上）
     static let overdueAfterMinutes = 3
 
-    /// 主状態を決める。estimate は予定ごとの推奨出発時刻の見込み（第 5 段階ができるまでは DepartureEstimate.development）
+    /// 主状態を決める。estimate は予定ごとの推奨出発時刻の見込み（DepartureStore。見本の予定で動かすときは DepartureEstimate.development）
     static func resolve(events: [CalendarEvent],
                         now: Date,
                         calendar: Calendar = .timyCue,
@@ -52,12 +52,12 @@ enum HomeState: Equatable {
             event = upcoming
         }
         switch estimate(event) {
-        case .notNeeded, .notImplemented:
-            // 場所なしの予定は開始が基準。開発中は、場所ありの予定も開始で仮に動かす
+        case .notNeeded, .pending:
+            // 場所なしの予定は開始が基準。場所ありでまだ計算していないあいだも、開始で出す（原因は出さない）
             let start = HomeSchedule.startDate(of: event, calendar: calendar)
             return HomeClockMath.face(now: now, target: start, calendar: calendar) == nil ? .upcoming(event) : .startCountdown(event)
-        case .unavailable:
-            return .departureUnavailable(event)
+        case .unavailable(let problem):
+            return .departureUnavailable(event, problem)
         case .available(let leaveAt):
             let minuteStart = calendar.dateInterval(of: .minute, for: now)?.start ?? now
             if minuteStart < leaveAt {
@@ -80,22 +80,29 @@ enum HomeState: Equatable {
         case .noEvents:
             nil
         case .upcoming(let event), .startCountdown(let event), .moving(let event), .arrived(let event),
-             .eventStarted(let event), .conflict(let event), .departureUnavailable(let event),
+             .eventStarted(let event), .conflict(let event), .departureUnavailable(let event, _),
              .departureCountdown(let event, _), .departureTime(let event, _), .departureOverdue(let event, _, _):
             event
         }
     }
 
-    /// 時計で数える先（時計を出す状態のときだけ）。場所ありは出発、場所なしは開始（追加仕様書 §44.11）
+    /// 時計で数える先（時計を出す状態のときだけ。60 分より前かは画面が HomeClockMath で見る）。
+    /// 場所ありは出発、場所なしは開始（追加仕様書 §44.11）。出発時刻を計算できないときは開始（2026-10-14 決定）
     func clockTarget(calendar: Calendar = .timyCue) -> HomeSchedule.ClockTarget? {
         switch self {
-        case .startCountdown(let event):
+        case .startCountdown(let event), .departureUnavailable(let event, _):
             HomeSchedule.ClockTarget(date: HomeSchedule.startDate(of: event, calendar: calendar), isDeparture: false)
         case .departureCountdown(_, let departure):
             HomeSchedule.ClockTarget(date: departure, isDeparture: true)
         default:
             nil
         }
+    }
+
+    /// 出発時刻を計算できない原因（時計の下などに小さく出す。2026-10-14 決定）
+    var problem: DepartureProblem? {
+        if case .departureUnavailable(_, let problem) = self { return problem }
+        return nil
     }
 
     /// 予定の上に出す大きな知らせ（出発時刻・超過・予定開始）。ほかの状態では nil

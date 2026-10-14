@@ -11,7 +11,9 @@ struct HomeView: View {
     @Environment(CalendarStore.self) private var store
     @Environment(ScheduleEditorStore.self) private var editorStore
     @Environment(CalendarConnection.self) private var connection
+    @Environment(DepartureStore.self) private var departures
     @Environment(\.openURL) private var openURL
+    @Environment(\.scenePhase) private var scenePhase
 
     /// ［予定を登録］で開いた新規の 3 分割画面（初期日付は今日、開始時刻は未設定。Q42-8）
     @State private var newEventDay: CalendarDay?
@@ -21,14 +23,16 @@ struct HomeView: View {
     @State private var showsDetail = false
     /// 重複候補の一覧（Q50）
     @State private var showsDuplicates = false
+    /// 「場所を確認」の候補選択／検索（Q66）を開いている予定
+    @State private var placeCheck: CalendarEvent?
 
     var body: some View {
         // 分が変わった瞬間に更新する（時計の針と残りの分を、iPhone の時計の表示とそろえる）
         TimelineView(.everyMinute) { context in
             let now = context.date
             let events = store.loadedEvents
-            // 主状態は 1 つだけ。出発時刻の計算（第 5 段階の続き）ができるまでは、開発中の見込みで動かす（追加仕様書 §44.11・§45）
-            let state = HomeState.resolve(events: events, now: now, estimate: DepartureEstimate.development(for:))
+            // 主状態は 1 つだけ。場所ありの予定は推奨出発時刻、場所なしの予定は開始が基準（追加仕様書 §45）
+            let state = HomeState.resolve(events: events, now: now, estimate: departures.estimate(for:))
             ScrollView {
                 VStack(alignment: .leading, spacing: Theme.Spacing.l) {
                     Text(dateTitle(now))
@@ -62,6 +66,36 @@ struct HomeView: View {
             // 吹き出しの外を押したら閉じる（Q29）
             .contentShape(Rectangle())
             .onTapGesture { showsDetail = false }
+            // 出発時刻を計算し直す：ホームを開いたとき・1 分ごと（5 分たったものだけ）・予定が変わったとき（2026-10-14 決定）
+            .onChange(of: now, initial: true) { _, _ in refreshDepartures(now: now) }
+            .onChange(of: events) { _, _ in refreshDepartures(now: Date()) }
+        }
+        // アプリを前面へ戻したら、すぐ計算し直す（追加仕様書 §8.6）
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { refreshDepartures(now: Date(), force: true) }
+        }
+        // 移動手段が「自動」の予定を初めて計算するとき、1 回だけ聞く（2026-10-14 決定。文言は仮）
+        .confirmationDialog("普段よく使う移動手段は？",
+                            isPresented: Binding(get: { departures.asksUsualTransport },
+                                                 set: { if !$0 { departures.dismissUsualTransportQuestion() } }),
+                            titleVisibility: .visible) {
+            ForEach(TransportMode.allCases.filter { $0 != .auto }, id: \.self) { mode in
+                Button(mode.displayName) {
+                    departures.setUsualTransport(mode)
+                    refreshDepartures(now: Date(), force: true)
+                }
+            }
+            Button("あとで", role: .cancel) { departures.dismissUsualTransportQuestion() }
+        } message: {
+            Text("移動手段が「自動」の予定の出発時刻を計算するのに使います。設定 ＞ 出発・移動 で変えられます。")
+        }
+        // 場所を確認：候補の一覧／検索から 1 地点を選び、地点を決めて計算し直す（Q66。2026-10-14 決定）
+        .sheet(item: $placeCheck) { event in
+            PlaceSearchView(title: "場所を確認", initialQuery: event.locationName ?? "",
+                            near: departures.location.location?.coordinate) { candidate in
+                departures.confirmPlace(candidate.savedPlace(), for: event.locationName ?? "")
+                refreshDepartures(now: Date(), force: true)
+            }
         }
         .background(Theme.Colors.background.ignoresSafeArea())
         .onAppear { store.updateToday() }
@@ -101,6 +135,11 @@ struct HomeView: View {
         return VStack(alignment: .leading, spacing: Theme.Spacing.s) {
             if let face, let target {
                 clock(face, word: target.word)
+            }
+            // 出発時刻を計算できないときの原因。時計の下（時計がなければ予定の上）に小さく（2026-10-14 決定）
+            if let problem = state.problem {
+                problemNotice(problem, event: event)
+                    .frame(maxWidth: .infinity, alignment: face == nil ? .leading : .center)
             }
             VStack(alignment: .leading, spacing: 6) {
                 if let headline = state.headline {
@@ -149,6 +188,33 @@ struct HomeView: View {
                 .transition(.opacity)
             }
         }
+    }
+
+    /// 出発時刻を計算できない原因の小さな知らせ。地点が決まっていなければ押して「場所を確認」へ（Q66）。
+    /// 普段よく使う移動手段をまだ選んでいなければ、押してもう一度選べる
+    @ViewBuilder
+    private func problemNotice(_ problem: DepartureProblem, event: CalendarEvent) -> some View {
+        Group {
+            switch problem {
+            case .placeUnconfirmed:
+                Button { placeCheck = event } label: {
+                    Label(problem.message, systemImage: "mappin.and.ellipse")
+                }
+            case .transportNotChosen:
+                Button { departures.askUsualTransport() } label: {
+                    Text(problem.message)
+                }
+            default:
+                Text(problem.message)
+            }
+        }
+        .font(.footnote)
+        .foregroundStyle(Theme.Colors.textSecondary)
+    }
+
+    /// 出発時刻を計算し直す（5 分たった・入力が変わった・現在地が大きく動いた予定だけ。force なら全部すぐ）
+    private func refreshDepartures(now: Date, force: Bool = false) {
+        departures.refresh(events: store.loadedEvents, metadata: store.metadata(for:), now: now, force: force)
     }
 
     /// 時計と、その下の「16:52 → 17:15 出発予定」。時計で空いた所にカードは足さない（追加仕様書 §44）

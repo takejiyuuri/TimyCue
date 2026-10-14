@@ -1,9 +1,10 @@
 import SwiftUI
 
-/// 設定タブ（仕様 §81）。今あるのは「カレンダー連携」だけ。ほかのカテゴリ（通知・表示・移動・学習など）は、それぞれの段階で
+/// 設定タブ（仕様 §81）。今あるのは「カレンダー連携」と「出発・移動」。ほかのカテゴリ（通知・表示・学習など）は、それぞれの段階で
 /// v1.2「設定画面」の順番（通知、表示・拡大表示、カレンダー連携、移動・学習…）に足す。各行の右には今の状態を短く出す
 struct SettingsTabView: View {
     @Environment(CalendarConnection.self) private var connection
+    @Environment(DepartureStore.self) private var departures
 
     var body: some View {
         NavigationStack {
@@ -15,6 +16,16 @@ struct SettingsTabView: View {
                         Text(connection.statusLabel)
                     } label: {
                         Label("カレンダー連携", systemImage: "calendar")
+                    }
+                }
+                // 出発の余裕・自宅・最初の予定の出発地点・普段よく使う移動手段（2026-10-14 決定）
+                NavigationLink {
+                    DepartureSettingsView()
+                } label: {
+                    LabeledContent {
+                        Text(departures.settings.marginLevel.displayName)
+                    } label: {
+                        Label("出発・移動", systemImage: "figure.walk")
                     }
                 }
             }
