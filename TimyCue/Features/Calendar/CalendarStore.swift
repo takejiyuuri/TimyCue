@@ -365,20 +365,19 @@ final class CalendarStore {
         if !isOpen(day) { tapDay(day) }
     }
 
-    /// 予定詳細の「編集」からコピーを保存したあと：コピー先の最初の予定を見せる（2026-10-14 実機の指摘「貼り付けたことがわからない」）。
-    /// 1 日タイムラインを見ていれば、その日の 1 日タイムラインで作った予定が見える位置へ。月カレンダーなら、その日が見えていなければ
-    /// その月を開いたときと同じ位置へ動かし、その日の吹き出しを開く（「＋」から保存したあとと同じ。Q22）
-    func showCopies(_ copies: [CalendarEvent]) {
-        guard let first = copies.min(by: { ($0.day, $0.startMinute) < ($1.day, $1.startMinute) }) else { return }
-        if case .timeline(let shownDay)? = path.last {
-            if shownDay != first.day { path.append(.timeline(first.day)) }
-            focusTimeline(on: first.day, minute: first.startMinute)
-        } else {
-            if !Self.isDay(first.day, visibleFrom: topWeek, rows: visibleRows) {
-                scroll(to: CalendarWeek(containing: CalendarMonth(first.day).firstDay).id)
-            }
-            showSavedDay(first.day)
-        }
+    /// 保存のあとに軽く出す知らせ（「3件コピーしました」など）。少したつと消える
+    private(set) var completionMessage: String?
+
+    /// 予定詳細の「編集」から「別の日にコピー」を保存したあと（2026-10-14 決定 C8）。コピー先へは動かさず、
+    /// 元の画面・元の位置・元の予定の詳細の吹き出しのまま（Q30）、軽い完了の知らせだけ出す
+    func showCopyCompletion(count: Int) {
+        guard count > 0 else { return }
+        reload()
+        completionMessage = count == 1 ? "コピーしました" : "\(count)件コピーしました"
+    }
+
+    func clearCompletionMessage() {
+        completionMessage = nil
     }
 
     /// 1 日タイムラインの「＋」から保存したあと：作った予定が見える位置までスクロールする（Q22）

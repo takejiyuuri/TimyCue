@@ -52,4 +52,7 @@ enum CalendarMetrics {
     static let popoverTimeFont = Font.system(size: 13, weight: .medium).monospacedDigit()
     /// 時刻の欄の幅（「10:00–11:30」が入る幅。Q12）
     static let popoverTimeWidth: CGFloat = 86
+    /// 保存のあとの軽い知らせ（「3件コピーしました」など）の位置と、出しておく秒数（2026-10-14。仮）
+    static let completionToastBottomPadding: CGFloat = 16
+    static let completionToastSeconds: Double = 2
 }

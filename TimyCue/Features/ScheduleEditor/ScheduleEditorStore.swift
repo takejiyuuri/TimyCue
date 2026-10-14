@@ -26,6 +26,8 @@ final class ScheduleEditorStore {
     /// 「同じ内容で追加」の時刻を日ごとに決めるか（2026-10-14 ユーザー決定）。
     /// false（一括。初め）：全部の日で同じ開始時刻・所要時間。true（個別）：日ごとに決める
     private(set) var setsTimesIndividually = false
+    /// コピー先を選んだ順（コピー中だけ使う）。左上に出す日を決めるのに使う（2026-10-14 決定 G1）
+    private var copyPicks: [CalendarDay] = []
     /// 右上の入力欄の中身
     var content = EventContent()
     /// 右上で開いている行（仕様 §45：同時に 1 行だけ）
@@ -232,6 +234,7 @@ final class ScheduleEditorStore {
         mode = .copy(sourceID: id)
         content = content.copiedForNewEvent()
         selectedDays = []
+        copyPicks = []
         baseDay = nil
         setsTimesIndividually = false
         startMinutes = [:]
@@ -283,13 +286,15 @@ final class ScheduleEditorStore {
     }
 
     /// コピー中に下のカレンダーの日付を押したとき：選んでいなければコピー先に足し、選んであれば外す。
-    /// 「同じ内容で追加」を開かなくてよい（あの行は一括／個別の時刻の切り替えに使う）。コピー元の日は選べない（2026-10-14 ユーザー決定）
+    /// 「同じ内容で追加」を開かなくてよい（あの行は一括／個別の時刻の切り替えに使う）。コピー元の日は選べない（2026-10-14 ユーザー決定）。
+    /// 足した日を左上に出す（最後に選んだコピー先。2026-10-14 決定 G1）
     func toggleCopyDestination(_ day: CalendarDay) {
         guard isChoosingCopyDestinations, !areAppleFieldsLocked, day != copySourceDay else { return }
         if selectedDays.contains(day) {
             removeDay(day)
         } else {
             addDay(day)
+            if selectedDays.contains(day) { displayedDay = day }
         }
     }
 
@@ -297,13 +302,16 @@ final class ScheduleEditorStore {
     /// 所要時間は全部の日に共通の値が入る（Q1）。まだ何も選んでいなければ、その日を選ぶ
     func addDay(_ day: CalendarDay) {
         guard mode.allowsMultipleDays, !selectedDays.contains(day), day != copySourceDay else { return }
-        guard !selectedDays.isEmpty else {
+        if selectedDays.isEmpty {
             selectDay(day)
-            return
+        } else {
+            selectedDays = (selectedDays + [day]).sorted()
+            if !setsTimesIndividually, let start = sharedStartMinute {
+                startMinutes[day] = start
+            }
         }
-        selectedDays = (selectedDays + [day]).sorted()
-        if !setsTimesIndividually, let start = sharedStartMinute {
-            startMinutes[day] = start
+        if isChoosingCopyDestinations && selectedDays.contains(day) {
+            copyPicks.append(day)
         }
     }
 
@@ -357,16 +365,18 @@ final class ScheduleEditorStore {
     }
 
     /// 足した日を外す（新規・コピーのみ）。新規では最初に選んだ日は外さない（コピーはどの日も外せる。2026-10-14 ユーザー決定）。
-    /// 左上に出していた日を外したら、最初に選んだ日（それを外したら残った最初の日）を出す
+    /// 左上に出していた日を外したら、新規では最初に選んだ日を出す。コピーでは直前に選んだ残りのコピー先へ移り、
+    /// コピー先が 0 件ならコピー元の日へ戻る（2026-10-14 決定 G1）
     func removeDay(_ day: CalendarDay) {
         guard mode.allowsMultipleDays, selectedDays.contains(day),
               day != baseDay || isChoosingCopyDestinations else { return }
         selectedDays.removeAll { $0 == day }
         startMinutes[day] = nil
         durationOverrides[day] = nil
+        copyPicks.removeAll { $0 == day }
         if baseDay == day { baseDay = selectedDays.first }
         if displayedDay == day {
-            displayedDay = baseDay ?? day
+            displayedDay = isChoosingCopyDestinations ? (copyPicks.last ?? copySourceDay) : (baseDay ?? day)
         }
     }
 
