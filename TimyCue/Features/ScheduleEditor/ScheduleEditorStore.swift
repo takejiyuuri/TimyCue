@@ -290,18 +290,47 @@ final class ScheduleEditorStore {
     }
 
     /// 「一括」と「個別」を切り替える（2026-10-14 ユーザー決定）。
-    /// 一括に戻すときは、最初に選んだ日の開始時刻・所要時間を全部の日に入れ直す（どの日の時刻にそろえるかは仮）
+    /// 一括に戻すときは、今左上に出している日（編集中の日）の開始時刻・所要時間を、全部の日に入れ直す（2026-10-14 決定）
     func setTimesIndividually(_ individually: Bool) {
         guard mode.allowsMultipleDays, individually != setsTimesIndividually else { return }
         setsTimesIndividually = individually
         guard !individually else { return }
-        let start = sharedStartMinute
-        let duration = baseDay.flatMap { durationMinutes(on: $0) } ?? commonDurationMinutes
+        let start = batchStart
+        let duration = batchDuration
         for day in selectedDays {
             startMinutes[day] = start
         }
         commonDurationMinutes = duration
         durationOverrides = [:]
+    }
+
+    /// 一括にそろえる値の元になる日：今左上に出している日。出している日が選んである日でなければ、最初に選んだ日
+    private var activeDay: CalendarDay? {
+        if let shown = displayedDay, selectedDays.contains(shown) { return shown }
+        return baseDay
+    }
+
+    /// 一括にそろえる開始時刻・所要時間。出している日に時刻がなければ、ほかの日の時刻（仮）
+    private var batchStart: MinuteOfDay? {
+        activeDay.flatMap { startMinutes[$0] } ?? sharedStartMinute
+    }
+
+    private var batchDuration: Int? {
+        activeDay.flatMap { durationMinutes(on: $0) } ?? commonDurationMinutes
+    }
+
+    /// 一括にすると、開始時刻・所要時間が変わる日があるか。あれば切り替える前に一度確かめる。全部同じなら確かめずに切り替える
+    var batchChangesSomeDays: Bool {
+        let start = batchStart
+        let duration = batchDuration
+        return selectedDays.contains { startMinutes[$0] != start || durationMinutes(on: $0) != duration }
+    }
+
+    /// 一括にそろえる前に確かめる文（2026-10-14 決定）。例：すべて 10:00〜11:00 にそろえますか？
+    var batchConfirmationMessage: String {
+        guard let start = batchStart else { return "すべての日の時刻をそろえますか？" }
+        let end = batchDuration.map { "〜\(TimeText.hourMinute(start + $0))" } ?? ""
+        return "すべて \(TimeText.hourMinute(start))\(end) にそろえますか？"
     }
 
     /// 足した日を外す（新規・コピーのみ）。最初に選んだ日は外さない。左上に出していた日を外したら、最初に選んだ日を出す

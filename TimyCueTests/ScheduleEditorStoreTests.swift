@@ -109,9 +109,23 @@ final class ScheduleEditorStoreTests: XCTestCase {
         store.addDay(d3)
         XCTAssertNil(store.startMinutes[d3], "個別のときに足した日は、時刻を日ごとに決める")
 
+        XCTAssertTrue(store.batchChangesSomeDays, "日ごとに値が違うので、一括に戻す前に確かめる")
+        XCTAssertEqual(store.batchConfirmationMessage, "すべて 13:00〜14:30 にそろえますか？", "今出している日（10/19）の値にそろえる")
         store.setTimesIndividually(false)
-        XCTAssertEqual([d1, d2, d3].map { store.startMinutes[$0] }, [600, 600, 600], "一括に戻すと、最初に選んだ日の時刻にそろう（仮）")
-        XCTAssertEqual([d1, d2, d3].map { store.durationMinutes(on: $0) }, [60, 60, 60])
+        XCTAssertEqual([d1, d2, d3].map { store.startMinutes[$0] }, [780, 780, 780],
+                       "一括に戻すと、今左上に出している日の開始時刻にそろう（2026-10-14 決定）")
+        XCTAssertEqual([d1, d2, d3].map { store.durationMinutes(on: $0) }, [90, 90, 90], "所要時間も")
+        XCTAssertFalse(store.batchChangesSomeDays)
+    }
+
+    func testBackToBatchWithoutConfirmationWhenAllDaysAreTheSame() {
+        let store = makeStore().store
+        store.startNew(on: d1)
+        store.setStartMinute(600)
+        store.addDay(d2)
+        store.setTimesIndividually(true)
+        XCTAssertFalse(store.batchChangesSomeDays, "全部の日が同じ値なら、確かめずに一括へ切り替えてよい")
+        XCTAssertEqual(store.batchConfirmationMessage, "すべて 10:00 にそろえますか？", "終了がなければ開始だけ")
     }
 
     func testConfirmStartTimeMovesToNextUnsetDay() {

@@ -240,6 +240,8 @@ private struct InlineEditor: View {
 /// 時刻を決めた日は丸の枠の色を変える。多ければ横にすべらせる
 private struct AdditionalDaysEditor: View {
     @Environment(ScheduleEditorStore.self) private var store
+    /// 個別から一括に戻すと時刻が変わる日があるので、確かめている
+    @State private var confirmsBatch = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Spacing.s) {
@@ -249,11 +251,23 @@ private struct AdditionalDaysEditor: View {
                 .foregroundStyle(Theme.Colors.textSecondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
             Picker("時刻", selection: Binding(get: { store.setsTimesIndividually },
-                                            set: { store.setTimesIndividually($0) })) {
+                                            set: { individually in
+                                                // 日ごとに値が違うときは、そろえる前に一度確かめる（2026-10-14 決定）
+                                                if !individually && store.batchChangesSomeDays {
+                                                    confirmsBatch = true
+                                                } else {
+                                                    store.setTimesIndividually(individually)
+                                                }
+                                            })) {
                 Text("一括").tag(false)
                 Text("個別").tag(true)
             }
             .pickerStyle(.segmented)
+            .confirmationDialog(store.batchConfirmationMessage, isPresented: $confirmsBatch, titleVisibility: .visible) {
+                // ボタンの文言は仮
+                Button("そろえる") { store.setTimesIndividually(false) }
+                Button("やめる", role: .cancel) {}
+            }
             if store.setsTimesIndividually {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: EditorMetrics.dayButtonSpacing) {
