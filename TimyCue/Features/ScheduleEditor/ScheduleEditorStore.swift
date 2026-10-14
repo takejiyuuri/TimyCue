@@ -524,7 +524,12 @@ final class ScheduleEditorStore {
                                             source: original.source)
             let isRecurring = original.repeatRule.isRepeating
             let effectiveScope: RecurrenceScope = isRecurring ? scope : .thisEvent
-            let before = metadataByEventID[id] ?? TimyCueEventMetadata()
+            var before = metadataByEventID[id] ?? TimyCueEventMetadata()
+            // 場所なしの予定は、開いたときに通知を開始の基準へ置き換えて出している（2026-10-14 決定 C3）。
+            // その置き換えはユーザーの変更ではないので、元の値も同じように置き換えてから比べる（繰り返しの回ごとの上書きを作らない）
+            if (original.locationName ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                before.notifications = before.notifications.converted(hasPlace: false)
+            }
             let changed = before.changedFields(to: content.metadata)
             let targets = repository.occurrenceIDs(sameSeriesAs: id, scope: effectiveScope)
             let oldCommon = repository.seriesID(of: id).flatMap { metadataByEventID[$0] }

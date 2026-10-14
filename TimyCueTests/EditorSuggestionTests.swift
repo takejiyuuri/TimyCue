@@ -229,7 +229,7 @@ final class EditorSuggestionTests: XCTestCase {
         XCTAssertEqual(NotificationTiming.beforeDeparture(minutes: 60).fullLabel, "出発60分前")
         XCTAssertEqual(NotificationTiming.atDeparture.fullLabel, "出発時刻", "vNext §11.1")
         XCTAssertEqual(NotificationTiming.atStart.fullLabel, "予定開始", "vNext §11.1")
-        XCTAssertEqual(NotificationTiming.beforeStart(minutes: 15).fullLabel, "予定開始15分前",
-                       "前の版で足したカスタムは、出発基準と取り違えない書き方のまま（Q7）")
+        XCTAssertEqual(NotificationTiming.beforeStart(minutes: 15).fullLabel, "開始15分前",
+                       "開始基準は、出発基準と取り違えない「開始○分前」（Q7・2026-10-14 決定 C3）")
     }
 }
