@@ -64,6 +64,11 @@ final class ModelTests: XCTestCase {
         XCTAssertEqual(NotificationPreference.noPlaceDefault.timings,
                        [.beforeStart(minutes: 30), .beforeStart(minutes: 10), .atStart],
                        "場所なしの新しい予定の初期値は 開始30分前・開始10分前・予定開始")
+        XCTAssertEqual(NotificationPreference.noPlaceDefault.summaryCandidates,
+                       ["開始30分前・開始10分前・予定開始", "開始30分前・10分前・予定開始", "開始30分前ほか2件"],
+                       "行に入りきらないときは、続く「開始」を略し、それでも入らなければ「ほか○件」")
+        XCTAssertEqual(NotificationPreference().summaryCandidates, ["30分・10分・出発", "30分ほか2件"])
+        XCTAssertEqual(NotificationPreference.off.summaryCandidates, ["通知なし"])
     }
 
     func testNotificationPresetsAreTheFixedCandidates() {

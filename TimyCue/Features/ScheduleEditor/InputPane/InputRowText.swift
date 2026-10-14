@@ -27,9 +27,13 @@ extension ScheduleEditorStore {
         }
     }
 
-    /// 行に出す値の候補。長い順に並べ、1 行に入るいちばん長いものを画面が選ぶ（「同じ内容で追加」だけ候補が複数）
+    /// 行に出す値の候補。長い順に並べ、1 行に入るいちばん長いものを画面が選ぶ（「同じ内容で追加」と通知は候補が複数）
     func valueTexts(for row: InputRow) -> [String] {
-        row == .additionalDays ? Self.additionalDaysTexts(additionalDays) : [valueText(for: row)]
+        switch row {
+        case .additionalDays: Self.additionalDaysTexts(additionalDays)
+        case .notifications: content.metadata.notifications.summaryCandidates
+        default: [valueText(for: row)]
+        }
     }
 
     /// 「同じ内容で追加」の行に出す、足した日の短い並び（2026-10-14 ユーザー決定）。例：10/2・3・12　11/21・23-26。

@@ -98,6 +98,28 @@ struct NotificationPreference: Equatable, Codable {
 
     var isOff: Bool { timings.isEmpty }
 
+    /// 右上の通知行に出す文字の候補。長い順に並べ、1 行に入るいちばん長いものを画面が選ぶ（2026-10-14。短い書き方は仮）。
+    /// 例：開始30分前・開始10分前・予定開始 → 開始30分前・10分前・予定開始（続く「開始」を略す）→ 開始30分前ほか2件
+    var summaryCandidates: [String] {
+        let sorted = timings.sorted { $0.sortKey < $1.sortKey }
+        guard let first = sorted.first else { return ["通知なし"] }
+        var compact: [String] = []
+        var previous: NotificationTiming?
+        for timing in sorted {
+            if case .beforeStart(let minutes) = timing, case .some(.beforeStart) = previous {
+                compact.append("\(minutes)分前")
+            } else {
+                compact.append(timing.label)
+            }
+            previous = timing
+        }
+        var candidates = [summary, compact.joined(separator: "・")]
+        if sorted.count > 1 { candidates.append("\(first.label)ほか\(sorted.count - 1)件") }
+        return candidates.reduce(into: []) { result, text in
+            if !result.contains(text) { result.append(text) }
+        }
+    }
+
     /// 右上の通知行に出す文字（例：30分・10分・出発。何も選んでいなければ「通知なし」）
     var summary: String {
         guard !timings.isEmpty else { return "通知なし" }

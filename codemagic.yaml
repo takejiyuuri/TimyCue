@@ -57,6 +57,19 @@ workflows:
           xcrun simctl install "$SIM_UDID" "$APP"
           # 起動画面（縦型ロゴ）が消えてから撮る。4 秒では、どの画面も起動画面のままだった（2026-10-14 ビルド確認 #36）
           WAIT=10
+          # 入れた直後は、シミュレータで起動画面が数十秒残ることがある（#36・#39。#37 はすぐ開いた）。
+          # 一度開いて、画面が起動画面から変わるまで待ってから撮り始める（最長 60 秒。何秒かかったかを記録に出す）
+          xcrun simctl launch "$SIM_UDID" io.github.takejiyuuri.timycue -TimyCueTab home >/dev/null
+          sleep 0.5
+          xcrun simctl io "$SIM_UDID" screenshot /tmp/timycue-launch.png >/dev/null 2>&1
+          WAITED=0
+          while [ "$WAITED" -lt 60 ]; do
+            sleep 2
+            WAITED=$((WAITED + 2))
+            xcrun simctl io "$SIM_UDID" screenshot /tmp/timycue-now.png >/dev/null 2>&1
+            if ! cmp -s /tmp/timycue-launch.png /tmp/timycue-now.png; then break; fi
+          done
+          echo "入れた直後に開いて、画面が起動画面から変わるまで：約 ${WAITED} 秒"
           # 起動画面がどれだけ出ているかの記録（起動から 1・3・6・10・15 秒後）。15 秒でも消えなければ、起動で止まっている
           mkdir -p build/diagnostics
           xcrun simctl launch --terminate-running-process "$SIM_UDID" io.github.takejiyuuri.timycue -TimyCueTab home
