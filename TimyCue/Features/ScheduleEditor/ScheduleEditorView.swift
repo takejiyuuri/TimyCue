@@ -124,7 +124,7 @@ struct ScheduleEditorView: View {
             }
             .font(EditorMetrics.saveButtonFont)
             .buttonStyle(.borderedProminent)
-            .tint(Theme.Colors.accent)
+            .tint(Theme.Colors.accentFill)
         }
         .padding(.horizontal, Theme.Spacing.l)
         .frame(height: EditorMetrics.headerHeight)

@@ -72,6 +72,8 @@ final class CalendarStore {
     var path: [CalendarRoute] = []
     /// 1 日タイムラインの「＋」から保存したあと、作った予定が見える位置までスクロールする目印（Q22）
     private(set) var timelineFocus: TimelineFocus?
+    /// 月カレンダーを今の位置にしばらくとどめる（タブの押し直し。2026-10-14 実機の指摘「ピクッと動く」）
+    @ObservationIgnored let scrollHold = ScrollHold()
     private var eventsByDay: [CalendarDay: [CalendarEvent]] = [:]
     private var metadataByEventID: [UUID: TimyCueEventMetadata] = [:]
 
@@ -140,11 +142,14 @@ final class CalendarStore {
     }
 
     /// カレンダーのタブを押し直したとき（2026-10-13 ユーザー決定）。今日が見えていなければ（タブが「今日」のとき）今日へ移動して今日を選び、
-    /// 見えていれば今の位置のまま。iOS が押し直しで画面をいちばん上へ動かし始めるので、どちらでもすぐ決めた週へスクロールし直す。
-    /// 戻す先の週を返す
+    /// 見えていれば今の位置のまま。見えているときは週の頭へそろえ直さず、押した瞬間の位置にとどめる（iOS が押し直しで画面を
+    /// いちばん上へ動かし始めても、描く前に戻す。そろえ直すと、そろえた分だけピクッと動いていた。2026-10-14 実機の指摘）。
+    /// 少しあとにもう一度確かめる週を返す（とどめたときは nil）
     @discardableResult
     func tabTappedAgain() -> CalendarDay? {
         if isTodayVisible {
+            if scrollHold.hold() { return nil }
+            // 月カレンダーの UIScrollView がまだ見つかっていないとき：前と同じく、その週へすぐスクロールし直す
             scroll(to: topWeekID)
         } else {
             scrollToToday()

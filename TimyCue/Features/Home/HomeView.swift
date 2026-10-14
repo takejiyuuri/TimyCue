@@ -314,7 +314,7 @@ struct HomeView: View {
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
-                .tint(Theme.Colors.accent)
+                .tint(Theme.Colors.accentFill)
                 .controlSize(.large)
             }
             registerButton

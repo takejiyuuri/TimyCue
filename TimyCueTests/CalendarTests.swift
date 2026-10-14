@@ -1,3 +1,4 @@
+import UIKit
 import XCTest
 @testable import TimyCue
 
@@ -132,8 +133,27 @@ final class CalendarStoreTests: XCTestCase {
         let before = store.scrollRequest
         XCTAssertEqual(store.tabTappedAgain(), place, "今日が見えていれば今の位置のまま")
         XCTAssertEqual(store.scrollRequest, before + 1,
-                       "それでもすぐスクロールし直す合図を出す（iOS がいちばん上へ動かし始めても、すぐ戻す。2026-10-14 実機の指摘）")
+                       "月カレンダーの UIScrollView がまだ見つかっていなければ、前と同じくその週へスクロールし直す")
         XCTAssertFalse(store.isOpen(today), "今日の吹き出しは開かない")
+    }
+
+    func testTabTappedAgainHoldsTheExactPlaceWhenTodayIsVisible() {
+        let store = makeStore([])
+        store.setVisibleRows(6)
+        let scrollView = UIScrollView(frame: CGRect(x: 0, y: 0, width: 400, height: 800))
+        scrollView.contentSize = CGSize(width: 400, height: 100_000)
+        scrollView.contentOffset = CGPoint(x: 0, y: 5_030)
+        store.scrollHold.scrollView = scrollView
+        let place = store.topWeekID
+        let before = store.scrollRequest
+        XCTAssertNil(store.tabTappedAgain(), "今日が見えていれば、もう一度確かめる週はない")
+        XCTAssertEqual(store.topWeekID, place)
+        XCTAssertEqual(store.scrollRequest, before, "週の頭へそろえ直さない（そろえた分だけピクッと動くので。2026-10-14 実機の指摘）")
+        scrollView.setContentOffset(.zero, animated: false)
+        XCTAssertEqual(scrollView.contentOffset.y, 5_030, "iOS がいちばん上へ動かしても、押した瞬間の位置へすぐ戻す")
+        store.scrollHold.release()
+        scrollView.setContentOffset(CGPoint(x: 0, y: 6_000), animated: false)
+        XCTAssertEqual(scrollView.contentOffset.y, 6_000, "とどめ終わったら、ふつうに動く")
     }
 
     func testTabTappedAgainGoesToTodayWhenItIsNotVisible() {

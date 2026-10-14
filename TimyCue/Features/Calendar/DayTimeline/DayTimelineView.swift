@@ -157,7 +157,7 @@ extension DayTimelineView {
                 .font(.system(size: 14, weight: .semibold))
                 .padding(.horizontal, 14)
                 .padding(.vertical, 8)
-                .background(Capsule().fill(Theme.Colors.accent))
+                .background(Capsule().fill(Theme.Colors.accentFill))
                 .foregroundStyle(Theme.Colors.onAccent)
         }
         .padding(16)

@@ -10,7 +10,7 @@ struct NewEventButton: View {
                 .font(CalendarMetrics.newEventButtonFont)
                 .foregroundStyle(Theme.Colors.onAccent)
                 .frame(width: CalendarMetrics.newEventButtonSize, height: CalendarMetrics.newEventButtonSize)
-                .background(Circle().fill(Theme.Colors.accent))
+                .background(Circle().fill(Theme.Colors.accentFill))
         }
         .accessibilityLabel("新規予定")
     }

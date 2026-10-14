@@ -311,7 +311,7 @@ private struct DayCircleButton: View {
             }
             .foregroundStyle(isShown ? Theme.Colors.onAccent : Theme.Colors.textPrimary)
             .frame(width: EditorMetrics.dayButtonSize, height: EditorMetrics.dayButtonSize)
-            .background(Circle().fill(isShown ? Theme.Colors.accent : Theme.Colors.surface))
+            .background(Circle().fill(isShown ? Theme.Colors.accentFill : Theme.Colors.surface))
             .overlay {
                 Circle().strokeBorder(hasTime ? Theme.Colors.dayButtonTimeSet : Theme.Colors.separator,
                                       lineWidth: EditorMetrics.dayButtonBorderWidth)
@@ -466,7 +466,7 @@ private struct ChipRow<Option: Hashable>: View {
                         .foregroundStyle(selected ? Theme.Colors.onAccent : Theme.Colors.textPrimary)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 6)
-                        .background(Capsule().fill(selected ? Theme.Colors.accent : Theme.Colors.background))
+                        .background(Capsule().fill(selected ? Theme.Colors.accentFill : Theme.Colors.background))
                         .overlay { Capsule().strokeBorder(Theme.Colors.separator, lineWidth: selected ? 0 : 1) }
                         .contentShape(Capsule())
                         .onTapGesture { onTap(option) }

@@ -265,7 +265,7 @@ private struct EditorDayCell: View {
                 .frame(width: EditorMetrics.selectedCircleSize, height: EditorMetrics.selectedCircleSize)
                 .background {
                     if isSelected {
-                        Circle().fill(Theme.Colors.accent)
+                        Circle().fill(Theme.Colors.accentFill)
                     } else if isToday {
                         Circle().fill(Theme.Colors.editorTodayCircle)
                     }

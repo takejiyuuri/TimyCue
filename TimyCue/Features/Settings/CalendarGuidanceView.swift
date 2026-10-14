@@ -29,7 +29,7 @@ struct CalendarGuidanceView: View {
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
-                .tint(Theme.Colors.accent)
+                .tint(Theme.Colors.accentFill)
                 .controlSize(.large)
                 Button(laterTitle, action: onLater)
                     .font(.subheadline)

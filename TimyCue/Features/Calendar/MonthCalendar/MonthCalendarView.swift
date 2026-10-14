@@ -58,8 +58,8 @@ struct MonthCalendarView: View {
                     }
                     .scrollTargetLayout()
                     .padding(.horizontal, CalendarMetrics.horizontalPadding)
-                    // タブの押し直しで iOS がいちばん上（20 年前）へ戻さないようにする
-                    .background(ScrollsToTopDisabler())
+                    // タブの押し直しで iOS がいちばん上（20 年前）へ戻さないようにする。押し直したときに今の位置にとどめる係にも渡す
+                    .background(ScrollsToTopDisabler(hold: store.scrollHold))
                     // 吹き出しの外（日付以外）を押したら、開いている吹き出しを閉じる（Q9）
                     .contentShape(Rectangle())
                     .onTapGesture { store.closeAllPopovers() }

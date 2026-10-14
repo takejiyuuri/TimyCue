@@ -340,7 +340,7 @@ private struct MinuteWheelCard: View {
                     .font(.system(size: 13, weight: .bold))
                     .foregroundStyle(Theme.Colors.onAccent)
                     .frame(width: 28, height: 28)
-                    .background(Circle().fill(Theme.Colors.accent))
+                    .background(Circle().fill(Theme.Colors.accentFill))
             }
             .accessibilityLabel("決定")
         }

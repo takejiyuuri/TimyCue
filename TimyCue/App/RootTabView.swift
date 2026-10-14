@@ -72,9 +72,8 @@ struct RootTabView: View {
         selection == .calendar && !calendarStore.isTodayVisible
     }
 
-    /// カレンダーのタブの押し直し：「今日」になっていれば今日へ移動して今日を選ぶ。今日が見えていれば今の位置のまま。
-    /// iOS はタブの押し直しで画面をいちばん上（20 年前）へ動かし始めるので、どちらの場合もすぐ決めた週へスクロールし直す
-    /// （今日が見えているときに何もしないでいると、上へ回ってから戻ってきていた。2026-10-14 実機の指摘）。
+    /// カレンダーのタブの押し直し：「今日」になっていれば今日へ移動して今日を選ぶ。今日が見えていれば、押した瞬間の位置にとどめる
+    /// （CalendarStore.tabTappedAgain）。iOS はタブの押し直しで画面をいちばん上（20 年前）へ動かし始めるので、今日へ移動したときは、
     /// iOS の動きが遅れて始まったときのために、少しあとにもう一度だけ確かめる
     private func calendarTabTappedAgain() {
         guard let target = calendarStore.tabTappedAgain() else { return }
