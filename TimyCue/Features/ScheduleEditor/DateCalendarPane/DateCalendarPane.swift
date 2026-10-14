@@ -254,22 +254,25 @@ private struct CalendarScrollBar: View {
 /// 下カレンダーのコピー元の日の印（2026-10-14 ユーザー決定）。淡いオレンジの外周のリングの上を、オレンジのハイライトがゆっくり一周する。
 /// 円そのものは回さず、グラデーションの向きだけを時間で動かして、ハイライトだけが流れて見えるようにする。
 /// コピー先に選んだ日は今までどおり止まったオレンジの塗りなので、見分けられる。1 周の時間は仮（実機で 1.5〜2 秒の間で決める）。
-/// 「視差効果を減らす」をオンにしている人には動かさない（仮）
+/// 「視差効果を減らす」をオンにしている人には動かさず、土台のリングに、ハイライト（リングの約 3 割）の真ん中を 12 時の位置に
+/// 合わせて止めて出す（単色のリングにはせず、コピー先の止まった塗りと見分けられる見た目を保つ。2026-10-14 ユーザー決定）
 private struct CopySourceRing: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         TimelineView(.animation(paused: reduceMotion)) { context in
             let period = EditorMetrics.copySourceRingPeriod
-            let progress = reduceMotion ? 0 : context.date.timeIntervalSinceReferenceDate
-                .truncatingRemainder(dividingBy: period) / period
+            let progress = context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: period) / period
+            // 12 時の位置から時計回りに流れる。止めるときは、ハイライトの真ん中を 12 時の位置に置く
+            let start: Angle = reduceMotion
+                ? .degrees(-90 - EditorMetrics.copySourceRingHighlightLength * 360 / 2)
+                : .degrees(progress * 360 - 90)
             ZStack {
                 Circle()
                     .strokeBorder(Theme.Colors.copySourceRingTrack, lineWidth: EditorMetrics.copySourceRingWidth)
-                // 12 時の位置から時計回りに流れる。後ろは淡く、先頭がいちばん濃い
+                // 後ろは淡く、先頭がいちばん濃い
                 Circle()
-                    .strokeBorder(AngularGradient(gradient: Gradient(stops: Self.highlight), center: .center,
-                                                  angle: .degrees(progress * 360 - 90)),
+                    .strokeBorder(AngularGradient(gradient: Gradient(stops: Self.highlight), center: .center, angle: start),
                                   lineWidth: EditorMetrics.copySourceRingWidth)
             }
         }
