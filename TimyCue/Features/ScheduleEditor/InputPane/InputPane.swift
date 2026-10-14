@@ -323,11 +323,13 @@ private struct DayCircleButton: View {
 }
 
 /// 予定名の編集と、過去の同名・似た名前の予定の候補（§47）。
-/// 候補を選ぶと予定名だけ入れ、場所・色・到着目標・移動手段は「この予定の設定も使う」を押したときだけ入れる（勝手にすべて確定しない）
+/// 候補を選ぶと予定名だけ入れ、場所・色・到着目標・移動手段は「この予定の設定も使う」を押したときだけ入れる（勝手にすべて確定しない）。
+/// 入力中の値を変えたあとに押したら、置き換える前に確かめる（2026-10-14 決定）
 private struct TitleEditor: View {
     var focusedRow: FocusState<InputRow?>.Binding
     @Environment(ScheduleEditorStore.self) private var store
     @State private var chosen: TitleSuggestion?
+    @State private var confirmsReplacement = false
 
     var body: some View {
         @Bindable var store = store
@@ -363,17 +365,36 @@ private struct TitleEditor: View {
             }
             if let chosen, chosen.title == store.content.title {
                 Button {
-                    store.useSettings(of: chosen)
-                    self.chosen = nil
+                    if store.settingsReplacementNeedsConfirmation(for: chosen) {
+                        confirmsReplacement = true
+                    } else {
+                        useSettings(of: chosen)
+                    }
                 } label: {
-                    Text("この予定の設定も使う（場所・色・到着目標・移動手段）")
-                        .foregroundStyle(Theme.Colors.onAccent)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("この予定の設定も使う")
+                            .font(EditorMetrics.chipFont)
+                            .foregroundStyle(Theme.Colors.onAccent)
+                        Text("場所・色・到着目標・移動手段")
+                            .font(EditorMetrics.lockNoticeFont)
+                            .foregroundStyle(Theme.Colors.textSecondary)
+                    }
                 }
-                .font(EditorMetrics.chipFont)
                 .buttonStyle(.bordered)
                 .tint(Theme.Colors.accent)
+                // 文言は 2026-10-14 決定
+                .confirmationDialog("入力中の設定を、前回の設定に置き換えますか？", isPresented: $confirmsReplacement,
+                                    titleVisibility: .visible) {
+                    Button("置き換える") { useSettings(of: chosen) }
+                    Button("やめる", role: .cancel) {}
+                }
             }
         }
+    }
+
+    private func useSettings(of suggestion: TitleSuggestion) {
+        store.useSettings(of: suggestion)
+        chosen = nil
     }
 }
 

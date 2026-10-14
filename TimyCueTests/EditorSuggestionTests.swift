@@ -64,6 +64,34 @@ final class EditorSuggestionTests: XCTestCase {
         XCTAssertEqual(store.content.metadata.transport, .car)
     }
 
+    func testUsingSettingsKeepsNotificationsAndAsksBeforeReplacingWhatWasEntered() {
+        let past = event("A社打合せ", daysAgo: 7, place: "広島市中区")
+        var info = TimyCueEventMetadata()
+        info.color = .mint
+        info.arrivalTargetMinutes = 10
+        info.transport = .car
+        info.notifications = NotificationPreference(timings: [.beforeDeparture(minutes: 60)])
+        let store = makeStore([past], metadata: [past.id: info])
+        store.startNew(on: today)
+        store.content.title = "A社"
+        let suggestion = store.titleSuggestions()[0]
+        store.useTitle(of: suggestion)
+        XCTAssertFalse(store.settingsReplacementNeedsConfirmation(for: suggestion), "何も変えていなければ、確かめずにすぐ入れる")
+
+        store.content.locationName = "見本ビル"
+        XCTAssertTrue(store.settingsReplacementNeedsConfirmation(for: suggestion),
+                      "場所を入れたあとなら、置き換える前に確かめる（2026-10-14 決定）")
+        store.content.locationName = "広島市中区"
+        XCTAssertFalse(store.settingsReplacementNeedsConfirmation(for: suggestion), "同じ値なら確かめない")
+        store.content.metadata.transport = .walk
+        XCTAssertTrue(store.settingsReplacementNeedsConfirmation(for: suggestion), "移動手段を変えたあとも確かめる")
+
+        let before = store.content.metadata.notifications
+        store.useSettings(of: suggestion)
+        XCTAssertEqual(store.content.metadata.transport, .car)
+        XCTAssertEqual(store.content.metadata.notifications, before, "通知は写さない（2026-10-14 決定）")
+    }
+
     // MARK: - 場所の候補（§48・§49）
 
     func testPlaceCandidates() {

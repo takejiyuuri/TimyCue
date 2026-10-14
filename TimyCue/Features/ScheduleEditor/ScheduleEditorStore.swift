@@ -184,6 +184,11 @@ final class ScheduleEditorStore {
     }
 
     /// 未保存の変更があるか（仕様 §66）
+    /// 3 分割画面を開いたとき（新規・編集・コピーを始めたとき）の入力欄の中身
+    var initialContent: EventContent {
+        baseline.content
+    }
+
     var hasUnsavedChanges: Bool {
         snapshot != baseline
     }

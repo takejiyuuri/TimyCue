@@ -86,7 +86,24 @@ extension ScheduleEditorStore {
         content.title = suggestion.title
     }
 
-    /// 候補の予定の設定（場所・色・到着目標・移動手段）も使う（§47）
+    /// 「この予定の設定も使う」を押したときに、入力中の値を置き換える前に確かめるか（2026-10-14 決定）。
+    /// 場所・色・到着目標・移動手段のどれかを 3 分割画面を開いたときの値から変えていて、しかも候補の値と違うときだけ確かめる。
+    /// 何も変えていなければ、確かめずにすぐ入れる
+    func settingsReplacementNeedsConfirmation(for suggestion: TitleSuggestion) -> Bool {
+        let initial = initialContent
+        if content.locationName != initial.locationName && content.locationName != suggestion.locationName {
+            return true
+        }
+        guard let info = suggestion.metadata else { return false }
+        let current = content.metadata
+        return (current.color != initial.metadata.color && current.color != info.color)
+            || (current.arrivalTargetMinutes != initial.metadata.arrivalTargetMinutes
+                && current.arrivalTargetMinutes != info.arrivalTargetMinutes)
+            || (current.transport != initial.metadata.transport && current.transport != info.transport)
+    }
+
+    /// 候補の予定の設定（場所・色・到着目標・移動手段。車の道の選び方も移動手段と一緒に）を使う。押したときだけ（§47・2026-10-14 決定）。
+    /// 通知と出発の余裕は写さず、今の値のまま（通知は予定ごとに意味が変わりやすく、余裕は設定の値を使う方が分かりやすいため）
     func useSettings(of suggestion: TitleSuggestion) {
         content.locationName = suggestion.locationName
         guard let info = suggestion.metadata else { return }
