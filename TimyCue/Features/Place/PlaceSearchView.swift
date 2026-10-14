@@ -6,14 +6,14 @@ import SwiftUI
 struct PlaceSearchView: View {
     let title: String
     var near: CLLocationCoordinate2D?
-    let onSelect: (PlaceCandidate) -> Void
+    let onSelect: (MapPlaceResult) -> Void
 
     @Environment(\.dismiss) private var dismiss
     @State private var query: String
-    @State private var candidates: [PlaceCandidate] = []
+    @State private var candidates: [MapPlaceResult] = []
     @State private var isSearching = false
 
-    init(title: String, initialQuery: String, near: CLLocationCoordinate2D? = nil, onSelect: @escaping (PlaceCandidate) -> Void) {
+    init(title: String, initialQuery: String, near: CLLocationCoordinate2D? = nil, onSelect: @escaping (MapPlaceResult) -> Void) {
         self.title = title
         self.near = near
         self.onSelect = onSelect

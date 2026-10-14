@@ -74,7 +74,7 @@ struct MapKitTravelTime: TravelTimeProviding {
 }
 
 /// 場所の候補（「場所を確認」・自宅の登録。Q66）
-struct PlaceCandidate: Identifiable, Equatable {
+struct MapPlaceResult: Identifiable, Equatable {
     let id = UUID()
     let name: String
     let address: String?
@@ -91,7 +91,7 @@ enum PlaceSearch {
     /// 出す候補の数（仮）
     static let maxCandidates = 15
 
-    static func search(_ text: String, near: CLLocationCoordinate2D?) async -> [PlaceCandidate] {
+    static func search(_ text: String, near: CLLocationCoordinate2D?) async -> [MapPlaceResult] {
         let query = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else { return [] }
         let request = MKLocalSearch.Request()
@@ -102,7 +102,7 @@ enum PlaceSearch {
         guard let response = try? await MKLocalSearch(request: request).start() else { return [] }
         return response.mapItems.prefix(maxCandidates).map { item in
             let coordinate = item.placemark.coordinate
-            return PlaceCandidate(name: item.name ?? query,
+            return MapPlaceResult(name: item.name ?? query,
                                   address: item.placemark.title,
                                   latitude: coordinate.latitude,
                                   longitude: coordinate.longitude)
