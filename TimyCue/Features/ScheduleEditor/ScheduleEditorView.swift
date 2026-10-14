@@ -119,10 +119,12 @@ struct ScheduleEditorView: View {
                 .font(EditorMetrics.headerTitleFont)
                 .foregroundStyle(Theme.Colors.textPrimary)
             Spacer()
-            Button(store.saveButtonTitle) { save() }
-                .font(EditorMetrics.saveButtonFont)
-                .buttonStyle(.borderedProminent)
-                .tint(Theme.Colors.accent)
+            Button { save() } label: {
+                Text(store.saveButtonTitle).foregroundStyle(Theme.Colors.onAccent)
+            }
+            .font(EditorMetrics.saveButtonFont)
+            .buttonStyle(.borderedProminent)
+            .tint(Theme.Colors.accent)
         }
         .padding(.horizontal, Theme.Spacing.l)
         .frame(height: EditorMetrics.headerHeight)

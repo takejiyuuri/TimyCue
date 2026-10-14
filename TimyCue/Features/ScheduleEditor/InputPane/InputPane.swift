@@ -86,6 +86,7 @@ private struct CopyBar: View {
             Button(action: onCopy) {
                 Label("コピー", systemImage: "doc.on.doc")
                     .font(EditorMetrics.chipFont)
+                    .foregroundStyle(Theme.Colors.onAccent)
             }
             .buttonStyle(.bordered)
         }
@@ -138,8 +139,13 @@ private struct InputRowView: View {
         }
         .padding(.horizontal, Theme.Spacing.m)
         .frame(maxWidth: .infinity, alignment: .leading)
-        // 開いている行は緑（2026-10-14 実機の指摘。濃さは前のオレンジと同じ）
+        // 開いている行は、淡いオレンジの塗りと左端のオレンジの線（2026-10-14 決定。緑は意味のある状態色に残す）
         .background(isExpanded ? Theme.Colors.expandedRow : Color.clear)
+        .overlay(alignment: .leading) {
+            if isExpanded {
+                Theme.Colors.expandedRowBar.frame(width: EditorMetrics.expandedRowBarWidth)
+            }
+        }
         .overlay(alignment: .bottom) {
             Theme.Colors.separator.frame(height: 1)
         }
@@ -302,7 +308,7 @@ private struct DayCircleButton: View {
                 Text("\(day.day)")
                     .font(EditorMetrics.dayButtonDayFont)
             }
-            .foregroundStyle(isShown ? Color.white : Theme.Colors.textPrimary)
+            .foregroundStyle(isShown ? Theme.Colors.onAccent : Theme.Colors.textPrimary)
             .frame(width: EditorMetrics.dayButtonSize, height: EditorMetrics.dayButtonSize)
             .background(Circle().fill(isShown ? Theme.Colors.accent : Theme.Colors.surface))
             .overlay {
@@ -355,9 +361,12 @@ private struct TitleEditor: View {
                 }
             }
             if let chosen, chosen.title == store.content.title {
-                Button("この予定の設定も使う（場所・色・到着目標・移動手段）") {
+                Button {
                     store.useSettings(of: chosen)
                     self.chosen = nil
+                } label: {
+                    Text("この予定の設定も使う（場所・色・到着目標・移動手段）")
+                        .foregroundStyle(Theme.Colors.onAccent)
                 }
                 .font(EditorMetrics.chipFont)
                 .buttonStyle(.bordered)
@@ -408,9 +417,11 @@ private struct LocationEditor: View {
                     }
                 }
             }
-            Button("場所なし") { store.choosePlace(nil) }
-                .font(EditorMetrics.chipFont)
-                .buttonStyle(.bordered)
+            Button { store.choosePlace(nil) } label: {
+                Text("場所なし").foregroundStyle(Theme.Colors.onAccent)
+            }
+            .font(EditorMetrics.chipFont)
+            .buttonStyle(.bordered)
         }
     }
 }
@@ -449,7 +460,7 @@ private struct ChipRow<Option: Hashable>: View {
                     let selected = isSelected(option)
                     Text(label(option))
                         .font(EditorMetrics.chipFont)
-                        .foregroundStyle(selected ? Color.white : Theme.Colors.textPrimary)
+                        .foregroundStyle(selected ? Theme.Colors.onAccent : Theme.Colors.textPrimary)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 6)
                         .background(Capsule().fill(selected ? Theme.Colors.accent : Theme.Colors.background))
@@ -472,6 +483,7 @@ private struct MoveToAppleButton: View {
             Button(action: onMove) {
                 Label("Apple Calendarに保存", systemImage: "calendar.badge.plus")
                     .font(EditorMetrics.chipFont)
+                    .foregroundStyle(Theme.Colors.onAccent)
             }
             .buttonStyle(.bordered)
             Text("この予定は TimyCue の中だけにあります")

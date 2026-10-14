@@ -260,7 +260,7 @@ private struct EditorDayCell: View {
             Text(verbatim: "\(day.day)")
                 .font(EditorMetrics.calendarDayFont)
                 .foregroundStyle(isSelected
-                                 ? Color.white
+                                 ? Theme.Colors.onAccent
                                  : Theme.Colors.weekdayText(day.weekdayIndexFromMonday(), normal: Theme.Colors.textPrimary))
                 .frame(width: EditorMetrics.selectedCircleSize, height: EditorMetrics.selectedCircleSize)
                 .background {

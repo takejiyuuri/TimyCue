@@ -19,16 +19,22 @@ enum Theme {
     enum Colors {
         /// 背景：ブランドのアイボリー（2026-10-14。前は #FAF5EC）
         static let background = Color(hex: BrandPalette.ivory)
-        /// ホームの画面の背景。時計の実機確認が終わるまでは前の背景のまま。確認後に、時計の色とまとめてブランドのパレットへそろえる（2026-10-14 ユーザー決定）
+        /// ホームの画面の背景。時計の実機確認が終わるまでの暫定で、前の背景のまま（2026-10-14 決定）。確認後は原則アプリ全体を
+        /// background にそろえる。時計が埋もれるなら、背景を戻すのではなく、時計の文字盤・境界線・リングの側を直す
         static let homeBackground = Color(hex: 0xFAF5EC)
-        /// 背景より一段明るい面（仮）。時計の文字盤にも使うので、時計の実機確認が終わるまで変えない
+        /// 背景より一段明るい面（カード・入力欄。仮採用）。時計の文字盤にも使う。背景との差は、時計の確認後にアプリ全体を見て
+        /// まとめて決める（影を強くして分ける方向にはしない。2026-10-14 決定）
         static let surface = Color(hex: 0xFFFDF8)
-        /// 主アクセント：ブランドのオレンジ。選択状態・主なボタン・タブに使う（2026-10-14。前は淡いオレンジ #F4A96A。仮）
+        /// 主アクセント：ブランドのオレンジ（2026-10-14 採用。前は淡いオレンジ #F4A96A）。タブ・枠・アイコン・見出し・選択状態に使う。
+        /// ボタンの文字には使わない（onAccent）
         static let accent = Color(hex: BrandPalette.orange)
         /// 本文の文字は濃いグレーのまま（ブランドのブラウンにはしない。2026-10-14 ユーザー決定）
         static let textPrimary = Color(hex: 0x3D3730)
         static let textSecondary = Color(hex: 0x8A8178)
-        /// 区切り線（仮）。時計の中央のプレートの縁にも使うので、時計の実機確認が終わるまで変えない
+        /// ボタンの文字と、オレンジの塗りの上の文字・アイコン。#FB8D3C と白はコントラストが弱いので、白い文字は使わず
+        /// 本文と同じ濃いグレーにする（2026-10-14 決定。追加仕様書 §46.4）
+        static let onAccent = Color(hex: 0x3D3730)
+        /// 区切り線（仮採用）。時計の中央のプレートの縁にも使う。時計の確認後に、面の色とまとめて見直す
         static let separator = Color(hex: 0xE9E1D4)
         /// 今日の日付の後ろの淡いオレンジの丸（仕様 §20。アクセントを 35％ に薄めた色。仮）
         static let todayCircle = Color(hex: BrandPalette.orange, opacity: 0.35)
@@ -44,8 +50,10 @@ enum Theme {
         static let clockPlate = Color(hex: 0xF7F1E6)
         /// 「個別」の日付の丸いボタンで、時刻を決めた日の枠（2026-10-14 ユーザー決定「時間設定してあれば枠の色を変える」。色は仮）
         static let dayButtonTimeSet = Color(hex: 0x34C759)
-        /// 3 分割画面の右の入力で、開いている行の背景。緑で、濃さは前のオレンジと同じ 0.10（2026-10-14 実機の指摘。色は仮）
-        static let expandedRow = Color(hex: 0x34C759, opacity: 0.10)
+        /// 3 分割画面の右の入力で、開いている行（いま選んで編集している行）。ブランドの淡いオレンジを薄くした塗りと、左端の
+        /// オレンジの線（2026-10-14 決定。選択状態はオレンジ系にし、緑は「余裕あり」などの意味のある状態色に残す。濃さは仮）
+        static let expandedRow = Color(hex: BrandPalette.lightOrange, opacity: 0.45)
+        static let expandedRowBar = Color(hex: BrandPalette.orange)
         /// 警告の黄色・赤は予定色とは別の意味（仕様 §4）
         static let warning = Color(hex: 0xE8B931)
         static let danger = Color(hex: 0xE0645A)

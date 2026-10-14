@@ -263,9 +263,11 @@ struct HomeView: View {
                 .foregroundStyle(Theme.Colors.textPrimary)
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
-            Button("確認") {
+            Button {
                 connection.markDuplicatesNotified()
                 showsDuplicates = true
+            } label: {
+                Text("確認").foregroundStyle(Theme.Colors.onAccent)
             }
             .buttonStyle(.bordered)
             .tint(Theme.Colors.accent)
@@ -296,15 +298,19 @@ struct HomeView: View {
                 Text("カレンダーへのアクセスは、iPhone の設定から許可してください")
                     .font(.footnote)
                     .foregroundStyle(Theme.Colors.textSecondary)
-                Button("設定アプリで許可する") {
+                Button {
                     if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
+                } label: {
+                    Text("設定アプリで許可する").foregroundStyle(Theme.Colors.onAccent)
                 }
                 .buttonStyle(.bordered)
             } else if connection.state == .notAsked {
                 Button {
                     Task { await connection.connect() }
                 } label: {
-                    Text("カレンダーを連携").frame(maxWidth: .infinity)
+                    Text("カレンダーを連携")
+                        .foregroundStyle(Theme.Colors.onAccent)
+                        .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(Theme.Colors.accent)
@@ -327,7 +333,9 @@ struct HomeView: View {
             editorStore.startNew(on: today)
             newEventDay = today
         } label: {
-            Text("予定を登録").frame(maxWidth: .infinity)
+            Text("予定を登録")
+                .foregroundStyle(Theme.Colors.onAccent)
+                .frame(maxWidth: .infinity)
         }
         .buttonStyle(.bordered)
         .tint(Theme.Colors.accent)

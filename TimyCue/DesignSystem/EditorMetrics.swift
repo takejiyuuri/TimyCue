@@ -64,6 +64,8 @@ enum EditorMetrics {
 
     static let inputRowHeight: CGFloat = 40
     static let inputLabelWidth: CGFloat = 68
+    /// 開いている行の左端のオレンジの線の太さ（2026-10-14。仮）
+    static let expandedRowBarWidth: CGFloat = 3
     static let inputLabelFont = Font.system(size: 13)
     static let inputValueFont = Font.system(size: 14, weight: .medium)
     static let chipFont = Font.system(size: 13, weight: .medium)

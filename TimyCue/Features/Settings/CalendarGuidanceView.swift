@@ -25,6 +25,7 @@ struct CalendarGuidanceView: View {
                 Button(action: onConnect) {
                     Text("カレンダーを連携")
                         .font(.headline)
+                        .foregroundStyle(Theme.Colors.onAccent)
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)

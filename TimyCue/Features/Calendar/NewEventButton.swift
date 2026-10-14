@@ -8,7 +8,7 @@ struct NewEventButton: View {
         Button(action: action) {
             Image(systemName: "plus")
                 .font(CalendarMetrics.newEventButtonFont)
-                .foregroundStyle(.white)
+                .foregroundStyle(Theme.Colors.onAccent)
                 .frame(width: CalendarMetrics.newEventButtonSize, height: CalendarMetrics.newEventButtonSize)
                 .background(Circle().fill(Theme.Colors.accent))
         }

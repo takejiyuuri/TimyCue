@@ -23,10 +23,12 @@ struct EventDetailCard: View {
                     .lineLimit(2)
                 Spacer(minLength: 4)
                 if !isViewOnly {
-                    Button("編集", action: onEdit)
-                        .font(CalendarMetrics.popoverSecondaryFont.weight(.semibold))
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
+                    Button(action: onEdit) {
+                        Text("編集").foregroundStyle(Theme.Colors.onAccent)
+                    }
+                    .font(CalendarMetrics.popoverSecondaryFont.weight(.semibold))
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
                 }
             }
             DetailLine(label: "日時", value: rows.dateTime)

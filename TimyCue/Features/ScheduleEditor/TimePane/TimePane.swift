@@ -338,7 +338,7 @@ private struct MinuteWheelCard: View {
             Button(action: onConfirm) {
                 Image(systemName: "checkmark")
                     .font(.system(size: 13, weight: .bold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(Theme.Colors.onAccent)
                     .frame(width: 28, height: 28)
                     .background(Circle().fill(Theme.Colors.accent))
             }
