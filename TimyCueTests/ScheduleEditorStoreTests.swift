@@ -604,6 +604,8 @@ final class ScheduleEditorStoreTests: XCTestCase {
         XCTAssertEqual(store.timedEvents(on: d1).map(\.title), ["朝", "午後"])
         XCTAssertEqual(store.allDayEvents(on: d1).map(\.title), ["終日"])
         XCTAssertEqual(store.suggestedScrollMinute(for: d1), 510, "最初の予定の少し前（仕様 §43）")
+        XCTAssertEqual(store.suggestedScrollMinute(for: d1, leadMinutes: EditorMetrics.futureDayScrollLeadMinutes), 480,
+                       "未来の日は、最初の予定の約 1 時間前が見える位置（2026-10-14 決定 E8）")
         XCTAssertNil(store.suggestedScrollMinute(for: d2))
     }
 }

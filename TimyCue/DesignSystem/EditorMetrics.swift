@@ -25,6 +25,11 @@ enum EditorMetrics {
     static let dateTabHeight: CGFloat = 32
     static let dateTabFont = Font.system(size: 13, weight: .semibold).monospacedDigit()
     static let hourRowHeight: CGFloat = 44
+    /// 時間画面を開いたときの位置（§43。2026-10-14 決定 E8）：予定がある日は最初の予定のこの分だけ前（未来の日は約 1 時間前）、
+    /// 予定のない未来の日は 8:00
+    static let dayScrollLeadMinutes = 30
+    static let futureDayScrollLeadMinutes = 60
+    static let emptyDayScrollMinute = 8 * 60
     static let hourLabelWidth: CGFloat = 34
     static let hourLabelFont = Font.system(size: 10, weight: .medium).monospacedDigit()
     static let blockFont = Font.system(size: 11, weight: .semibold)

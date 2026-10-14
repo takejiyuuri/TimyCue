@@ -279,10 +279,13 @@ private struct EditorTimeAxis: View {
         store.confirmStartTime()
     }
 
-    /// 初めの位置（§43）：予定がある日は最初の予定の少し前、今日で予定がなければ現在時刻付近、ほかは 8:00（未来日の「適切な時間帯」は仮）
+    /// 初めの位置（§43）：予定がある日は最初の予定の少し前（未来の日は約 1 時間前が見える位置）、今日で予定がなければ現在時刻付近、
+    /// 予定のない未来の日は 8:00（2026-10-14 決定 E8。未来日の「適切な時間帯」の正式な定義）
     private func scroll(_ proxy: ScrollViewProxy) {
-        let minute = store.suggestedScrollMinute(for: day)
-            ?? (day == CalendarDay(Date()) ? max(Clock.minuteOfDay(Date()) - 60, 0) : 8 * 60)
+        let today = CalendarDay(Date())
+        let lead = day > today ? EditorMetrics.futureDayScrollLeadMinutes : EditorMetrics.dayScrollLeadMinutes
+        let minute = store.suggestedScrollMinute(for: day, leadMinutes: lead)
+            ?? (day == today ? max(Clock.minuteOfDay(Date()) - 60, 0) : EditorMetrics.emptyDayScrollMinute)
         proxy.scrollTo(min(max(minute / 60, 0), 23), anchor: .top)
     }
 }
