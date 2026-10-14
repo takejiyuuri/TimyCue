@@ -44,14 +44,12 @@ struct EventDetailCard: View {
     @ViewBuilder
     private func details(_ rows: EventDetailRows) -> some View {
         if let place = rows.place {
-            // 暫定：場所を押すと外部の地図（Apple マップ）へ渡す。簡易ルートを作ったら、TimyCue 内の簡易ルートを開くに置き換え、
-            // 外部の地図／ナビを開く役目は「ナビ開始」へ移す（追加仕様書 §28.4・§29.1・Q57。2026-10-13 確認）
-            Button {
+            // 暫定：地図のマークを押すと外部の地図（Apple マップ）へ渡す。住所の文字を押しても開かない（2026-10-14 実機の指摘。仮）。
+            // 簡易ルートを作ったら、TimyCue 内の簡易ルートを開くに置き換え、外部の地図／ナビを開く役目は「ナビ開始」へ移す
+            // （追加仕様書 §28.4・§29.1・Q57。2026-10-13 確認）
+            DetailLine(label: "場所", value: place, systemImage: "map") {
                 if let url = EventDetailRows.mapsURL(for: place) { openURL(url) }
-            } label: {
-                DetailLine(label: "場所", value: place, systemImage: "map")
             }
-            .buttonStyle(.plain)
         } else {
             DetailLine(label: "場所", value: "なし")
         }
@@ -67,6 +65,8 @@ private struct DetailLine: View {
     let label: String
     let value: String
     var systemImage: String?
+    /// マークを押したときの動き（場所の行の「地図で開く」）。あるときは、マークだけが押せる
+    var onImageTap: (() -> Void)?
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -79,7 +79,17 @@ private struct DetailLine: View {
                 .foregroundStyle(Theme.Colors.textPrimary)
                 .lineLimit(2)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            if let systemImage {
+            if let systemImage, let onImageTap {
+                Button(action: onImageTap) {
+                    Image(systemName: systemImage)
+                        .font(CalendarMetrics.detailActionIconFont)
+                        .foregroundStyle(Theme.Colors.accent)
+                        .frame(minWidth: CalendarMetrics.detailActionTapSize, minHeight: CalendarMetrics.detailActionTapSize)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("地図で開く")
+            } else if let systemImage {
                 Image(systemName: systemImage)
                     .font(.system(size: 11))
                     .foregroundStyle(Theme.Colors.textSecondary)
