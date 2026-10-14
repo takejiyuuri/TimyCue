@@ -208,17 +208,11 @@ final class EditorScreenStoreTests: XCTestCase {
         XCTAssertEqual(store.valueText(for: .arrivalTarget), "0分前（予定開始時刻）", "新しい予定は全体既定値の初期値（Q70）")
         XCTAssertEqual(store.valueText(for: .transport), "自動")
         XCTAssertEqual(store.valueText(for: .notifications), "30分・10分・出発")
-        XCTAssertEqual(store.valueText(for: .end), "未設定")
 
         store.content.title = "A社"
         store.content.metadata.arrivalTargetMinutes = 10
-        store.setStartMinute(600)
-        store.setDuration(90)
         XCTAssertEqual(store.valueText(for: .title), "A社")
         XCTAssertEqual(store.valueText(for: .arrivalTarget), "10分前", "§44 の例のとおり")
-        XCTAssertEqual(store.valueText(for: .end), "11:30")
-        store.setDuration(nil)
-        XCTAssertEqual(store.valueText(for: .end), "未設定")
     }
 
     func testDeleteEditingEvent() throws {

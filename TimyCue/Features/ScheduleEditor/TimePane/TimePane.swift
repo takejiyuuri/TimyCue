@@ -100,10 +100,14 @@ private struct EditorTimeAxis: View {
                         ForEach(existing) { event in
                             let placement = placements[event.id] ?? TimelinePlacement(column: 0, columnCount: 1)
                             let columnWidth = laneWidth / CGFloat(max(placement.columnCount, 1))
+                            let height = blockHeight(duration: event.durationMinutes)
                             EditorEventBlock(event: event,
                                              color: store.metadata(for: event.id)?.color ?? .orange,
-                                             isDraft: false)
-                                .frame(width: max(columnWidth - 2, 0), height: blockHeight(duration: event.durationMinutes))
+                                             isDraft: false,
+                                             start: event.startMinute,
+                                             end: event.endMinute,
+                                             showsEnd: height >= EditorMetrics.blockTwoLineHeight)
+                                .frame(width: max(columnWidth - 2, 0), height: height)
                                 .opacity(isEditing ? 0.5 : 1)
                                 .allowsHitTesting(false)
                                 .alignmentGuide(.leading) { _ in -(EditorMetrics.hourLabelWidth + columnWidth * CGFloat(placement.column)) }
@@ -176,11 +180,13 @@ private struct EditorTimeAxis: View {
         let dragStart = draggedStart(of: event)
         let dragEnd = draggedEnd(of: event)
         let start = dragStart ?? event.startMinute
-        let end = dragEnd ?? store.endMinute(on: day)
-        let duration = end.map { $0 - start }
+        // 上下に動かしている間も所要時間は保つ（終了も一緒に動く。2026-10-14 実機の不具合）。終了を伸ばしている間だけ、終了から長さを出す
+        let duration = dragEnd.map { $0 - start } ?? store.durationMinutes(on: day)
+        let end = duration.map { start + $0 }
         let height = blockHeight(duration: duration)
 
-        EditorEventBlock(event: event, color: store.content.metadata.color, isDraft: true)
+        EditorEventBlock(event: event, color: store.content.metadata.color, isDraft: true,
+                         start: start, end: end, showsEnd: height >= EditorMetrics.blockTwoLineHeight)
             .frame(width: width, height: height)
             .contentShape(Rectangle())
             // ブロックを上下に動かす。書き込めない Apple カレンダーの予定は動かさない（§1.7）
@@ -402,32 +408,43 @@ private struct EditorHourRow: View {
     }
 }
 
-/// 時間画面の予定ブロック。保存前の仮予定は淡く・少し透明に・点線の枠（§39）
+/// 時間画面の予定ブロック。保存前の仮予定は淡く・少し透明に・点線の枠（§39）。
+/// 終了を決めてあって 2 段で書ける高さがあれば、2 段目に終了の時刻も出す（2026-10-14 ユーザー決定。書き方は仮）
 private struct EditorEventBlock: View {
     let event: CalendarEvent
     let color: EventColor
     let isDraft: Bool
+    /// 出す開始・終了（動かしている間は、動かした先）
+    let start: MinuteOfDay
+    let end: MinuteOfDay?
+    let showsEnd: Bool
 
     private var text: String {
         // 予定名がまだなら「14:30 新規予定」（§39）
         let name = event.title.isEmpty && isDraft ? "新規予定" : event.displayTitle
-        return "\(TimeText.hourMinute(event.startMinute)) \(name)"
+        return "\(TimeText.hourMinute(start)) \(name)"
     }
 
     var body: some View {
-        Text(text)
-            .font(EditorMetrics.blockFont)
-            .foregroundStyle(Theme.Colors.textPrimary)
-            .lineLimit(1)
-            .padding(.horizontal, 4)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .background(EventPalette.color(for: color).opacity(isDraft ? EditorMetrics.draftOpacity : 0.8))
-            .overlay {
-                if isDraft {
-                    RoundedRectangle(cornerRadius: 4)
-                        .strokeBorder(Theme.Colors.textPrimary.opacity(0.6), style: StrokeStyle(lineWidth: 1, dash: [3, 2]))
-                }
+        VStack(alignment: .leading, spacing: 0) {
+            Text(text)
+                .lineLimit(1)
+            if showsEnd, let end {
+                Text("〜\(TimeText.hourMinute(end))")
+                    .lineLimit(1)
             }
-            .clipShape(RoundedRectangle(cornerRadius: 4))
+        }
+        .font(EditorMetrics.blockFont)
+        .foregroundStyle(Theme.Colors.textPrimary)
+        .padding(.horizontal, 4)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(EventPalette.color(for: color).opacity(isDraft ? EditorMetrics.draftOpacity : 0.8))
+        .overlay {
+            if isDraft {
+                RoundedRectangle(cornerRadius: 4)
+                    .strokeBorder(Theme.Colors.textPrimary.opacity(0.6), style: StrokeStyle(lineWidth: 1, dash: [3, 2]))
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 4))
     }
 }

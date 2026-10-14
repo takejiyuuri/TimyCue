@@ -12,7 +12,7 @@ struct TravelTime: Equatable {
 
 enum TravelTimeError: Error, Equatable {
     case transitUnavailable
-    case bicycleUnsupported
+    case bicycleUnavailable
     case failed
 }
 
@@ -26,8 +26,8 @@ protocol TravelTimeProviding {
                     arrival: Date?) async throws -> TravelTime
 }
 
-/// MapKit の移動時間（追加仕様書 §8.2）。自転車は MapKit の自転車ルートを使える iOS だけ。
-/// 使えない iOS では徒歩のルートから換算せず、計算できない扱い（2026-10-14 決定）
+/// MapKit の移動時間（追加仕様書 §8.2）。自転車は MapKit の自転車ルート（.cycling）。OS の版で先に弾かず、
+/// ルートが取れなければ「自転車ルートを取得できません」。徒歩のルートから換算しない（2026-10-14 決定。iOS 17・18 の実機で確かめる）
 struct MapKitTravelTime: TravelTimeProviding {
     func travelTime(from origin: CLLocationCoordinate2D,
                     to destination: CLLocationCoordinate2D,
@@ -45,14 +45,11 @@ struct MapKitTravelTime: TravelTimeProviding {
         case .publicTransit:
             request.transportType = .transit
         case .bicycle:
+            // .cycling は Xcode 26 の SDK から（値そのものは iOS 14.0 からと宣言）。古い Xcode でビルドしたときだけ、取れない扱い
             #if compiler(>=6.2)
-            if #available(iOS 26.0, *) {
-                request.transportType = .cycling
-            } else {
-                throw TravelTimeError.bicycleUnsupported
-            }
+            request.transportType = .cycling
             #else
-            throw TravelTimeError.bicycleUnsupported
+            throw TravelTimeError.bicycleUnavailable
             #endif
         case .auto:
             // 「自動」は、計算の前に手段を決めてから渡す
@@ -67,7 +64,11 @@ struct MapKitTravelTime: TravelTimeProviding {
             let response = try await MKDirections(request: request).calculateETA()
             return TravelTime(seconds: response.expectedTravelTime, departure: response.expectedDepartureDate)
         } catch {
-            throw transport == .publicTransit ? TravelTimeError.transitUnavailable : TravelTimeError.failed
+            switch transport {
+            case .publicTransit: throw TravelTimeError.transitUnavailable
+            case .bicycle: throw TravelTimeError.bicycleUnavailable
+            default: throw TravelTimeError.failed
+            }
         }
     }
 }

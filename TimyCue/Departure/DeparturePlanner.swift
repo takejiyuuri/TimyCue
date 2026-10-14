@@ -84,8 +84,16 @@ enum DeparturePlanner {
         return now >= start.addingTimeInterval(-TimeInterval(currentLocationLeadHours * 3600)) ? .currentLocation : .notYet
     }
 
+    /// 推奨出発時刻と、そのときの地図の移動時間（秒。次の計算の 1 回目の概算に使う）
+    struct Result: Equatable {
+        let departure: Date
+        let travelSeconds: TimeInterval
+    }
+
     /// 推奨出発時刻（追加仕様書 §8.1〜§8.3）。
-    /// 車・徒歩・自転車：地図の移動時間（車は駐車の 5 分を足す）と安全マージンから、到着目標の時刻から逆算する。
+    /// 車・徒歩・自転車：2 段階で地図に聞く（2026-10-14 決定）。① 大まかな移動時間（前に計算できた移動時間があればそれ）→
+    /// ② 到着目標 − 大まかな移動時間 を出発の時刻として、もう一度聞く（その時刻の渋滞の見込みを聞くため）。
+    /// ②の移動時間（車は駐車の 5 分を足す）と安全マージンから、到着目標の時刻から逆算する。
     /// 公共交通：安全マージンを乗車時間に足さず、到着目標を安全マージンの分だけ前倒しして、その時刻までに着く便の出発時刻にする
     static func recommendedDeparture(from origin: CLLocationCoordinate2D,
                                      to destination: CLLocationCoordinate2D,
@@ -94,8 +102,9 @@ enum DeparturePlanner {
                                      arrivalTargetMinutes: Int,
                                      margin: DepartureMath.MarginLevel,
                                      now: Date,
+                                     previousTravelSeconds: TimeInterval? = nil,
                                      travel: TravelTimeProviding,
-                                     calendar: Calendar = .timyCue) async throws -> Date {
+                                     calendar: Calendar = .timyCue) async throws -> Result {
         let target = DepartureMath.arrivalTarget(start: start, arrivalTargetMinutes: arrivalTargetMinutes)
         if transport == .publicTransit {
             let ride = try await travel.travelTime(from: origin, to: destination, transport: transport, departure: nil, arrival: target)
@@ -104,15 +113,21 @@ enum DeparturePlanner {
             let trip = try await travel.travelTime(from: origin, to: destination, transport: transport, departure: nil, arrival: earlier)
             guard let leave = trip.departure else { throw TravelTimeError.transitUnavailable }
             // 分の頭にそろえる（少し早めの側）
-            return calendar.dateInterval(of: .minute, for: leave)?.start ?? leave
+            return Result(departure: calendar.dateInterval(of: .minute, for: leave)?.start ?? leave, travelSeconds: trip.seconds)
         }
-        // 前もっての計算では、到着目標の 1 時間前に出るとして地図に聞く（渋滞の見込みのため。仮）。それより前ならいま
-        let leaveGuess = max(now, target.addingTimeInterval(-3600))
+        let roughSeconds: TimeInterval
+        if let previousTravelSeconds {
+            roughSeconds = previousTravelSeconds
+        } else {
+            roughSeconds = try await travel.travelTime(from: origin, to: destination, transport: transport, departure: nil, arrival: nil).seconds
+        }
+        let leaveGuess = max(now, target.addingTimeInterval(-roughSeconds))
         let trip = try await travel.travelTime(from: origin, to: destination, transport: transport, departure: leaveGuess, arrival: nil)
         let travelMinutes = DepartureMath.predictedTravelMinutes(mapSeconds: trip.seconds, transport: transport)
         let marginMinutes = DepartureMath.safetyMarginMinutes(travelMinutes: travelMinutes, level: margin)
-        return DepartureMath.recommendedDeparture(start: start, arrivalTargetMinutes: arrivalTargetMinutes,
-                                                  travelMinutes: travelMinutes, marginMinutes: marginMinutes)
+        let departure = DepartureMath.recommendedDeparture(start: start, arrivalTargetMinutes: arrivalTargetMinutes,
+                                                           travelMinutes: travelMinutes, marginMinutes: marginMinutes)
+        return Result(departure: departure, travelSeconds: trip.seconds)
     }
 
     /// 計算に使う移動手段。はっきり指定していればそれ（勝手に変えない。追加仕様書 §30.2）。

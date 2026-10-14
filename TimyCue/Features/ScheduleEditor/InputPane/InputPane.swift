@@ -223,8 +223,6 @@ private struct InlineEditor: View {
                     Text(color.displayName)
                 }
             }
-        case .end:
-            EndEditor()
         case .calendar:
             // その予定だけ保存先を変える（Q32）
             ChipRow(options: store.writableCalendars,
@@ -232,12 +230,74 @@ private struct InlineEditor: View {
                     isSelected: { $0.id == (store.content.calendarID ?? store.defaultCalendarID) },
                     onTap: { store.content.calendarID = $0.id })
         case .additionalDays:
-            // この行を開いている間だけ、下のカレンダーをなぞって日を足したり外したりできる（2026-10-14 ユーザー決定。文言は仮）
-            Text("下のカレンダーで日をなぞって選んでください（選んだ日をなぞると外れます）。時刻は日ごとに決めます")
+            AdditionalDaysEditor()
+        }
+    }
+}
+
+/// 「同じ内容で追加」を開いたところ（2026-10-14 ユーザー決定）。開いている間だけ、下のカレンダーをなぞって日を足したり外したりできる。
+/// 時刻は「一括」（全部の日で同じ）か「個別」。個別のときは、選んだ日を丸いボタンで並べ、押した日の時刻を左上で決める。
+/// 時刻を決めた日は丸の枠の色を変える。多ければ横にすべらせる
+private struct AdditionalDaysEditor: View {
+    @Environment(ScheduleEditorStore.self) private var store
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Theme.Spacing.s) {
+            // 文言は仮
+            Text("下のカレンダーで日をなぞって選んでください（選んだ日をなぞると外れます）")
                 .font(EditorMetrics.lockNoticeFont)
                 .foregroundStyle(Theme.Colors.textSecondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
+            Picker("時刻", selection: Binding(get: { store.setsTimesIndividually },
+                                            set: { store.setTimesIndividually($0) })) {
+                Text("一括").tag(false)
+                Text("個別").tag(true)
+            }
+            .pickerStyle(.segmented)
+            if store.setsTimesIndividually {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: EditorMetrics.dayButtonSpacing) {
+                        ForEach(store.selectedDays, id: \.self) { day in
+                            DayCircleButton(day: day,
+                                            isShown: store.displayedDay == day,
+                                            hasTime: store.startMinutes[day] != nil) {
+                                store.selectDay(day)
+                            }
+                        }
+                    }
+                    .padding(.vertical, 2)
+                }
+            }
         }
+    }
+}
+
+/// 「個別」のときの日付の丸いボタン。10/12 なら「10/」を小さく、「12」を大きめに。
+/// 時刻を決めた日は枠の色を変え、左上に出している日は塗る（色は仮）
+private struct DayCircleButton: View {
+    let day: CalendarDay
+    let isShown: Bool
+    let hasTime: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: -2) {
+                Text("\(day.month)/")
+                    .font(EditorMetrics.dayButtonMonthFont)
+                Text("\(day.day)")
+                    .font(EditorMetrics.dayButtonDayFont)
+            }
+            .foregroundStyle(isShown ? Color.white : Theme.Colors.textPrimary)
+            .frame(width: EditorMetrics.dayButtonSize, height: EditorMetrics.dayButtonSize)
+            .background(Circle().fill(isShown ? Theme.Colors.accent : Theme.Colors.surface))
+            .overlay {
+                Circle().strokeBorder(hasTime ? Theme.Colors.dayButtonTimeSet : Theme.Colors.separator,
+                                      lineWidth: EditorMetrics.dayButtonBorderWidth)
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(day.month)月\(day.day)日\(hasTime ? "、時刻あり" : "、時刻なし")")
     }
 }
 
@@ -358,73 +418,6 @@ private struct WheelPicker<Option: Hashable, Row: View>: View {
         .frame(maxWidth: .infinity)
         .frame(height: EditorMetrics.wheelPickerHeight)
         .clipped()
-    }
-}
-
-/// 終了の行の編集（Q24）：未設定・30・60・90・120 分・カスタム。時間画面の下端ハンドルとは同じ値を見る
-private struct EndEditor: View {
-    @Environment(ScheduleEditorStore.self) private var store
-    @State private var showsCustom = false
-
-    private enum Choice: Hashable {
-        case unset
-        case minutes(Int)
-        case custom
-    }
-
-    var body: some View {
-        let current = store.displayedDay.flatMap { store.durationMinutes(on: $0) }
-        let isPreset = current.map { ScheduleEditorStore.durationChoices.contains($0) } ?? true
-        let hasStart = store.displayedDay.map { store.startMinutes[$0] != nil } ?? false
-
-        VStack(alignment: .leading, spacing: Theme.Spacing.s) {
-            if !hasStart {
-                Text("先に開始時刻を決めてください")
-                    .font(EditorMetrics.inputLabelFont)
-                    .foregroundStyle(Theme.Colors.textSecondary)
-            }
-            ChipRow(options: [Choice.unset] + ScheduleEditorStore.durationChoices.map(Choice.minutes) + [Choice.custom],
-                    label: { choice in
-                        switch choice {
-                        case .unset: "未設定"
-                        case .minutes(let minutes): "\(minutes)分"
-                        case .custom: isPreset ? "カスタム" : "\(current ?? 0)分"
-                        }
-                    },
-                    isSelected: { choice in
-                        switch choice {
-                        case .unset: current == nil && !showsCustom
-                        case .minutes(let minutes): current == minutes && !showsCustom
-                        case .custom: showsCustom || !isPreset
-                        }
-                    },
-                    onTap: { choice in
-                        switch choice {
-                        case .unset:
-                            showsCustom = false
-                            store.setDuration(nil)
-                        case .minutes(let minutes):
-                            showsCustom = false
-                            store.setDuration(minutes)
-                        case .custom:
-                            showsCustom = true
-                            if current == nil { store.setDuration(60) }
-                        }
-                    })
-            if showsCustom, let minutes = current {
-                Stepper("所要時間 \(minutes)分",
-                        value: Binding(get: { minutes }, set: { store.setDuration($0) }),
-                        in: ScheduleEditorStore.customDurationRange,
-                        step: ScheduleEditorStore.customDurationStep)
-                    .font(EditorMetrics.chipFont)
-            }
-            if store.canApplyDurationToAllDays {
-                // 選んでいる全部の日へ、今の所要時間を入れ直す（Q5）
-                Button("全日に適用") { store.applyDurationToAllDays() }
-                    .font(EditorMetrics.chipFont)
-                    .buttonStyle(.bordered)
-            }
-        }
     }
 }
 

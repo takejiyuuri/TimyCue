@@ -25,6 +25,8 @@ enum Theme {
         static let clockLast = Color(hex: 0xF2A797)
         /// 時計の中央の円形プレート。文字盤と同じ系統の、少しだけ濃いアイボリー（2026-10-14 決定の形。色は仮）
         static let clockPlate = Color(hex: 0xF7F1E6)
+        /// 「個別」の日付の丸いボタンで、時刻を決めた日の枠（2026-10-14 ユーザー決定「時間設定してあれば枠の色を変える」。色は仮）
+        static let dayButtonTimeSet = Color(hex: 0x34C759)
         /// 3 分割画面の右の入力で、開いている行の背景。緑で、濃さは前のオレンジと同じ 0.10（2026-10-14 実機の指摘。色は仮）
         static let expandedRow = Color(hex: 0x34C759, opacity: 0.10)
         /// 警告の黄色・赤は予定色とは別の意味（仕様 §4）

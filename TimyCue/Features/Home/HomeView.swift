@@ -74,7 +74,7 @@ struct HomeView: View {
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { refreshDepartures(now: Date(), force: true) }
         }
-        // 移動手段が「自動」の予定を初めて計算するとき、1 回だけ聞く（2026-10-14 決定。文言は仮）
+        // 移動手段が「自動」の予定を初めて計算するとき、1 回だけ聞く（2026-10-14 決定。文言も決定）
         .confirmationDialog("普段よく使う移動手段は？",
                             isPresented: Binding(get: { departures.asksUsualTransport },
                                                  set: { if !$0 { departures.dismissUsualTransportQuestion() } }),
@@ -87,7 +87,7 @@ struct HomeView: View {
             }
             Button("あとで", role: .cancel) { departures.dismissUsualTransportQuestion() }
         } message: {
-            Text("移動手段が「自動」の予定の出発時刻を計算するのに使います。設定 ＞ 出発・移動 で変えられます。")
+            Text("移動手段を『自動』にした予定で、まだ十分な移動実績がないときの出発時刻計算に使います。あとから設定で変更できます。")
         }
         // 場所を確認：候補の一覧／検索から 1 地点を選び、地点を決めて計算し直す（Q66。2026-10-14 決定）
         .sheet(item: $placeCheck) { event in
@@ -98,7 +98,11 @@ struct HomeView: View {
             }
         }
         .background(Theme.Colors.background.ignoresSafeArea())
-        .onAppear { store.updateToday() }
+        .onAppear {
+            store.updateToday()
+            departures.location.startWatching()
+        }
+        .onDisappear { departures.location.stopWatching() }
         .sheet(isPresented: $showsDuplicates) {
             NavigationStack {
                 DuplicateListView()
@@ -136,9 +140,14 @@ struct HomeView: View {
             if let face, let target {
                 clock(face, word: target.word)
             }
-            // 出発時刻を計算できないときの原因。時計の下（時計がなければ予定の上）に小さく（2026-10-14 決定）
+            // 出発時刻を計算できないときの原因・目安の知らせ。時計の下（時計がなければ予定の上）に小さく（2026-10-14 決定）
             if let problem = state.problem {
                 problemNotice(problem, event: event)
+                    .frame(maxWidth: .infinity, alignment: face == nil ? .leading : .center)
+            } else if let note = departures.note(for: event) {
+                Text(note.message)
+                    .font(.footnote)
+                    .foregroundStyle(Theme.Colors.textSecondary)
                     .frame(maxWidth: .infinity, alignment: face == nil ? .leading : .center)
             }
             VStack(alignment: .leading, spacing: 6) {

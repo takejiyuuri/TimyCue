@@ -53,22 +53,24 @@ final class ScheduleEditorStoreTests: XCTestCase {
         let (store, events, metadata) = makeStore()
         store.startNew()
         store.selectDay(d3)
+        store.setStartMinute(9 * 60)
         [d1, d2].forEach(store.addDay)
         XCTAssertEqual(store.selectedDays, [d1, d2, d3], "選択日は日付順に並ぶ")
         XCTAssertEqual(store.displayedDay, d3, "足しても左上の日は変わらない")
         XCTAssertEqual(store.additionalDays, [d1, d2], "最初に選んだ日のほかが「同じ内容で追加」で足した日")
-        XCTAssertNil(store.startMinutes[d1], "足した日に時刻は入れない。日ごとに決める（vNext §1.2：一括で時刻を入れない）")
+        XCTAssertFalse(store.setsTimesIndividually, "初めは一括")
+        XCTAssertEqual(store.startMinutes[d1], 9 * 60, "一括では、足した日も同じ時刻（2026-10-14 ユーザー決定）")
 
+        store.setTimesIndividually(true)
         store.content.title = "通院"
         store.content.metadata.color = .lavender
         store.setStartMinute(14 * 60, on: d1)
         store.setStartMinute(14 * 60 + 30, on: d2)
-        store.setStartMinute(9 * 60, on: d3)
         let saved = try store.save()
 
         XCTAssertEqual(saved.count, 3)
         XCTAssertEqual(events.allEvents().count, 3)
-        XCTAssertEqual(Set(saved.map(\.startMinute)), [840, 870, 540], "日ごとに違う時刻で保存できる")
+        XCTAssertEqual(Set(saved.map(\.startMinute)), [840, 870, 540], "個別にすれば日ごとに違う時刻で保存できる")
         for event in saved {
             XCTAssertEqual(metadata.allMetadata()[event.id]?.color, .lavender, "TimyCue の情報は予定と別に保存する（仕様 §84）")
             XCTAssertEqual(store.metadata(for: event.id)?.color, .lavender)
@@ -76,9 +78,46 @@ final class ScheduleEditorStoreTests: XCTestCase {
         XCTAssertFalse(store.hasUnsavedChanges)
     }
 
+    func testBatchKeepsTheSameTimeOnEveryDay() {
+        let store = makeStore().store
+        store.startNew(on: d1)
+        store.addDay(d2)
+        store.setStartMinute(600)
+        XCTAssertEqual([d1, d2].map { store.startMinutes[$0] }, [600, 600], "一括：時刻を決めると全部の日に入る")
+        store.selectDay(d2)
+        store.setStartMinute(660)
+        XCTAssertEqual([d1, d2].map { store.startMinutes[$0] }, [660, 660], "どの日を出していても全部の日が変わる")
+        store.setEndMinute(720)
+        XCTAssertEqual([d1, d2].map { store.durationMinutes(on: $0) }, [60, 60], "所要時間も全部の日で同じ")
+        store.addDay(d3)
+        XCTAssertEqual(store.startMinutes[d3], 660, "あとから足した日にも同じ時刻")
+    }
+
+    func testIndividualTimesAndBackToBatch() {
+        let store = makeStore().store
+        store.startNew(on: d1)
+        store.setStartMinute(600)
+        store.setEndMinute(660)
+        store.addDay(d2)
+        store.setTimesIndividually(true)
+        XCTAssertEqual(store.startMinutes[d2], 600, "個別にしても、それまでの時刻は残る")
+        store.selectDay(d2)
+        store.setStartMinute(780)
+        store.setEndMinute(870)
+        XCTAssertEqual([d1, d2].map { store.startMinutes[$0] }, [600, 780], "個別：その日だけ変わる")
+        XCTAssertEqual([d1, d2].map { store.durationMinutes(on: $0) }, [60, 90])
+        store.addDay(d3)
+        XCTAssertNil(store.startMinutes[d3], "個別のときに足した日は、時刻を日ごとに決める")
+
+        store.setTimesIndividually(false)
+        XCTAssertEqual([d1, d2, d3].map { store.startMinutes[$0] }, [600, 600, 600], "一括に戻すと、最初に選んだ日の時刻にそろう（仮）")
+        XCTAssertEqual([d1, d2, d3].map { store.durationMinutes(on: $0) }, [60, 60, 60])
+    }
+
     func testConfirmStartTimeMovesToNextUnsetDay() {
         let store = makeStore().store
         store.startNew(on: d2)
+        store.setTimesIndividually(true)
         [d1, d3].forEach(store.addDay)
         store.setStartMinute(600)
         XCTAssertEqual(store.confirmStartTime(), d3, "後ろの未設定の日へ移る")
@@ -203,6 +242,7 @@ final class ScheduleEditorStoreTests: XCTestCase {
         store.startNew()
         XCTAssertEqual(store.saveIssues, [.noDaySelected, .missingTitle])
         store.selectDay(d1)
+        store.setTimesIndividually(true)
         store.addDay(d2)
         store.setStartMinute(600, on: d1)
         XCTAssertEqual(store.saveIssues, [.missingStartTime([d2]), .missingTitle])
@@ -234,6 +274,7 @@ final class ScheduleEditorStoreTests: XCTestCase {
     func testSavingWithoutStartTimeShowsThatDay() {
         let store = makeStore().store
         store.startNew(on: d1)
+        store.setTimesIndividually(true)
         [d2, d3].forEach(store.addDay)
         store.content.title = "通院"
         store.setStartMinute(600, on: d1)
@@ -310,6 +351,7 @@ final class ScheduleEditorStoreTests: XCTestCase {
     func testDurationIsCommonFirstThenChangeableOnOneDay() throws {
         let store = makeStore().store
         store.startNew(on: d1)
+        store.setTimesIndividually(true)
         [d2, d3, d4].forEach(store.addDay)
         store.content.title = "通院"
         for day in [d1, d2, d3, d4] { store.setStartMinute(600, on: day) }
@@ -321,7 +363,7 @@ final class ScheduleEditorStoreTests: XCTestCase {
         store.selectDay(d2)
         store.setEndMinute(690)
         XCTAssertEqual([d1, d2, d3, d4].map { store.durationMinutes(on: $0) }, [60, 90, 60, 60],
-                       "左上に出した日（下のカレンダーでタップした日）だけ変わる")
+                       "個別のとき、左上に出した日（下のカレンダーでタップした日）だけ変わる")
 
         store.setEndMinute(nil, on: d3)
         XCTAssertNil(store.durationMinutes(on: d3), "その日だけ終了未設定にもできる")
@@ -345,6 +387,7 @@ final class ScheduleEditorStoreTests: XCTestCase {
     func testDurationBackToCommonValueDropsOverride() {
         let store = makeStore().store
         store.startNew(on: d1)
+        store.setTimesIndividually(true)
         store.addDay(d2)
         store.setStartMinute(600, on: d1)
         store.setStartMinute(600, on: d2)
@@ -354,39 +397,10 @@ final class ScheduleEditorStoreTests: XCTestCase {
         XCTAssertTrue(store.durationOverrides.isEmpty, "共通の値に戻したら、その日だけの値は消える")
     }
 
-    func testApplyDurationToAllDays() {
-        let store = makeStore().store
-        store.startNew(on: d1)
-        [d2, d3].forEach(store.addDay)
-        for day in [d1, d2, d3] { store.setStartMinute(600, on: day) }
-        store.setEndMinute(660, on: d1)
-        XCTAssertFalse(store.canApplyDurationToAllDays, "全部同じなら「全日に適用」は要らない")
-
-        store.selectDay(d2)
-        store.setEndMinute(690)
-        XCTAssertTrue(store.canApplyDurationToAllDays, "違う日があれば出す")
-
-        store.applyDurationToAllDays()
-        XCTAssertEqual([d1, d2, d3].map { store.durationMinutes(on: $0) }, [90, 90, 90],
-                       "表示中の日の所要時間を全部の日に入れ直す（Q5）")
-        XCTAssertFalse(store.canApplyDurationToAllDays)
-
-        store.selectDay(d3)
-        store.setEndMinute(630)
-        XCTAssertEqual([d1, d2, d3].map { store.durationMinutes(on: $0) }, [90, 90, 30],
-                       "適用したあとも、日ごとに変えられる")
-    }
-
-    func testApplyDurationIsNotOfferedWhileEditing() throws {
-        let original = makeEvent("A社打合せ", on: d1, at: 600, duration: 60)
-        let store = makeStore([original]).store
-        try store.startEditing(eventID: original.id)
-        XCTAssertFalse(store.canApplyDurationToAllDays, "編集は 1 件だけ")
-    }
-
     func testDeselectingDayDropsItsDuration() {
         let store = makeStore().store
         store.startNew(on: d1)
+        store.setTimesIndividually(true)
         store.addDay(d2)
         store.setStartMinute(600, on: d1)
         store.setStartMinute(600, on: d2)
@@ -514,8 +528,8 @@ final class ScheduleEditorStoreTests: XCTestCase {
         store.content.metadata.transport = .car
         XCTAssertTrue(store.visibleRows.contains(.route))
         XCTAssertEqual(store.visibleRows.map(\.label),
-                       ["予定名", "場所", "到着目標", "移動手段", "ルート", "通知", "色", "終了", "同じ内容で追加"],
-                       "繰り返しの行は出さない（2026-10-13 ユーザー決定）。「同じ内容で追加」はいちばん下（2026-10-14）")
+                       ["予定名", "場所", "到着目標", "移動手段", "ルート", "通知", "色", "同じ内容で追加"],
+                       "繰り返しの行は出さない（2026-10-13）。「終了」の行もなくした（下端のハンドルで決める。2026-10-14）。「同じ内容で追加」はいちばん下")
     }
 
     // MARK: - 時間画面の表示（仕様 §37・§43）

@@ -19,9 +19,6 @@ extension ScheduleEditorStore {
             return info.notifications.summary
         case .color:
             return info.color.displayName
-        case .end:
-            guard let day = displayedDay, let end = endMinute(on: day) else { return "未設定" }
-            return TimeText.hourMinute(end)
         case .calendar:
             let id = content.calendarID ?? defaultCalendarID
             return writableCalendars.first { $0.id == id }?.title ?? "既定"
@@ -111,12 +108,6 @@ extension ScheduleEditorStore {
         return rest == 0 ? "\(hours)時間前" : "\(hours)時間\(rest)分前"
     }
 
-    /// 終了の行で素早く選べる所要時間（Q24：未設定・30・60・90・120 分・カスタム）。時間画面の下端のハンドルと同じ値を見る
-    static let durationChoices = [30, 60, 90, 120]
-    /// カスタムで選べる所要時間の範囲と刻み（分。仮）
-    static let customDurationRange = 5...(24 * 60)
-    static let customDurationStep = 5
-
     /// 下カレンダーの日付に出す予定の印（Q23）。予定色のドットを最大 3 個と、残りの件数
     func eventDots(on day: CalendarDay) -> (colors: [EventColor], more: Int) {
         let dayEvents = events
@@ -127,10 +118,4 @@ extension ScheduleEditorStore {
     }
 
     static let maxEventDots = 3
-
-    /// 表示中の日の所要時間を、分で入れる。開始時刻がない日は何もしない
-    func setDuration(_ minutes: Int?) {
-        guard let day = displayedDay, let start = startMinutes[day] else { return }
-        setEndMinute(minutes.map { start + $0 }, on: day)
-    }
 }

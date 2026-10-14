@@ -10,17 +10,20 @@ final class TimeDragMathTests: XCTestCase {
         XCTAssertEqual(TimeDragMath.startMinute(hour: 23, minute: 59), 23 * 60 + 59)
     }
 
-    func testDraggingDraftChangesStartByTheMinute() {
+    func testDraggingDraftChangesStartByFiveMinutes() {
         // 44pt で 1 時間 → 11pt で 15 分
         XCTAssertEqual(TimeDragMath.startMinute(afterDragging: 11, from: 14 * 60, hourHeight: hourHeight), 14 * 60 + 15)
-        XCTAssertEqual(TimeDragMath.startMinute(afterDragging: 27.1, from: 14 * 60, hourHeight: hourHeight), 14 * 60 + 37,
-                       "14:37 のように 1 分単位（§40）")
+        XCTAssertEqual(TimeDragMath.startMinute(afterDragging: 27.1, from: 14 * 60, hourHeight: hourHeight), 14 * 60 + 35,
+                       "動かすのも 5 分おき（36.95 分 → 14:35。2026-10-14 ユーザー決定）")
         XCTAssertEqual(TimeDragMath.startMinute(afterDragging: -44, from: 14 * 60, hourHeight: hourHeight), 13 * 60)
+        XCTAssertEqual(TimeDragMath.startMinute(afterDragging: 0.5, from: 14 * 60 + 37, hourHeight: hourHeight), 14 * 60 + 40,
+                       "前の時刻が 5 分おきでなくても、動かせば 5 分おきにそろう")
     }
 
     func testDraggingStaysWithinTheDay() {
         XCTAssertEqual(TimeDragMath.startMinute(afterDragging: -1000, from: 60, hourHeight: hourHeight), 0)
-        XCTAssertEqual(TimeDragMath.startMinute(afterDragging: 5000, from: 23 * 60, hourHeight: hourHeight), 23 * 60 + 59)
+        XCTAssertEqual(TimeDragMath.startMinute(afterDragging: 5000, from: 23 * 60, hourHeight: hourHeight), 23 * 60 + 55,
+                       "いちばん遅くて 23:55")
     }
 
     func testEndHandleSnapsToFiveMinutesOnTheClock() {
@@ -43,18 +46,16 @@ final class TimeDragMathTests: XCTestCase {
     }
 
     @MainActor
-    func testHandleAndEndRowStayInSync() {
+    func testHandleSetsTheEnd() {
         let day = CalendarDay(year: 2026, month: 10, day: 12)
         let store = ScheduleEditorStore(repository: InMemoryEventRepository(), metadataRepository: InMemoryEventMetadataRepository())
         store.startNew(on: day)
         store.setStartMinute(14 * 60)
-        // 左のハンドルを伸ばす（14:20 から 75 分ぶん下へ）→ 右の終了の行も同じ値（Q24）
+        // 下端のハンドルを伸ばす（14:20 から 75 分ぶん下へ）。終了は下端のハンドルだけで決める（「終了」の行はなくした。2026-10-14）
         store.setEndMinute(TimeDragMath.endMinute(afterDragging: 55, from: 14 * 60 + 20, start: 14 * 60, hourHeight: hourHeight), on: day)
         XCTAssertEqual(store.durationMinutes(on: day), 95)
-        XCTAssertEqual(store.valueText(for: .end), "15:35")
-        // 右で 60 分を選ぶ → 左のブロックも 60 分
-        store.setDuration(60)
-        XCTAssertEqual(store.endMinute(on: day), 15 * 60)
+        XCTAssertEqual(store.endMinute(on: day), 15 * 60 + 35)
+        XCTAssertFalse(InputRow.allCases.map(\.label).contains("終了"))
     }
 
     func testStartWheelIsEveryFiveMinutesAcrossHours() {

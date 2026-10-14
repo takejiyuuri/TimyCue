@@ -2,23 +2,21 @@ import Foundation
 
 /// 時間画面で、仮予定を動かしたり伸ばしたりするときの計算（仕様 §38・§40・§41）。画面に依らない計算だけを置く。
 enum TimeDragMath {
-    /// 動かしたときに合わせる刻み（分）。例のとおり 14:37 のように 1 分単位で出す（§40）
-    static let step = 1
-    /// 終了のハンドルで合わせる刻み（分）。時計の 5 分おき（15:00・15:05…）に合わせる。
-    /// 1 分おきでは指で狙った時刻に止めにくかった（2026-10-14 実機の指摘。刻みは仮）
-    static let endStep = 5
+    /// 動かしたとき・終了を伸ばしたときに合わせる刻み（分）。どちらも時計の 5 分おき（14:00・14:05…）。
+    /// 前は §40 の例「14:37」のとおり開始は 1 分単位だったが、5 分おきにした（2026-10-14 ユーザー決定）
+    static let step = 5
     /// 終了のハンドルで縮められる、いちばん短い所要時間（分。仮）
     static let minimumDuration = 5
 
-    /// 指を dy だけ動かしたときの、新しい開始時刻（§40）。0:00〜23:59 に収める
+    /// 指を dy だけ動かしたときの、新しい開始時刻（§40）。5 分おきにそろえ、0:00〜23:55 に収める
     static func startMinute(afterDragging dy: Double, from start: MinuteOfDay, hourHeight: Double) -> MinuteOfDay {
-        let moved = Double(start) + minutes(for: dy, hourHeight: hourHeight)
-        return clampToDay(snap(moved))
+        let moved = snap(Double(start) + minutes(for: dy, hourHeight: hourHeight))
+        return min(max(moved, 0), MinuteOfDay.minutesPerDay - step)
     }
 
     /// 下端のハンドルを dy だけ動かしたときの、新しい終了時刻（§41）。時計の 5 分おきに合わせ、開始より minimumDuration 分は後にする
     static func endMinute(afterDragging dy: Double, from end: MinuteOfDay, start: MinuteOfDay, hourHeight: Double) -> MinuteOfDay {
-        let moved = snap(Double(end) + minutes(for: dy, hourHeight: hourHeight), step: endStep)
+        let moved = snap(Double(end) + minutes(for: dy, hourHeight: hourHeight))
         return min(max(moved, start + minimumDuration), MinuteOfDay.minutesPerDay)
     }
 
@@ -35,7 +33,7 @@ enum TimeDragMath {
         hourHeight > 0 ? dy / hourHeight * 60 : 0
     }
 
-    private static func snap(_ minute: Double, step: Int = TimeDragMath.step) -> MinuteOfDay {
+    private static func snap(_ minute: Double) -> MinuteOfDay {
         Int((minute / Double(step)).rounded()) * step
     }
 

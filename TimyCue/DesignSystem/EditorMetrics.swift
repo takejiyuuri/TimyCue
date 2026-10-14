@@ -30,6 +30,14 @@ enum EditorMetrics {
     static let blockFont = Font.system(size: 11, weight: .semibold)
     /// 終了時刻のない予定は短い固定の高さ（§37）
     static let noEndBlockHeight: CGFloat = 20
+    /// 予定ブロックがこの高さ以上なら、2 段目に終了の時刻も出す（2026-10-14 ユーザー決定。値は仮）
+    static let blockTwoLineHeight: CGFloat = 30
+    /// 「同じ内容で追加」を「個別」にしたときの、日付の丸いボタン（2026-10-14 ユーザー決定。大きさ・文字は仮）
+    static let dayButtonSize: CGFloat = 44
+    static let dayButtonSpacing: CGFloat = 8
+    static let dayButtonBorderWidth: CGFloat = 2
+    static let dayButtonMonthFont = Font.system(size: 10, weight: .medium).monospacedDigit()
+    static let dayButtonDayFont = Font.system(size: 17, weight: .bold).monospacedDigit()
     static let draftOpacity: Double = 0.55
     /// 仮予定を動かしている間に出す時刻（§40）
     static let dragTimeFont = Font.system(size: 11, weight: .bold).monospacedDigit()

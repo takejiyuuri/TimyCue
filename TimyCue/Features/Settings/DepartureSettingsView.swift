@@ -75,8 +75,8 @@ struct DepartureSettingsView: View {
             } header: {
                 Text("普段よく使う移動手段")
             } footer: {
-                // 文言は仮
-                Text("移動手段が「自動」の予定で、まだ実績がないときに使います。")
+                // 2026-10-14 決定の文言
+                Text("『自動』の予定で、まだ十分な実績がないときに使用します。TimyCueが移動実績から判断できる場合は、その予測を優先します。")
             }
         }
         .navigationTitle("出発・移動")

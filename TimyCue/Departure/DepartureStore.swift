@@ -10,6 +10,8 @@ final class DepartureStore {
     private(set) var settings: DepartureSettings
     private(set) var placeBook: PlaceBook
     private(set) var estimates: [UUID: DepartureEstimate] = [:]
+    /// 出発時刻に添えて小さく出す知らせ（目安・古い値。2026-10-14 決定）
+    private(set) var notes: [UUID: DepartureNote] = [:]
     /// 「普段よく使う移動手段」を聞いている（移動手段が「自動」の予定を初めて計算するとき、1 回だけ。2026-10-14 決定）
     private(set) var asksUsualTransport = false
 
@@ -27,10 +29,19 @@ final class DepartureStore {
     private struct Record {
         var inputs: Inputs
         var calculatedAt: Date
+        /// その計算に使った現在地（現在地を起点にしたときだけ）
         var usedLocation: CLLocation?
-        /// いちばん新しい、計算できた推奨出発時刻と、それを計算した時刻
+        /// いちばん新しい、計算できた推奨出発時刻・地図の移動時間・計算した時刻と、そのときの起点・現在地
         var lastValid: Date?
         var lastValidAt: Date?
+        var lastTravelSeconds: TimeInterval?
+        var lastValidOrigin: DeparturePlanner.Origin?
+        var lastValidLocation: CLLocation?
+
+        init(inputs: Inputs, calculatedAt: Date) {
+            self.inputs = inputs
+            self.calculatedAt = calculatedAt
+        }
     }
 
     private struct Inputs: Equatable {
@@ -68,6 +79,12 @@ final class DepartureStore {
         return estimates[event.id] ?? .pending
     }
 
+    /// 出発時刻に添える小さな知らせ（「現在地を取得できないため、自宅からの目安です」「最新の交通情報を取得できません」）
+    func note(for event: CalendarEvent) -> DepartureNote? {
+        guard case .available = estimate(for: event) else { return nil }
+        return notes[event.id]
+    }
+
     /// 計算し直す。ホームを開いたとき・1 分ごと・前面に戻ったとき・予定が変わったときに呼ぶ。
     /// 5 分たった・入力（場所・移動手段・予定時刻・到着目標・設定・起点）が変わった・現在地が大きく動いた予定だけ計算する。
     /// force なら全部すぐ計算する（2026-10-14 決定：5 分は定期の基本値。変わったときはすぐ）
@@ -75,8 +92,10 @@ final class DepartureStore {
         guard isEnabled else { return }
         let targets = DeparturePlanner.eventsToCalculate(in: events, now: now)
         let ids = Set(targets.map(\.id))
+        // 予定が過ぎた・変わったら、次の予定へずらす（計算の対象から外れた予定の結果は捨てる）
         for id in Array(estimates.keys) where !ids.contains(id) {
             estimates[id] = nil
+            notes[id] = nil
             records[id] = nil
         }
         for event in targets where !running.contains(event.id) {
@@ -100,6 +119,7 @@ final class DepartureStore {
         }
     }
 
+    /// 前のルート計算に使った現在地から 300m 以上動いたか（2026-10-14 決定）
     private func movedSignificantly(since used: CLLocation?, origin: DeparturePlanner.Origin) -> Bool {
         guard origin == .currentLocation, let used, let latest = location.location else { return false }
         return latest.distance(from: used) >= DeparturePlanner.significantMoveMeters
@@ -124,9 +144,15 @@ final class DepartureStore {
         }
         running.insert(id)
         let travel = travel
+        // 起点・行き先・移動手段が同じなら、前に計算できた移動時間を 1 回目の概算に使う（2026-10-14 決定）
+        let previous = records[id]
+        let previousTravelSeconds = previous?.lastValidOrigin == inputs.origin
+            && previous?.inputs.destination == inputs.destination && previous?.inputs.transport == inputs.transport
+            ? previous?.lastTravelSeconds : nil
         Task { @MainActor in
             defer { self.running.remove(id) }
             var usedLocation: CLLocation?
+            var note: DepartureNote?
             let from: CLLocationCoordinate2D
             switch inputs.origin {
             case .place(let place):
@@ -136,8 +162,9 @@ final class DepartureStore {
                     usedLocation = current
                     from = current.coordinate
                 } else if let fallbackOrigin {
-                    // 現在地が取れないときは、前の予定・自宅からの計算を目安として続ける（追加仕様書 §32.1）
+                    // 現在地が取れないときは、前の予定・自宅からの計算を目安として続け、目安だと小さく知らせる（追加仕様書 §32.1・2026-10-14 決定）
                     from = fallbackOrigin.coordinate
+                    note = .fallbackOrigin(fallbackOrigin.name)
                 } else {
                     self.store(.unavailable(.failed), for: id, inputs: inputs, now: now, usedLocation: nil)
                     return
@@ -145,45 +172,67 @@ final class DepartureStore {
             case .notYet:
                 return
             }
-            let result: DepartureEstimate
             do {
-                let departure = try await DeparturePlanner.recommendedDeparture(
+                let result = try await DeparturePlanner.recommendedDeparture(
                     from: from, to: destination.coordinate, transport: transport, start: inputs.start,
-                    arrivalTargetMinutes: inputs.arrivalTargetMinutes, margin: inputs.settings.marginLevel, now: now, travel: travel)
-                result = .available(departure)
+                    arrivalTargetMinutes: inputs.arrivalTargetMinutes, margin: inputs.settings.marginLevel, now: now,
+                    previousTravelSeconds: previousTravelSeconds, travel: travel)
+                self.store(.available(result.departure), note: note, travelSeconds: result.travelSeconds,
+                           for: id, inputs: inputs, now: now, usedLocation: usedLocation)
             } catch TravelTimeError.transitUnavailable {
-                result = .unavailable(.transitUnavailable)
-            } catch TravelTimeError.bicycleUnsupported {
-                result = .unavailable(.bicycleUnsupported)
+                self.store(.unavailable(.transitUnavailable), for: id, inputs: inputs, now: now, usedLocation: usedLocation)
+            } catch TravelTimeError.bicycleUnavailable {
+                self.store(.unavailable(.bicycleUnavailable), for: id, inputs: inputs, now: now, usedLocation: usedLocation)
             } catch {
-                result = .unavailable(.failed)
+                self.store(.unavailable(.failed), for: id, inputs: inputs, now: now, usedLocation: usedLocation)
             }
-            self.store(result, for: id, inputs: inputs, now: now, usedLocation: usedLocation)
         }
     }
 
-    private func store(_ estimate: DepartureEstimate, for id: UUID, inputs: Inputs, now: Date, usedLocation: CLLocation?) {
-        let previous = records[id]
-        var lastValid = previous?.lastValid
-        var lastValidAt = previous?.lastValidAt
+    private func store(_ estimate: DepartureEstimate,
+                       note: DepartureNote? = nil,
+                       travelSeconds: TimeInterval? = nil,
+                       for id: UUID,
+                       inputs: Inputs,
+                       now: Date,
+                       usedLocation: CLLocation?) {
+        var record = records[id] ?? Record(inputs: inputs, calculatedAt: now)
         var shown = estimate
+        var shownNote = note
         switch estimate {
         case .available(let departure):
-            lastValid = departure
-            lastValidAt = now
-        case .unavailable(.failed), .unavailable(.transitUnavailable):
-            // 一度計算できたあとの一時的な失敗は、行き先と移動手段が同じなら 15 分まで前の値を使い続ける（追加仕様書 §25.6）
-            if let lastValid, let lastValidAt, let previous,
-               previous.inputs.destination == inputs.destination, previous.inputs.transport == inputs.transport,
-               now.timeIntervalSince(lastValidAt) < TimeInterval(DeparturePlanner.keepLastValidMinutes * 60) {
+            record.lastValid = departure
+            record.lastValidAt = now
+            record.lastTravelSeconds = travelSeconds
+            record.lastValidOrigin = inputs.origin
+            record.lastValidLocation = usedLocation
+        case .unavailable(.failed), .unavailable(.transitUnavailable), .unavailable(.bicycleUnavailable):
+            // 一度計算できたあとの一時的な失敗は、起点・行き先・移動手段が同じ（現在地なら前のルート計算の地点から 300m 未満）なら、
+            // 15 分まで前の値を使い、「最新の交通情報を取得できません」と小さく出す（追加仕様書 §25.6・2026-10-14 決定）
+            if let lastValid = record.lastValid, let lastValidAt = record.lastValidAt,
+               now.timeIntervalSince(lastValidAt) < TimeInterval(DeparturePlanner.keepLastValidMinutes * 60),
+               record.inputs.destination == inputs.destination, record.inputs.transport == inputs.transport,
+               originUnchanged(record, inputs: inputs, usedLocation: usedLocation) {
                 shown = .available(lastValid)
+                shownNote = .staleTraffic
             }
         default:
             break
         }
+        record.inputs = inputs
+        record.calculatedAt = now
+        record.usedLocation = usedLocation
+        records[id] = record
         estimates[id] = shown
-        records[id] = Record(inputs: inputs, calculatedAt: now, usedLocation: usedLocation,
-                             lastValid: lastValid, lastValidAt: lastValidAt)
+        notes[id] = shownNote
+    }
+
+    /// 前に計算できたときと起点が実質同じか。現在地なら、前のルート計算に使った地点から 300m 未満
+    private func originUnchanged(_ record: Record, inputs: Inputs, usedLocation: CLLocation?) -> Bool {
+        guard let lastOrigin = record.lastValidOrigin, lastOrigin == inputs.origin else { return false }
+        guard inputs.origin == .currentLocation else { return true }
+        guard let before = record.lastValidLocation, let now = usedLocation ?? location.location else { return false }
+        return now.distance(from: before) < DeparturePlanner.significantMoveMeters
     }
 
     // MARK: - 設定 ＞ 出発・移動

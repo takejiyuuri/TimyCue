@@ -15,6 +15,8 @@ final class LocationProvider: NSObject, CLLocationManagerDelegate {
 
     private let manager = CLLocationManager()
     @ObservationIgnored private var waiters: [CheckedContinuation<CLLocation?, Never>] = []
+    /// ホームが前面の間、現在地の変化を受け取っているか
+    @ObservationIgnored private var isWatching = false
 
     /// これより古い現在地は使わず、取り直す（秒。仮）
     static let freshSeconds: TimeInterval = 120
@@ -31,6 +33,10 @@ final class LocationProvider: NSObject, CLLocationManagerDelegate {
     /// 現在地を 1 回取る。まだ聞いていなければ、ここで「このAppの使用中」の許可を求める。取れなければ nil
     func currentLocation() async -> CLLocation? {
         guard isEnabled else { return nil }
+        // 現在地の変化を受け取っている間は、300m 動くたびに新しくなるので、手元のいちばん新しい現在地で足りる
+        if isWatching, let location {
+            return location
+        }
         if let location, Date().timeIntervalSince(location.timestamp) < Self.freshSeconds {
             return location
         }
@@ -45,9 +51,29 @@ final class LocationProvider: NSObject, CLLocationManagerDelegate {
         default:
             return await withCheckedContinuation { continuation in
                 waiters.append(continuation)
-                manager.requestLocation()
+                // 受け取っている間は、次の知らせ（初めの 1 回はすぐ来る）を待つ
+                if !isWatching { manager.requestLocation() }
             }
         }
+    }
+
+    /// ホームが前面の間だけ、現在地が 300m 動くたびに受け取る（前のルート計算の地点から動いたら計算し直すため）。
+    /// 許可がまだなら何もしない（ここでは許可を求めない）
+    func startWatching() {
+        guard isEnabled else { return }
+        switch manager.authorizationStatus {
+        case .authorizedWhenInUse, .authorizedAlways:
+            manager.distanceFilter = DeparturePlanner.significantMoveMeters
+            manager.startUpdatingLocation()
+            isWatching = true
+        default:
+            break
+        }
+    }
+
+    func stopWatching() {
+        manager.stopUpdatingLocation()
+        isWatching = false
     }
 
     private func finish(_ location: CLLocation?) {

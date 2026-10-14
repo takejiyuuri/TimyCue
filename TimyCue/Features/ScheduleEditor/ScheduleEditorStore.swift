@@ -6,7 +6,7 @@ import Observation
 ///
 /// 日付（2026-10-14 ユーザー決定）：下のカレンダーをタップすると、左上に出す日を選ぶ（選んでいない日なら左上の日をその日へ動かす）。
 /// 複数の日は、右の入力のいちばん下の「同じ内容で追加」を開いている間だけ、なぞったりタップしたりして足す・外す。
-/// 時刻は日ごとに決める（追加仕様書 vNext §1.2）。左上には 1 日だけ出す。
+/// 足した日の時刻は、初めは「一括」（全部の日で同じ時刻）。「個別」を選ぶと日ごとに決める。左上には 1 日だけ出す。
 @MainActor
 @Observable
 final class ScheduleEditorStore {
@@ -21,8 +21,11 @@ final class ScheduleEditorStore {
     private(set) var startMinutes: [CalendarDay: MinuteOfDay] = [:]
     /// 全部の日に共通の所要時間（Q1：最初に入れた値が全部の日に入る）。nil は終了未設定
     private(set) var commonDurationMinutes: Int?
-    /// その日だけ変えた所要時間（Q1。その日を左上に出して変える）。値が nil の日は、その日だけ終了未設定
+    /// その日だけ変えた所要時間（Q1。「個別」のとき、その日を左上に出して変える）。値が nil の日は、その日だけ終了未設定
     private(set) var durationOverrides: [CalendarDay: Int?] = [:]
+    /// 「同じ内容で追加」の時刻を日ごとに決めるか（2026-10-14 ユーザー決定）。
+    /// false（一括。初め）：全部の日で同じ開始時刻・所要時間。true（個別）：日ごとに決める
+    private(set) var setsTimesIndividually = false
     /// 右上の入力欄の中身
     var content = EventContent()
     /// 右上で開いている行（仕様 §45：同時に 1 行だけ）
@@ -197,6 +200,7 @@ final class ScheduleEditorStore {
         durationOverrides = [:]
         displayedDay = day
         baseDay = day
+        setsTimesIndividually = false
         resetTransientState()
         if let day { selectedDays = [day] }
         baseline = snapshot
@@ -215,6 +219,7 @@ final class ScheduleEditorStore {
         durationOverrides = [:]
         displayedDay = event.day
         baseDay = event.day
+        setsTimesIndividually = false
         resetTransientState()
         baseline = snapshot
     }
@@ -228,6 +233,7 @@ final class ScheduleEditorStore {
         content = content.copiedForNewEvent()
         selectedDays = []
         baseDay = nil
+        setsTimesIndividually = false
         startMinutes = [:]
         commonDurationMinutes = duration
         durationOverrides = [:]
@@ -264,7 +270,7 @@ final class ScheduleEditorStore {
         selectedDays.filter { $0 != baseDay }
     }
 
-    /// 同じ内容で日を足す（新規・コピーのみ）。開始時刻は入れず、日ごとに決めてもらう（追加仕様書 vNext §1.2：一括で時刻を入れない）。
+    /// 同じ内容で日を足す（新規・コピーのみ）。「一括」なら開始時刻も同じものを入れる。「個別」なら時刻は日ごとに決めてもらう。
     /// 所要時間は全部の日に共通の値が入る（Q1）。まだ何も選んでいなければ、その日を選ぶ
     func addDay(_ day: CalendarDay) {
         guard mode.allowsMultipleDays, !selectedDays.contains(day) else { return }
@@ -273,6 +279,29 @@ final class ScheduleEditorStore {
             return
         }
         selectedDays = (selectedDays + [day]).sorted()
+        if !setsTimesIndividually, let start = sharedStartMinute {
+            startMinutes[day] = start
+        }
+    }
+
+    /// 「一括」のときの、全部の日に共通の開始時刻（最初に選んだ日の時刻）
+    private var sharedStartMinute: MinuteOfDay? {
+        baseDay.flatMap { startMinutes[$0] } ?? selectedDays.lazy.compactMap { self.startMinutes[$0] }.first
+    }
+
+    /// 「一括」と「個別」を切り替える（2026-10-14 ユーザー決定）。
+    /// 一括に戻すときは、最初に選んだ日の開始時刻・所要時間を全部の日に入れ直す（どの日の時刻にそろえるかは仮）
+    func setTimesIndividually(_ individually: Bool) {
+        guard mode.allowsMultipleDays, individually != setsTimesIndividually else { return }
+        setsTimesIndividually = individually
+        guard !individually else { return }
+        let start = sharedStartMinute
+        let duration = baseDay.flatMap { durationMinutes(on: $0) } ?? commonDurationMinutes
+        for day in selectedDays {
+            startMinutes[day] = start
+        }
+        commonDurationMinutes = duration
+        durationOverrides = [:]
     }
 
     /// 足した日を外す（新規・コピーのみ）。最初に選んだ日は外さない。左上に出していた日を外したら、最初に選んだ日を出す
@@ -303,7 +332,11 @@ final class ScheduleEditorStore {
     func setStartMinute(_ minute: MinuteOfDay, on day: CalendarDay? = nil) {
         guard !areAppleFieldsLocked, let target = day ?? displayedDay else { return }
         if !selectedDays.contains(target) { selectDay(target) }
-        startMinutes[target] = clampToDay(minute)
+        // 「一括」なら全部の日で同じ時刻（2026-10-14 ユーザー決定）
+        let days = mode.allowsMultipleDays && !setsTimesIndividually ? selectedDays : [target]
+        for each in days {
+            startMinutes[each] = clampToDay(minute)
+        }
     }
 
     /// 時刻を確定して、まだ時刻のない次の日へ表示を移す（仕様 §36）。移った先の日を返す
@@ -343,7 +376,7 @@ final class ScheduleEditorStore {
         }
 
         let isFirstEntry = commonDurationMinutes == nil && durationOverrides.isEmpty
-        if !mode.allowsMultipleDays || selectedDays.count <= 1 || isFirstEntry {
+        if !mode.allowsMultipleDays || !setsTimesIndividually || selectedDays.count <= 1 || isFirstEntry {
             commonDurationMinutes = duration
             durationOverrides = [:]
         } else if duration == commonDurationMinutes {
@@ -351,20 +384,6 @@ final class ScheduleEditorStore {
         } else {
             durationOverrides[target] = .some(duration)
         }
-    }
-
-    /// 「全日に適用」を出すか（Q5）。複数日を選んでいて、表示中の日と所要時間が違う日があるとき
-    var canApplyDurationToAllDays: Bool {
-        guard mode.allowsMultipleDays, selectedDays.count > 1, let shown = displayedDay else { return false }
-        let duration = durationMinutes(on: shown)
-        return selectedDays.contains { durationMinutes(on: $0) != duration }
-    }
-
-    /// 「全日に適用」（Q5）：表示中の日の所要時間を、選んでいる全部の日に入れ直す
-    func applyDurationToAllDays() {
-        guard let shown = displayedDay else { return }
-        commonDurationMinutes = durationMinutes(on: shown)
-        durationOverrides = [:]
     }
 
     // MARK: - 右上の行
@@ -560,6 +579,7 @@ final class ScheduleEditorStore {
         commonDurationMinutes = baseline.commonDurationMinutes
         durationOverrides = baseline.durationOverrides
         content = baseline.content
+        setsTimesIndividually = false
         if let shown = displayedDay, !selectedDays.isEmpty, !selectedDays.contains(shown) {
             displayedDay = baseDay ?? selectedDays.first
         }

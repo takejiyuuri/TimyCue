@@ -118,10 +118,45 @@ final class DeparturePlannerTests: XCTestCase {
 
     func testCarDepartureUsesTheParkingBufferAndMargin() async throws {
         // 予定開始 10:00・到着目標 10 分前 → 9:50。車 20 分＋駐車 5 分＝25 分、余裕（標準）3 分 → 9:22
-        let leave = try await DeparturePlanner.recommendedDeparture(
+        let result = try await DeparturePlanner.recommendedDeparture(
             from: home.coordinate, to: office.coordinate, transport: .car, start: at(10 * 60), arrivalTargetMinutes: 10,
             margin: .standard, now: at(7 * 60), travel: FakeTravel(seconds: 20 * 60), calendar: calendar)
-        XCTAssertEqual(leave, at(9 * 60 + 22))
+        XCTAssertEqual(result.departure, at(9 * 60 + 22))
+        XCTAssertEqual(result.travelSeconds, 20 * 60, "次の計算の 1 回目の概算に使う")
+    }
+
+    /// 聞かれた出発の時刻を覚えておく地図（2 段階の問い合わせを確かめる）
+    private final class RecordingTravel: TravelTimeProviding {
+        var departures: [Date?] = []
+        let seconds: (Date?) -> TimeInterval
+
+        init(seconds: @escaping (Date?) -> TimeInterval) {
+            self.seconds = seconds
+        }
+
+        func travelTime(from origin: CLLocationCoordinate2D, to destination: CLLocationCoordinate2D, transport: TransportMode,
+                        departure: Date?, arrival: Date?) async throws -> TravelTime {
+            departures.append(departure)
+            return TravelTime(seconds: seconds(departure), departure: nil)
+        }
+    }
+
+    func testCarAsksTheMapTwiceAtTheTimeItWillActuallyLeave() async throws {
+        // ① 大まかに 30 分 → ② 到着目標 9:50 − 30 分 ＝ 9:20 に出るとして聞くと 40 分（渋滞）→ 40＋駐車 5＝45 分、余裕 5 分 → 9:00
+        let travel = RecordingTravel(seconds: { $0 == nil ? 30 * 60 : 40 * 60 })
+        let result = try await DeparturePlanner.recommendedDeparture(
+            from: home.coordinate, to: office.coordinate, transport: .car, start: at(10 * 60), arrivalTargetMinutes: 10,
+            margin: .standard, now: at(7 * 60), travel: travel, calendar: calendar)
+        XCTAssertEqual(travel.departures, [nil, at(9 * 60 + 20)], "2 回目は、実際に出そうな時刻で渋滞の見込みを聞く（2026-10-14 決定）")
+        XCTAssertEqual(result.departure, at(9 * 60))
+    }
+
+    func testPreviousTravelTimeIsUsedAsTheFirstGuess() async throws {
+        let travel = RecordingTravel(seconds: { _ in 25 * 60 })
+        _ = try await DeparturePlanner.recommendedDeparture(
+            from: home.coordinate, to: office.coordinate, transport: .walk, start: at(10 * 60), arrivalTargetMinutes: 0,
+            margin: .standard, now: at(7 * 60), previousTravelSeconds: 20 * 60, travel: travel, calendar: calendar)
+        XCTAssertEqual(travel.departures, [at(9 * 60 + 40)], "前に計算できた移動時間があれば、それを 1 回目の概算にする（問い合わせは 1 回）")
     }
 
     func testTransitLooksForATrainArrivingBeforeTheTargetMinusTheMargin() async throws {
@@ -131,21 +166,21 @@ final class DeparturePlannerTests: XCTestCase {
             asked = arrival
             return arrival.addingTimeInterval(-50 * 60 + 30)
         })
-        let leave = try await DeparturePlanner.recommendedDeparture(
+        let result = try await DeparturePlanner.recommendedDeparture(
             from: home.coordinate, to: office.coordinate, transport: .publicTransit, start: at(10 * 60), arrivalTargetMinutes: 0,
             margin: .standard, now: at(7 * 60), travel: travel, calendar: calendar)
         XCTAssertEqual(asked, at(9 * 60 + 56), "安全マージンを乗車時間に足さず、到着目標を前倒しして便を探す（§8.3）")
-        XCTAssertEqual(leave, at(9 * 60 + 6), "出発時刻は分の頭にそろえる")
+        XCTAssertEqual(result.departure, at(9 * 60 + 6), "出発時刻は分の頭にそろえる")
     }
 
     func testErrorsAreReported() async {
         do {
             _ = try await DeparturePlanner.recommendedDeparture(
                 from: home.coordinate, to: office.coordinate, transport: .bicycle, start: at(10 * 60), arrivalTargetMinutes: 0,
-                margin: .standard, now: at(7 * 60), travel: FakeTravel(seconds: 0, error: .bicycleUnsupported), calendar: calendar)
-            XCTFail("自転車ルートを使えない iOS では計算できない")
+                margin: .standard, now: at(7 * 60), travel: FakeTravel(seconds: 0, error: .bicycleUnavailable), calendar: calendar)
+            XCTFail("自転車のルートが取れなければ計算できない")
         } catch {
-            XCTAssertEqual(error as? TravelTimeError, .bicycleUnsupported)
+            XCTAssertEqual(error as? TravelTimeError, .bicycleUnavailable)
         }
     }
 
@@ -154,7 +189,10 @@ final class DeparturePlannerTests: XCTestCase {
     func testProblemMessages() {
         XCTAssertEqual(DepartureProblem.placeUnconfirmed.message, "場所を確認してください")
         XCTAssertEqual(DepartureProblem.transitUnavailable.message, "公共交通ルートを取得できません")
-        XCTAssertEqual(DepartureProblem.bicycleUnsupported.message, "このiOSでは自転車ルートを計算できません")
+        XCTAssertEqual(DepartureProblem.bicycleUnavailable.message, "自転車ルートを取得できません",
+                       "OS の版で先に弾かず、実際に取れなかったとき（2026-10-14 決定）")
+        XCTAssertEqual(DepartureNote.fallbackOrigin("自宅").message, "現在地を取得できないため、自宅からの目安です")
+        XCTAssertEqual(DepartureNote.staleTraffic.message, "最新の交通情報を取得できません")
         XCTAssertEqual(DepartureProblem.failed.message, "出発時刻を計算できません")
     }
 
