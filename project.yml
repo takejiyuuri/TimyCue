@@ -37,8 +37,10 @@ targets:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         ITSAppUsesNonExemptEncryption: false
+        # 起動画面：ブランドのアイボリーの背景の真ん中に縦型ロゴ（追加仕様書 §46.2・§46.5）
         UILaunchScreen:
           UIColorName: LaunchBackground
+          UIImageName: LaunchLogo
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
         # 許可の説明文。許可は必要になった時に初めて求める（仕様 §79）。位置情報・通知・モーションは使う段階で足す

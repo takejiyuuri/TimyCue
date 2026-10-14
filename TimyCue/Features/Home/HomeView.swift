@@ -97,7 +97,7 @@ struct HomeView: View {
                 refreshDepartures(now: Date(), force: true)
             }
         }
-        .background(Theme.Colors.background.ignoresSafeArea())
+        .background(Theme.Colors.homeBackground.ignoresSafeArea())
         .onAppear {
             store.updateToday()
             departures.location.startWatching()
