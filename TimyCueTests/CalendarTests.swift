@@ -156,6 +156,28 @@ final class CalendarStoreTests: XCTestCase {
         XCTAssertEqual(scrollView.contentOffset.y, 6_000, "とどめ終わったら、ふつうに動く")
     }
 
+    func testSavedCopyOpensTheFirstCopiedDayInTheMonthCalendar() {
+        let store = makeStore([])
+        store.setVisibleRows(6)
+        let far = today.adding(days: 120)
+        let copies = [CalendarEvent(day: far.adding(days: 7), startMinute: 600, title: "打合せ", source: .timyCue),
+                      CalendarEvent(day: far, startMinute: 840, title: "打合せ", source: .timyCue)]
+        XCTAssertFalse(CalendarStore.isDay(far, visibleFrom: store.topWeek, rows: 6))
+        store.showCopies(copies)
+        XCTAssertTrue(store.isOpen(far), "コピー先の最初の日の吹き出しを開く（貼り付けたことがわかるように。2026-10-14 実機の指摘）")
+        XCTAssertTrue(CalendarStore.isDay(far, visibleFrom: store.topWeek, rows: 6), "見えていなければ、その月へ動かす")
+        XCTAssertEqual(store.topWeekID, CalendarWeek(containing: CalendarMonth(far).firstDay).id)
+    }
+
+    func testSavedCopyFromTheTimelineShowsTheCopiedDaysTimeline() {
+        let store = makeStore([])
+        store.path = [.timeline(today)]
+        let next = today.adding(days: 3)
+        store.showCopies([CalendarEvent(day: next, startMinute: 600, title: "打合せ", source: .timyCue)])
+        XCTAssertEqual(store.path.last, .timeline(next), "1 日タイムラインからなら、コピー先の日の 1 日タイムラインへ")
+        XCTAssertEqual(store.timelineFocus, TimelineFocus(day: next, minute: 600), "作った予定が見える位置へ")
+    }
+
     func testTabTappedAgainGoesToTodayWhenItIsNotVisible() {
         let store = makeStore([])
         store.setVisibleRows(6)

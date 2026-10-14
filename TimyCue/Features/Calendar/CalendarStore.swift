@@ -365,6 +365,22 @@ final class CalendarStore {
         if !isOpen(day) { tapDay(day) }
     }
 
+    /// 予定詳細の「編集」からコピーを保存したあと：コピー先の最初の予定を見せる（2026-10-14 実機の指摘「貼り付けたことがわからない」）。
+    /// 1 日タイムラインを見ていれば、その日の 1 日タイムラインで作った予定が見える位置へ。月カレンダーなら、その日が見えていなければ
+    /// その月を開いたときと同じ位置へ動かし、その日の吹き出しを開く（「＋」から保存したあとと同じ。Q22）
+    func showCopies(_ copies: [CalendarEvent]) {
+        guard let first = copies.min(by: { ($0.day, $0.startMinute) < ($1.day, $1.startMinute) }) else { return }
+        if case .timeline(let shownDay)? = path.last {
+            if shownDay != first.day { path.append(.timeline(first.day)) }
+            focusTimeline(on: first.day, minute: first.startMinute)
+        } else {
+            if !Self.isDay(first.day, visibleFrom: topWeek, rows: visibleRows) {
+                scroll(to: CalendarWeek(containing: CalendarMonth(first.day).firstDay).id)
+            }
+            showSavedDay(first.day)
+        }
+    }
+
     /// 1 日タイムラインの「＋」から保存したあと：作った予定が見える位置までスクロールする（Q22）
     func focusTimeline(on day: CalendarDay, minute: MinuteOfDay) {
         reload()

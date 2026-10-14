@@ -29,7 +29,12 @@ struct CalendarTabView: View {
                 }
             }
             .fullScreenCover(item: $store.editRequest) { request in
-                ScheduleEditorView(initialMonth: request.month, onDeleted: { store.closeEventDetail(request.id) })
+                ScheduleEditorView(initialMonth: request.month,
+                                   onSaved: { saved in
+                                       // コピーを保存したら、コピー先の日を見せる（2026-10-14 実機の指摘）。編集の保存は今までどおり
+                                       if case .copy = editorStore.mode { store.showCopies(saved) }
+                                   },
+                                   onDeleted: { store.closeEventDetail(request.id) })
                     .environment(editorStore)
                     .environment(store)
                     .environment(connection)
