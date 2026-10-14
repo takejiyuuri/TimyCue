@@ -9,9 +9,12 @@ struct EventDetailCard: View {
     var isViewOnly = false
     let onEdit: () -> Void
     @Environment(\.openURL) private var openURL
+    /// 出発時刻の計算（ホームと同じ結果を出発目安に出す）。渡されていなければ、開発用の扱い
+    @Environment(DepartureStore.self) private var departures: DepartureStore?
 
     var body: some View {
-        let rows = EventDetailRows(event: event, metadata: metadata)
+        let estimate = departures?.estimate(for: event) ?? .development(for: event)
+        let rows = EventDetailRows(event: event, metadata: metadata, estimate: estimate)
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Circle()
@@ -108,10 +111,10 @@ struct EventDetailRows: Equatable {
     /// 移動手段が車のときだけ（仕様 §52）
     let route: String?
     let notifications: String
-    /// 出発目安。移動時間の計算（第5段階）ができるまでは出せない
+    /// 出発目安。ホームと同じ出発時刻の計算の結果（2026-10-14 実機の指摘「場所を入れても『まだ計算しません』のまま」）
     let departure: String
 
-    init(event: CalendarEvent, metadata: TimyCueEventMetadata?) {
+    init(event: CalendarEvent, metadata: TimyCueEventMetadata?, estimate: DepartureEstimate? = nil) {
         let day = event.day
         let date = "\(day.month)月\(day.day)日（\(day.weekdaySymbol())）"
         dateTime = event.isAllDay ? "\(date) 終日" : "\(date) \(CalendarStore.timeText(for: event))"
@@ -121,7 +124,18 @@ struct EventDetailRows: Equatable {
         transport = info.transport.displayName
         route = info.transport == .car ? info.route.displayName : nil
         notifications = info.notifications.summary
-        departure = "まだ計算しません"
+        departure = Self.departureText(estimate ?? .development(for: event))
+    }
+
+    /// 出発目安の文字（言い方は仮）。計算できたら「16:52ごろ」。まだなら、近くなったら計算する（起点が決まらない予定は
+    /// 開始の 4 時間前から、24 時間以内の 3 件まで。追加仕様書 §45・2026-10-14 決定 E6）。計算できなければその原因
+    static func departureText(_ estimate: DepartureEstimate) -> String {
+        switch estimate {
+        case .available(let date): "\(TimeText.hourMinute(Clock.minuteOfDay(date)))ごろ"
+        case .pending: "近くなったら計算します"
+        case .notNeeded: "場所なしのため計算しません"
+        case .unavailable(let problem): problem.message
+        }
     }
 
     /// 外部の地図（Apple マップ）で場所を開く URL

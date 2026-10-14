@@ -162,6 +162,17 @@ final class EventDetailRowsTests: XCTestCase {
         XCTAssertEqual(rows.arrivalTarget, "0分前（予定開始時刻）", "到着目標は必ず値を持つ。TimyCue の情報がなければ初期値（Q70）")
         XCTAssertEqual(rows.transport, "自動")
         XCTAssertNil(rows.route)
+        XCTAssertEqual(rows.departure, "場所なしのため計算しません")
+    }
+
+    func testDepartureRowFollowsTheDepartureCalculation() {
+        let event = CalendarEvent(day: day, startMinute: 1080, title: "打合せ", locationName: "広島駅")
+        let leaveAt = Calendar.timyCue.date(from: DateComponents(year: 2026, month: 10, day: 12, hour: 16, minute: 52))!
+        XCTAssertEqual(EventDetailRows(event: event, metadata: nil, estimate: .available(leaveAt)).departure, "16:52ごろ",
+                       "ホームと同じ計算の結果を出す（2026-10-14 実機の指摘）")
+        XCTAssertEqual(EventDetailRows(event: event, metadata: nil, estimate: .pending).departure, "近くなったら計算します")
+        XCTAssertEqual(EventDetailRows(event: event, metadata: nil, estimate: .unavailable(.placeUnconfirmed)).departure,
+                       "場所を確認してください")
     }
 
     func testAllDayAndMapsURL() {
