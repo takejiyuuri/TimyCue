@@ -92,6 +92,31 @@ final class EditorSuggestionTests: XCTestCase {
         XCTAssertEqual(store.content.metadata.notifications, before, "通知は写さない（2026-10-14 決定）")
     }
 
+    func testCarRouteComesWithTheCarOnly() {
+        let byCar = event("A社打合せ", daysAgo: 7, place: "広島市中区")
+        let onFoot = event("歯医者", daysAgo: 3, place: "見本クリニック")
+        var car = TimyCueEventMetadata()
+        car.transport = .car
+        car.route = .preferHighway
+        var walk = TimyCueEventMetadata()
+        walk.transport = .walk
+        walk.route = .preferHighway
+        let store = makeStore([byCar, onFoot], metadata: [byCar.id: car, onFoot.id: walk])
+
+        store.startNew(on: today)
+        store.content.title = "歯医者"
+        let current = store.content.metadata.route
+        store.useSettings(of: store.titleSuggestions()[0])
+        XCTAssertEqual(store.content.metadata.transport, .walk)
+        XCTAssertEqual(store.content.metadata.route, current, "車以外を引き継ぐときは、車のルートは写さない（2026-10-14 決定）")
+
+        store.startNew(on: today)
+        store.content.title = "A社打合せ"
+        store.useSettings(of: store.titleSuggestions()[0])
+        XCTAssertEqual(store.content.metadata.transport, .car)
+        XCTAssertEqual(store.content.metadata.route, .preferHighway, "車のときは、車のルートも一緒に引き継ぐ")
+    }
+
     // MARK: - 場所の候補（§48・§49）
 
     func testPlaceCandidates() {

@@ -100,9 +100,11 @@ extension ScheduleEditorStore {
             || (current.arrivalTargetMinutes != initial.metadata.arrivalTargetMinutes
                 && current.arrivalTargetMinutes != info.arrivalTargetMinutes)
             || (current.transport != initial.metadata.transport && current.transport != info.transport)
+            || (info.transport == .car && current.route != initial.metadata.route && current.route != info.route)
     }
 
-    /// 候補の予定の設定（場所・色・到着目標・移動手段。車の道の選び方も移動手段と一緒に）を使う。押したときだけ（§47・2026-10-14 決定）。
+    /// 候補の予定の設定（場所・色・到着目標・移動手段の 4 つ）を使う。押したときだけ（§47・2026-10-14 決定）。
+    /// 移動手段が「車」のときだけ、車のルートの条件も移動手段に付いてくるものとして一緒に引き継ぐ。車以外なら、ルートは今の値のまま。
     /// 通知と出発の余裕は写さず、今の値のまま（通知は予定ごとに意味が変わりやすく、余裕は設定の値を使う方が分かりやすいため）
     func useSettings(of suggestion: TitleSuggestion) {
         content.locationName = suggestion.locationName
@@ -110,7 +112,9 @@ extension ScheduleEditorStore {
         content.metadata.color = info.color
         content.metadata.arrivalTargetMinutes = info.arrivalTargetMinutes
         content.metadata.transport = info.transport
-        content.metadata.route = info.route
+        if info.transport == .car {
+            content.metadata.route = info.route
+        }
     }
 
     // MARK: - 場所の候補（§48）
