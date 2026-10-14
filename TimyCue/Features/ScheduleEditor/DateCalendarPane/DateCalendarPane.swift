@@ -190,6 +190,7 @@ private struct EditorWeekRow: View {
     @Environment(ScheduleEditorStore.self) private var store
 
     var body: some View {
+        let copySource = store.copySourceDay
         HStack(spacing: 0) {
             ForEach(week.days, id: \.self) { day in
                 if CalendarMonth(day) == month {
@@ -197,6 +198,7 @@ private struct EditorWeekRow: View {
                     EditorDayCell(day: day,
                                   isSelected: store.selectedDays.contains(day),
                                   isDisplayed: store.displayedDay == day,
+                                  isCopySource: day == copySource,
                                   isToday: day == CalendarDay(Date()),
                                   dotColors: dots.colors,
                                   moreCount: dots.more)
@@ -249,12 +251,51 @@ private struct CalendarScrollBar: View {
     }
 }
 
-/// 下カレンダーの 1 日。選んだ日は塗り、時間画面に出している日は枠。今日は数字の後ろに淡いグレー（2026-10-14 実機の指摘）。
+/// 下カレンダーのコピー元の日の印（2026-10-14 ユーザー決定）。淡いオレンジの外周のリングの上を、オレンジのハイライトがゆっくり一周する。
+/// 円そのものは回さず、グラデーションの向きだけを時間で動かして、ハイライトだけが流れて見えるようにする。
+/// コピー先に選んだ日は今までどおり止まったオレンジの塗りなので、見分けられる。1 周の時間は仮（実機で 1.5〜2 秒の間で決める）。
+/// 「視差効果を減らす」をオンにしている人には動かさない（仮）
+private struct CopySourceRing: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        TimelineView(.animation(paused: reduceMotion)) { context in
+            let period = EditorMetrics.copySourceRingPeriod
+            let progress = reduceMotion ? 0 : context.date.timeIntervalSinceReferenceDate
+                .truncatingRemainder(dividingBy: period) / period
+            ZStack {
+                Circle()
+                    .strokeBorder(Theme.Colors.copySourceRingTrack, lineWidth: EditorMetrics.copySourceRingWidth)
+                // 12 時の位置から時計回りに流れる。後ろは淡く、先頭がいちばん濃い
+                Circle()
+                    .strokeBorder(AngularGradient(gradient: Gradient(stops: Self.highlight), center: .center,
+                                                  angle: .degrees(progress * 360 - 90)),
+                                  lineWidth: EditorMetrics.copySourceRingWidth)
+            }
+        }
+        .accessibilityHidden(true)
+    }
+
+    private static let highlight: [Gradient.Stop] = {
+        let length = EditorMetrics.copySourceRingHighlightLength
+        return [
+            .init(color: Theme.Colors.copySourceRingTail.opacity(0), location: 0),
+            .init(color: Theme.Colors.copySourceRingTail, location: length * 0.6),
+            .init(color: Theme.Colors.copySourceRingHead, location: length),
+            .init(color: Theme.Colors.copySourceRingHead.opacity(0), location: length + 0.04),
+            .init(color: Theme.Colors.copySourceRingHead.opacity(0), location: 1),
+        ]
+    }()
+}
+
+/// 下カレンダーの 1 日。選んだ日は塗り、時間画面に出している日は枠、コピー中のコピー元の日は流れるリング。今日は数字の後ろに淡いグレー（2026-10-14 実機の指摘）。
 /// 予定がある日は、数字の下に予定色のドットを最大 3 個（4 件以上は「+N」）。丸・塗り・枠とは重ならない所に置く（Q23）
 private struct EditorDayCell: View {
     let day: CalendarDay
     let isSelected: Bool
     let isDisplayed: Bool
+    /// コピー元の予定の日（コピー中だけ）。コピー先には選べない（2026-10-14 ユーザー決定）
+    let isCopySource: Bool
     let isToday: Bool
     let dotColors: [EventColor]
     let moreCount: Int
@@ -275,7 +316,11 @@ private struct EditorDayCell: View {
                     }
                 }
                 .overlay {
-                    if isDisplayed {
+                    // コピー元の日は、左上に出していても、流れるリングの印だけにする（2 つの輪を重ねない）
+                    if isCopySource {
+                        CopySourceRing()
+                            .padding(-2)
+                    } else if isDisplayed {
                         Circle().strokeBorder(Theme.Colors.textPrimary, lineWidth: 1.5)
                             .padding(-2)
                     }

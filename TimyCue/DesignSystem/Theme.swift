@@ -61,6 +61,11 @@ enum Theme {
         /// オレンジの線（2026-10-14 決定。選択状態はオレンジ系にし、緑は「余裕あり」などの意味のある状態色に残す。濃さは仮）
         static let expandedRow = Color(hex: BrandPalette.lightOrange, opacity: 0.45)
         static let expandedRowBar = Color(hex: BrandPalette.orange)
+        /// 3 分割画面の下カレンダーで、コピー元の日の外周のリング（2026-10-14 ユーザー決定）。淡いオレンジのリングの上を、
+        /// 先頭がいちばん濃いオレンジのハイライトが一周する。コピー先に選んだ日は accentFill の止まった塗り。色は仮
+        static let copySourceRingTrack = Color(hex: BrandPalette.orange, opacity: 0.22)
+        static let copySourceRingTail = Color(hex: BrandPalette.lightOrange)
+        static let copySourceRingHead = Color(hex: BrandPalette.orange)
         /// 警告の黄色・赤は予定色とは別の意味（仕様 §4）
         static let warning = Color(hex: 0xE8B931)
         static let danger = Color(hex: 0xE0645A)

@@ -93,6 +93,11 @@ enum EditorMetrics {
     static let calendarWeekdayHeight: CGFloat = 18
     static let calendarWeekdayFont = Font.system(size: 11, weight: .medium)
     static let selectedCircleSize: CGFloat = 26
+    /// コピー元の日の外周のリングの太さと、ハイライトが 1 周する時間（秒）。1 周は 1.5〜2 秒の間で実機を見て決める（2026-10-14。仮）
+    static let copySourceRingWidth: CGFloat = 2.5
+    static let copySourceRingPeriod: Double = 1.8
+    /// ハイライトの長さ（リング 1 周に対する割合。仮）
+    static let copySourceRingHighlightLength: Double = 0.3
     /// 予定がある日の予定色のドット（Q23）
     static let eventDotSize: CGFloat = 4
     static let eventDotSpacing: CGFloat = 2
