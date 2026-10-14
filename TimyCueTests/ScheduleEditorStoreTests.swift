@@ -523,6 +523,25 @@ final class ScheduleEditorStoreTests: XCTestCase {
         XCTAssertEqual(store.saveButtonTitle, "コピーを保存")
     }
 
+    func testCopyRowListsEveryDestinationAndCopyCanBeCancelled() throws {
+        let original = makeEvent("A社打合せ", on: d1, at: 600, duration: 60)
+        let store = makeStore([original]).store
+        try store.startEditing(eventID: original.id)
+        store.content.title = "A社打合せ（資料）"
+        try store.startCopy()
+        [d2, d3].forEach(store.toggleCopyDestination)
+        XCTAssertEqual(store.daysListedInAdditionalRow, [d2, d3],
+                       "コピーは最初に押した日も含めて全部を行に出す（2026-10-14 実機の指摘）")
+
+        store.cancelCopy()
+        XCTAssertEqual(store.mode, .edit(eventID: original.id), "コピーをやめたら編集の画面に戻る")
+        XCTAssertEqual(store.selectedDays, [d1])
+        XCTAssertEqual(store.displayedDay, d1)
+        XCTAssertEqual(store.startMinutes[d1], 600)
+        XCTAssertEqual(store.content.title, "A社打合せ（資料）", "コピーを押す前に直していた中身のまま")
+        XCTAssertTrue(store.hasUnsavedChanges, "直していた分は、保存していない変更のまま")
+    }
+
     func testCopySourceDayCannotBeChosenAsDestination() throws {
         let original = makeEvent("A社打合せ", on: d1, at: 600)
         let store = makeStore([original]).store

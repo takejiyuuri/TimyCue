@@ -206,12 +206,15 @@ struct HomeView: View {
         Group {
             switch problem {
             case .placeUnconfirmed:
+                // 押せると分かるよう、操作の文字の色にする（2026-10-14 実機の指摘「ずっと出る」）
                 Button { placeCheck = event } label: {
                     Label(problem.message, systemImage: "mappin.and.ellipse")
+                        .foregroundStyle(Theme.Colors.actionText)
                 }
             case .transportNotChosen:
                 Button { departures.askUsualTransport() } label: {
                     Text(problem.message)
+                        .foregroundStyle(Theme.Colors.actionText)
                 }
             default:
                 Text(problem.message)

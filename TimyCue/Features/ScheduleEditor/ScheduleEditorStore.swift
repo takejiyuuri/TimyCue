@@ -28,6 +28,9 @@ final class ScheduleEditorStore {
     private(set) var setsTimesIndividually = false
     /// コピー先を選んだ順（コピー中だけ使う）。左上に出す日を決めるのに使う（2026-10-14 決定 G1）
     private var copyPicks: [CalendarDay] = []
+    /// 「別の日にコピー」を押す前の編集の状態。「コピーをやめる」で戻す（2026-10-14 実機の指摘）
+    @ObservationIgnored private var stateBeforeCopy: (snapshot: Snapshot, displayedDay: CalendarDay?,
+                                                      setsTimesIndividually: Bool, baseline: Snapshot)?
     /// 右上の入力欄の中身
     var content = EventContent()
     /// 右上で開いている行（仕様 §45：同時に 1 行だけ）
@@ -241,6 +244,7 @@ final class ScheduleEditorStore {
     /// 日付と開始時刻は引き継がない。所要時間は引き継ぐ。編集中に直した中身は、そのままコピーの中身になる
     func startCopy() throws {
         guard case .edit(let id) = mode else { throw ScheduleEditorError.copyRequiresEditMode }
+        stateBeforeCopy = (snapshot, displayedDay, setsTimesIndividually, baseline)
         let duration = selectedDays.first.flatMap { durationMinutes(on: $0) } ?? commonDurationMinutes
         mode = .copy(sourceID: id)
         content = content.copiedForNewEvent()
@@ -253,6 +257,24 @@ final class ScheduleEditorStore {
         durationOverrides = [:]
         resetTransientState()
         // 表示中の日はコピー元の日のまま。コピー先はカレンダーで選んでもらう
+    }
+
+    /// 「コピーをやめる」：コピーを押す前の編集の画面へ、そのときの中身のまま戻す（2026-10-14 実機の指摘「コピーをキャンセルする方法がない」。仮）
+    func cancelCopy() {
+        guard case .copy = mode, let saved = stateBeforeCopy else { return }
+        mode = saved.snapshot.mode
+        content = saved.snapshot.content
+        selectedDays = saved.snapshot.selectedDays
+        baseDay = saved.snapshot.baseDay
+        startMinutes = saved.snapshot.startMinutes
+        commonDurationMinutes = saved.snapshot.commonDurationMinutes
+        durationOverrides = saved.snapshot.durationOverrides
+        displayedDay = saved.displayedDay
+        setsTimesIndividually = saved.setsTimesIndividually
+        copyPicks = []
+        resetTransientState()
+        baseline = saved.baseline
+        stateBeforeCopy = nil
     }
 
     // MARK: - 日付

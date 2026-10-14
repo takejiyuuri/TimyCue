@@ -23,14 +23,20 @@ extension ScheduleEditorStore {
             let id = content.calendarID ?? defaultCalendarID
             return writableCalendars.first { $0.id == id }?.title ?? "既定"
         case .additionalDays:
-            return Self.additionalDaysTexts(additionalDays).first ?? "なし"
+            return Self.additionalDaysTexts(daysListedInAdditionalRow).first ?? "なし"
         }
+    }
+
+    /// 「同じ内容で追加」の行に並べる日。新規は最初に選んだ日（予定そのものの日）を除く。
+    /// コピーはどの日も同じコピー先なので、最初に押した日も含めて全部（2026-10-14 実機の指摘「最初に押した日が反映されない」）
+    var daysListedInAdditionalRow: [CalendarDay] {
+        isChoosingCopyDestinations ? selectedDays : additionalDays
     }
 
     /// 行に出す値の候補。長い順に並べ、1 行に入るいちばん長いものを画面が選ぶ（「同じ内容で追加」と通知は候補が複数）
     func valueTexts(for row: InputRow) -> [String] {
         switch row {
-        case .additionalDays: Self.additionalDaysTexts(additionalDays)
+        case .additionalDays: Self.additionalDaysTexts(daysListedInAdditionalRow)
         case .notifications: content.metadata.notifications.summaryCandidates
         default: [valueText(for: row)]
         }

@@ -13,9 +13,12 @@ struct InputPane: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // コピーは既存予定の編集中だけ、右の入力の上（固定ヘッダー付近）に出す。削除とは離す（Q25）
+            // コピーは既存予定の編集中だけ、右の入力の上（固定ヘッダー付近）に出す。削除とは離す（Q25）。
+            // コピー中は同じ所に「コピーをやめる」（2026-10-14 実機の指摘。仮）
             if case .edit = store.mode {
                 CopyBar(onCopy: onCopy)
+            } else if case .copy = store.mode {
+                CopyBar(title: "コピーをやめる", systemImage: "xmark", onCopy: { store.cancelCopy() })
             }
             rows
         }
@@ -78,13 +81,15 @@ struct InputPane: View {
 
 /// 右の入力の上に固定する、コピーの操作（Q25）。ボタンの名前は「別の日にコピー」（2026-10-14 ユーザー決定）
 private struct CopyBar: View {
+    var title = "別の日にコピー"
+    var systemImage = "doc.on.doc"
     let onCopy: () -> Void
 
     var body: some View {
         HStack {
             Spacer()
             Button(action: onCopy) {
-                Label("別の日にコピー", systemImage: "doc.on.doc")
+                Label(title, systemImage: systemImage)
                     .font(EditorMetrics.chipFont)
                     .foregroundStyle(Theme.Colors.onAccent)
             }
@@ -404,6 +409,9 @@ private struct TitleEditor: View {
 private struct LocationEditor: View {
     var focusedRow: FocusState<InputRow?>.Binding
     @Environment(ScheduleEditorStore.self) private var store
+    /// 場所の文字と地図の地点の対応（出発時刻の計算に使う）。画面写真などで渡されていなければ、確かめる入口は出さない
+    @Environment(DepartureStore.self) private var departures: DepartureStore?
+    @State private var checksPlace = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Spacing.s) {
@@ -413,6 +421,32 @@ private struct LocationEditor: View {
                 .textFieldStyle(.roundedBorder)
                 .focused(focusedRow, equals: .location)
                 .submitLabel(.done)
+            // 場所の文字を地図の地点に結びつける（追加仕様書 §23.1「編集画面で場所を触ったとき：候補の選択／検索」。
+            // 2026-10-14 実機の指摘「場所を入れても『場所を確認してください』がずっと出る」。見た目と文言は仮）
+            if let departures, store.content.hasPlace {
+                let text = store.content.locationName ?? ""
+                let confirmed = departures.placeBook.place(for: text) != nil
+                Button {
+                    checksPlace = true
+                } label: {
+                    Label(confirmed ? "地図の地点：確認済み（変える）" : "地図で場所を確かめる",
+                          systemImage: confirmed ? "checkmark.circle" : "mappin.and.ellipse")
+                        .font(EditorMetrics.chipFont)
+                        .foregroundStyle(Theme.Colors.actionText)
+                }
+                .buttonStyle(.plain)
+                .sheet(isPresented: $checksPlace) {
+                    PlaceSearchView(title: "場所を確認", initialQuery: text,
+                                    near: departures.location.location?.coordinate) { candidate in
+                        departures.confirmPlace(candidate.savedPlace(), for: text)
+                    }
+                }
+                if !confirmed {
+                    Text("地図の地点を決めると、出発時刻を計算できます")
+                        .font(EditorMetrics.lockNoticeFont)
+                        .foregroundStyle(Theme.Colors.textSecondary)
+                }
+            }
             let candidates = store.placeCandidates()
             if !candidates.isEmpty {
                 VStack(alignment: .leading, spacing: 4) {
