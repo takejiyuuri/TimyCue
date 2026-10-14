@@ -28,6 +28,7 @@ struct EventDetailCard: View {
                     }
                     .font(CalendarMetrics.popoverSecondaryFont.weight(.semibold))
                     .buttonStyle(.bordered)
+                    .tint(Theme.Colors.accent)
                     .controlSize(.small)
                 }
             }

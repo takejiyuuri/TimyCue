@@ -28,6 +28,10 @@ enum Theme {
         /// 主アクセント：ブランドのオレンジ（2026-10-14 採用。前は淡いオレンジ #F4A96A）。タブ・枠・アイコン・見出し・選択状態に使う。
         /// ボタンの文字には使わない（onAccent）
         static let accent = Color(hex: BrandPalette.orange)
+        /// 操作の文字専用の、少し濃いオレンジ（2026-10-14 ユーザー決定）：文字だけのボタン（「閉じる」など）・戻る・ダイアログの選択肢・
+        /// メニューで選んでいる値など。#FB8D3C のままでは文字として読みにくいので濃くした（背景 #FFFBF3 で約 4:1。iPhone の標準の青と同じくらい。値は仮）。
+        /// 画面の中の tint はこの色にし、タブ・アイコン・トグル・塗りには accent を使う
+        static let actionText = Color(hex: 0xC8601A)
         /// 本文の文字は濃いグレーのまま（ブランドのブラウンにはしない。2026-10-14 ユーザー決定）
         static let textPrimary = Color(hex: 0x3D3730)
         static let textSecondary = Color(hex: 0x8A8178)

@@ -15,7 +15,11 @@ struct SettingsTabView: View {
                     LabeledContent {
                         Text(connection.statusLabel)
                     } label: {
-                        Label("カレンダー連携", systemImage: "calendar")
+                        Label {
+                            Text("カレンダー連携")
+                        } icon: {
+                            Image(systemName: "calendar").foregroundStyle(Theme.Colors.accent)
+                        }
                     }
                 }
                 // 出発の余裕・自宅・最初の予定の出発地点・普段よく使う移動手段（2026-10-14 決定）
@@ -25,7 +29,11 @@ struct SettingsTabView: View {
                     LabeledContent {
                         Text(departures.settings.marginLevel.displayName)
                     } label: {
-                        Label("出発・移動", systemImage: "figure.walk")
+                        Label {
+                            Text("出発・移動")
+                        } icon: {
+                            Image(systemName: "figure.walk").foregroundStyle(Theme.Colors.accent)
+                        }
                     }
                 }
             }
@@ -87,6 +95,7 @@ struct CalendarSettingsView: View {
                                 set: { connection.setShown($0, calendarID: calendar.id) })) {
                                 CalendarLabel(calendar: calendar)
                             }
+                            .tint(Theme.Colors.accent)
                         }
                     } header: {
                         Text(group.source.isEmpty ? "カレンダー" : group.source)
@@ -159,6 +168,7 @@ struct HolidayCalendarsView: View {
                             }
                         }
                     }
+                    .tint(Theme.Colors.accent)
                 }
             } footer: {
                 Text("ON のカレンダーの予定は祝日として扱い、押すと名前と日付だけを出します（編集画面は開きません）。名前に「祝日」「Holiday」が入った読み取りのみのカレンダーは、自動で ON になります。")

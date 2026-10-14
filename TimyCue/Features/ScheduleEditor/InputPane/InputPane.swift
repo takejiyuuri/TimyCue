@@ -89,6 +89,7 @@ private struct CopyBar: View {
                     .foregroundStyle(Theme.Colors.onAccent)
             }
             .buttonStyle(.bordered)
+            .tint(Theme.Colors.accent)
         }
         .padding(.horizontal, Theme.Spacing.m)
         .padding(.vertical, Theme.Spacing.xs)
@@ -370,6 +371,7 @@ private struct TitleEditor: View {
                 }
                 .font(EditorMetrics.chipFont)
                 .buttonStyle(.bordered)
+                .tint(Theme.Colors.accent)
             }
         }
     }
@@ -422,6 +424,7 @@ private struct LocationEditor: View {
             }
             .font(EditorMetrics.chipFont)
             .buttonStyle(.bordered)
+            .tint(Theme.Colors.accent)
         }
     }
 }
@@ -486,6 +489,7 @@ private struct MoveToAppleButton: View {
                     .foregroundStyle(Theme.Colors.onAccent)
             }
             .buttonStyle(.bordered)
+            .tint(Theme.Colors.accent)
             Text("この予定は TimyCue の中だけにあります")
                 .font(EditorMetrics.lockNoticeFont)
                 .foregroundStyle(Theme.Colors.textSecondary)

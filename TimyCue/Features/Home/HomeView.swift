@@ -304,6 +304,7 @@ struct HomeView: View {
                     Text("設定アプリで許可する").foregroundStyle(Theme.Colors.onAccent)
                 }
                 .buttonStyle(.bordered)
+                .tint(Theme.Colors.accent)
             } else if connection.state == .notAsked {
                 Button {
                     Task { await connection.connect() }

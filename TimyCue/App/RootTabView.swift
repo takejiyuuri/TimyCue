@@ -37,6 +37,8 @@ struct RootTabView: View {
         })) {
             ForEach(RootTab.allCases, id: \.self) { tab in
                 screen(for: tab)
+                    // 画面の中の操作の文字（文字だけのボタン・戻る・ダイアログ）は少し濃いオレンジ。タブの選択はブランドのオレンジ（下の tint。2026-10-14 決定）
+                    .tint(Theme.Colors.actionText)
                     .tabItem {
                         if tab == .calendar && showsTodayInTab {
                             Label("今日", systemImage: "calendar.badge.clock")
