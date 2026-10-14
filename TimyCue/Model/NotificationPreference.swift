@@ -6,12 +6,13 @@ enum NotificationTiming: Hashable, Codable {
     case beforeDeparture(minutes: Int)
     /// 出発時刻
     case atDeparture
-    /// 予定開始の○分前。カスタムの通知は廃止したので、前の版で足したものを読むためだけに残す（追加仕様書 vNext §11.2）
+    /// 予定開始の○分前。場所なしの予定の候補（開始60・30・10分前。2026-10-14 決定 C3）。
+    /// 前の版でカスタムとして足したもの（追加仕様書 vNext §11.2 で廃止）もこれで読む
     case beforeStart(minutes: Int)
     /// 予定開始（追加仕様書 vNext §11.1）
     case atStart
 
-    /// 予定編集画面で複数オン・オフする決まった候補（追加仕様書 vNext §11.1）。ほかに「通知なし」。カスタムの分は作らない
+    /// 場所ありの予定で、予定編集画面で複数オン・オフする決まった候補（追加仕様書 vNext §11.1）。ほかに「通知なし」。カスタムの分は作らない
     static let presets: [NotificationTiming] = [
         .beforeDeparture(minutes: 60),
         .beforeDeparture(minutes: 30),
@@ -20,23 +21,46 @@ enum NotificationTiming: Hashable, Codable {
         .atStart,
     ]
 
+    /// 場所なしの予定の候補。出発の候補は出さず、開始60分前・開始30分前・開始10分前・予定開始（ほかに「通知なし」。2026-10-14 決定 C3）
+    static let noPlacePresets: [NotificationTiming] = [
+        .beforeStart(minutes: 60),
+        .beforeStart(minutes: 30),
+        .beforeStart(minutes: 10),
+        .atStart,
+    ]
+
+    static func presets(hasPlace: Bool) -> [NotificationTiming] {
+        hasPlace ? presets : noPlacePresets
+    }
+
+    /// 場所を消した・足したときの置き換え（2026-10-14 決定）：出発○分前 ↔ 開始○分前、出発時刻 ↔ 予定開始
+    func converted(hasPlace: Bool) -> NotificationTiming {
+        switch (self, hasPlace) {
+        case (.beforeDeparture(let minutes), false): .beforeStart(minutes: minutes)
+        case (.atDeparture, false): .atStart
+        case (.beforeStart(let minutes), true): .beforeDeparture(minutes: minutes)
+        case (.atStart, true): .atDeparture
+        default: self
+        }
+    }
+
     /// 右上の通知行に並べる短い表記（仕様 §17 の例「30分・10分・出発」）。
-    /// 予定開始を基準にするものは、出発基準と取り違えないよう「予定開始15分前」と書く（Q7）
+    /// 予定開始を基準にするものは、出発基準と取り違えないよう「開始15分前」と書く（Q7。言い方は 2026-10-14 決定 C3 の候補にそろえた）
     var label: String {
         switch self {
         case .beforeDeparture(let minutes): "\(minutes)分"
         case .atDeparture: "出発"
-        case .beforeStart(let minutes): "予定開始\(minutes)分前"
+        case .beforeStart(let minutes): "開始\(minutes)分前"
         case .atStart: "予定開始"
         }
     }
 
-    /// 通知の行を開いたときの候補の表記（追加仕様書 vNext §11.1：出発60分前・出発時刻・予定開始 など）
+    /// 通知の行を開いたときの候補の表記（追加仕様書 vNext §11.1：出発60分前・出発時刻・予定開始 など。場所なしは 開始60分前 など）
     var fullLabel: String {
         switch self {
         case .beforeDeparture(let minutes): "出発\(minutes)分前"
         case .atDeparture: "出発時刻"
-        case .beforeStart(let minutes): "予定開始\(minutes)分前"
+        case .beforeStart(let minutes): "開始\(minutes)分前"
         case .atStart: "予定開始"
         }
     }
@@ -63,6 +87,14 @@ struct NotificationPreference: Equatable, Codable {
     }
 
     static let off = NotificationPreference(timings: [])
+
+    /// 場所なしの新しい予定の初期値：開始30分前・開始10分前・予定開始（場所ありの初期値と対応。2026-10-14 決定）
+    static let noPlaceDefault = NotificationPreference().converted(hasPlace: false)
+
+    /// 場所を消した・足したときに、選んだタイミングの意味を置き換える。初めの値には戻さない。通知なしは通知なしのまま（2026-10-14 決定）
+    func converted(hasPlace: Bool) -> NotificationPreference {
+        NotificationPreference(timings: Set(timings.map { $0.converted(hasPlace: hasPlace) }))
+    }
 
     var isOff: Bool { timings.isEmpty }
 

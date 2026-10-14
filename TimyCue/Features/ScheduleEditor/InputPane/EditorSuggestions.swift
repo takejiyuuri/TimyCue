@@ -107,7 +107,7 @@ extension ScheduleEditorStore {
     /// 移動手段が「車」のときだけ、車のルートの条件も移動手段に付いてくるものとして一緒に引き継ぐ。車以外なら、ルートは今の値のまま。
     /// 通知と出発の余裕は写さず、今の値のまま（通知は予定ごとに意味が変わりやすく、余裕は設定の値を使う方が分かりやすいため）
     func useSettings(of suggestion: TitleSuggestion) {
-        content.locationName = suggestion.locationName
+        setLocationName(suggestion.locationName)
         guard let info = suggestion.metadata else { return }
         content.metadata.color = info.color
         content.metadata.arrivalTargetMinutes = info.arrivalTargetMinutes
@@ -153,7 +153,17 @@ extension ScheduleEditorStore {
     /// 到着目標はユーザーが決める予定側の設定で、場所から入れない（全体既定値のまま。Q70）。
     /// 移動手段は、はっきり指定されていればそのまま、「自動」なら「自動」のまま（過去の実績は自動の判定の内部材料にだけ使う）
     func choosePlace(_ name: String?) {
+        setLocationName(name)
+    }
+
+    /// 場所を入れる・消す。場所あり／なしが変わったら、通知のタイミングの意味を置き換える
+    /// （出発○分前 ↔ 開始○分前、出発時刻 ↔ 予定開始。初めの値には戻さず、通知なしは通知なしのまま。2026-10-14 決定）
+    func setLocationName(_ name: String?) {
+        let hadPlace = content.hasPlace
         content.locationName = name
+        if content.hasPlace != hadPlace {
+            content.metadata.notifications = content.metadata.notifications.converted(hasPlace: content.hasPlace)
+        }
     }
 
     // MARK: - 予定の重なり（§58）

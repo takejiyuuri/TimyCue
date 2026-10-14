@@ -547,6 +547,25 @@ final class ScheduleEditorStoreTests: XCTestCase {
         XCTAssertFalse(store.isChoosingCopyDestinations)
     }
 
+    func testNotificationsAreConvertedWhenThePlaceIsAddedOrRemoved() {
+        let store = makeStore().store
+        store.startNew(on: d1)
+        XCTAssertEqual(store.content.metadata.notifications, .noPlaceDefault, "場所なしで始まるので開始の基準（2026-10-14 決定）")
+        store.setLocationName("広島駅")
+        XCTAssertEqual(store.content.metadata.notifications, NotificationPreference(),
+                       "場所を入れたら 出発30分前・出発10分前・出発時刻 に置き換わる")
+        store.content.metadata.notifications = NotificationPreference(timings: [.beforeDeparture(minutes: 60), .atStart])
+        store.setLocationName("見本ビル")
+        XCTAssertEqual(store.content.metadata.notifications.timings, [.beforeDeparture(minutes: 60), .atStart],
+                       "場所ありのまま場所を変えただけなら置き換えない（予定開始もそのまま）")
+        store.setLocationName(nil)
+        XCTAssertEqual(store.content.metadata.notifications.timings, [.beforeStart(minutes: 60), .atStart],
+                       "場所を消したら意味を置き換える")
+        store.content.metadata.notifications = .off
+        store.setLocationName("広島駅")
+        XCTAssertTrue(store.content.metadata.notifications.isOff, "通知なしは通知なしのまま")
+    }
+
     func testCopyRequiresEditMode() {
         let store = makeStore().store
         store.startNew(on: d1)

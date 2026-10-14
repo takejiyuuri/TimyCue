@@ -9,6 +9,11 @@ struct EventContent: Equatable {
     /// Apple カレンダーのメモ。入力欄には出さないが、編集しても消さない（仕様 §55）
     var notes = ""
     var metadata = TimyCueEventMetadata()
+
+    /// 場所がある予定か（空白だけなら場所なし）
+    var hasPlace: Bool {
+        !(locationName ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
     /// 保存先の Apple カレンダー。nil は既定の保存先（Q32）
     var calendarID: String?
 

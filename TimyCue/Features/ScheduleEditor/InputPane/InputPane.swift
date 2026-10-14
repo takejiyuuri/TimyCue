@@ -203,9 +203,10 @@ private struct InlineEditor: View {
                     isSelected: { store.content.metadata.route == $0 },
                     onTap: { store.content.metadata.route = $0 })
         case .notifications:
-            // 決まった候補を複数オン・オフする。「通知なし」はほかと一緒に選べない。カスタムの分は作らない（追加仕様書 vNext §11）
+            // 決まった候補を複数オン・オフする。「通知なし」はほかと一緒に選べない。カスタムの分は作らない（追加仕様書 vNext §11）。
+            // 場所なしの予定は出発の候補を出さず、開始の候補にする（2026-10-14 決定 C3）
             VStack(alignment: .leading, spacing: Theme.Spacing.s) {
-                ChipRow(options: NotificationTiming.presets,
+                ChipRow(options: NotificationTiming.presets(hasPlace: store.content.hasPlace),
                         label: \.fullLabel,
                         isSelected: { store.content.metadata.notifications.timings.contains($0) },
                         onTap: { timing in
@@ -408,7 +409,7 @@ private struct LocationEditor: View {
         VStack(alignment: .leading, spacing: Theme.Spacing.s) {
             TextField("場所", text: Binding(
                 get: { store.content.locationName ?? "" },
-                set: { store.content.locationName = $0.isEmpty ? nil : $0 }))
+                set: { store.setLocationName($0.isEmpty ? nil : $0) }))
                 .textFieldStyle(.roundedBorder)
                 .focused(focusedRow, equals: .location)
                 .submitLabel(.done)

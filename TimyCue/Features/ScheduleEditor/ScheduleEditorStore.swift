@@ -201,6 +201,8 @@ final class ScheduleEditorStore {
         content = EventContent()
         // 到着目標は作った瞬間の全体既定値を入れる（Q70。全体既定値の設定は後の段階。今は初期値の 0 分前）
         content.metadata.arrivalTargetMinutes = defaultArrivalTargetMinutes
+        // 場所なしで始まるので、通知の初期値は開始の基準。場所を入れたら出発の基準に置き換わる（2026-10-14 決定）
+        content.metadata.notifications = .noPlaceDefault
         selectedDays = []
         startMinutes = [:]
         commonDurationMinutes = nil
@@ -220,6 +222,10 @@ final class ScheduleEditorStore {
         }
         mode = .edit(eventID: eventID)
         content = EventContent(event: event, metadata: metadataByEventID[eventID] ?? TimyCueEventMetadata())
+        // 場所なしの予定に出発の基準の通知が入っていたら（前の版のもの・Apple カレンダーの予定の初期値）、開始の基準で出す（2026-10-14 決定 C3）
+        if !content.hasPlace {
+            content.metadata.notifications = content.metadata.notifications.converted(hasPlace: false)
+        }
         selectedDays = [event.day]
         startMinutes = [event.day: event.startMinute]
         commonDurationMinutes = event.durationMinutes

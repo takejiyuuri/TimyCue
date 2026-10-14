@@ -45,8 +45,25 @@ final class ModelTests: XCTestCase {
             .beforeDeparture(minutes: 10),
             .beforeDeparture(minutes: 60),
         ])
-        XCTAssertEqual(mixed.summary, "60分・10分・出発・予定開始15分前",
-                       "出発の早い順 → 出発 → 予定開始前。予定開始基準は「予定開始○分前」と書く（Q7）")
+        XCTAssertEqual(mixed.summary, "60分・10分・出発・開始15分前",
+                       "出発の早い順 → 出発 → 開始前。開始基準は「開始○分前」と書く（Q7・2026-10-14 決定 C3）")
+    }
+
+    func testNotificationsFollowWhetherTheEventHasAPlace() {
+        XCTAssertEqual(NotificationTiming.presets(hasPlace: false).map(\.fullLabel),
+                       ["開始60分前", "開始30分前", "開始10分前", "予定開始"],
+                       "場所なしの予定は出発の候補を出さない（2026-10-14 決定 C3）")
+        XCTAssertEqual(NotificationTiming.presets(hasPlace: true), NotificationTiming.presets)
+
+        let chosen = NotificationPreference(timings: [.beforeDeparture(minutes: 60), .atDeparture])
+        let withoutPlace = chosen.converted(hasPlace: false)
+        XCTAssertEqual(withoutPlace.timings, [.beforeStart(minutes: 60), .atStart],
+                       "場所を消したら、出発60分前→開始60分前、出発時刻→予定開始（初めの値に戻さない）")
+        XCTAssertEqual(withoutPlace.converted(hasPlace: true), chosen, "場所を足したら逆に置き換える")
+        XCTAssertTrue(NotificationPreference.off.converted(hasPlace: false).isOff, "通知なしは通知なしのまま")
+        XCTAssertEqual(NotificationPreference.noPlaceDefault.timings,
+                       [.beforeStart(minutes: 30), .beforeStart(minutes: 10), .atStart],
+                       "場所なしの新しい予定の初期値は 開始30分前・開始10分前・予定開始")
     }
 
     func testNotificationPresetsAreTheFixedCandidates() {

@@ -207,7 +207,8 @@ final class EditorScreenStoreTests: XCTestCase {
         XCTAssertEqual(store.valueText(for: .location), "なし")
         XCTAssertEqual(store.valueText(for: .arrivalTarget), "0分前（予定開始時刻）", "新しい予定は全体既定値の初期値（Q70）")
         XCTAssertEqual(store.valueText(for: .transport), "自動")
-        XCTAssertEqual(store.valueText(for: .notifications), "30分・10分・出発")
+        XCTAssertEqual(store.valueText(for: .notifications), "開始30分前・開始10分前・予定開始",
+                       "場所なしの新しい予定は、通知の初期値も開始の基準（2026-10-14 決定）")
 
         store.content.title = "A社"
         store.content.metadata.arrivalTargetMinutes = 10
