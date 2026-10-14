@@ -76,7 +76,7 @@ struct InputPane: View {
     }
 }
 
-/// 右の入力の上に固定する、コピーの操作（Q25）
+/// 右の入力の上に固定する、コピーの操作（Q25）。ボタンの名前は「別の日にコピー」（2026-10-14 ユーザー決定）
 private struct CopyBar: View {
     let onCopy: () -> Void
 
@@ -84,7 +84,7 @@ private struct CopyBar: View {
         HStack {
             Spacer()
             Button(action: onCopy) {
-                Label("コピー", systemImage: "doc.on.doc")
+                Label("別の日にコピー", systemImage: "doc.on.doc")
                     .font(EditorMetrics.chipFont)
                     .foregroundStyle(Theme.Colors.onAccent)
             }

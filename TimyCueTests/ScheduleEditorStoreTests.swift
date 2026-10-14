@@ -500,6 +500,49 @@ final class ScheduleEditorStoreTests: XCTestCase {
         XCTAssertEqual(events.allEvents().first(where: { $0.id == original.id }), original, "元の予定は変えない")
     }
 
+    func testCopyDestinationsAreToggledByTappingTheCalendar() throws {
+        let original = makeEvent("A社打合せ", on: d1, at: 600, duration: 60)
+        let store = makeStore([original]).store
+        try store.startEditing(eventID: original.id)
+        try store.startCopy()
+        XCTAssertTrue(store.isChoosingCopyDestinations)
+        XCTAssertFalse(store.isAddingDays, "「同じ内容で追加」を開かなくてよい")
+        [d2, d3, d4].forEach(store.toggleCopyDestination)
+        XCTAssertEqual(store.selectedDays, [d2, d3, d4], "押すたびにコピー先を足す（2026-10-14 ユーザー決定）")
+        XCTAssertEqual(store.displayedDay, d2, "最初に選んだ日を左上に出す")
+        store.toggleCopyDestination(d3)
+        XCTAssertEqual(store.selectedDays, [d2, d4], "選んである日を押すと外す")
+        store.toggleCopyDestination(d2)
+        XCTAssertEqual(store.selectedDays, [d4], "最初に選んだ日も外せる")
+        XCTAssertEqual(store.baseDay, d4)
+        XCTAssertEqual(store.displayedDay, d4, "左上に出していた日を外したら、残った日を出す")
+        XCTAssertEqual(store.saveButtonTitle, "コピーを保存")
+    }
+
+    func testCopySourceDayCannotBeChosenAsDestination() throws {
+        let original = makeEvent("A社打合せ", on: d1, at: 600)
+        let store = makeStore([original]).store
+        try store.startEditing(eventID: original.id)
+        try store.startCopy()
+        XCTAssertEqual(store.copySourceDay, d1)
+        store.toggleCopyDestination(d1)
+        store.addDay(d1)
+        store.selectDay(d1)
+        store.setStartMinute(540, on: d1)
+        XCTAssertTrue(store.selectedDays.isEmpty, "コピー元の日はコピー先にできない（2026-10-14 ユーザー決定）")
+        XCTAssertTrue(store.startMinutes.isEmpty)
+    }
+
+    func testNewEventStillKeepsTheFirstChosenDay() {
+        let store = makeStore().store
+        store.startNew(on: d1)
+        store.addDay(d2)
+        store.removeDay(d1)
+        XCTAssertEqual(store.selectedDays, [d1, d2], "新規では最初に選んだ日は外さない")
+        XCTAssertNil(store.copySourceDay)
+        XCTAssertFalse(store.isChoosingCopyDestinations)
+    }
+
     func testCopyRequiresEditMode() {
         let store = makeStore().store
         store.startNew(on: d1)

@@ -104,9 +104,10 @@ private struct DateGrid: View {
                         if !isDragSelecting {
                             guard hypot(value.translation.width, value.translation.height) > EditorMetrics.dragSelectThreshold else { return }
                             isDragSelecting = true
-                            // なぞり始めた日が足してある日なら外していき、そうでなければ足していく
+                            // なぞり始めた日が足してある日なら外していき、そうでなければ足していく（コピー中は、選んであるどの日も）
                             let first = dayAt(value.startLocation, columnWidth: columnWidth)
-                            paintsSelection = !(first.map { store.additionalDays.contains($0) } ?? false)
+                            let chosen = store.isChoosingCopyDestinations ? store.selectedDays : store.additionalDays
+                            paintsSelection = !(first.map { chosen.contains($0) } ?? false)
                             if let first { paint(first) }
                         }
                         if let day = dayAt(value.location, columnWidth: columnWidth) { paint(day) }
@@ -129,10 +130,13 @@ private struct DateGrid: View {
                  rowHeight: Double(rowHeight), columnWidth: Double(columnWidth))
     }
 
-    /// タップ：「同じ内容で追加」を開いている間は 1 日ずつ足す・外す。ふだんは左上に出す日を選ぶ
+    /// タップ：コピー中は、押すたびにコピー先を足す・外す（コピー元の日は選べない。2026-10-14 ユーザー決定）。
+    /// 「同じ内容で追加」を開いている間は 1 日ずつ足す・外す。ふだんは左上に出す日を選ぶ
     /// （選んでいない日なら左上の日をその日へ動かす。編集の移動も同じ。仕様 §34・§61）
     private func tap(_ day: CalendarDay) {
-        if store.isAddingDays {
+        if store.isChoosingCopyDestinations {
+            store.toggleCopyDestination(day)
+        } else if store.isAddingDays {
             if store.additionalDays.contains(day) {
                 store.removeDay(day)
             } else {
