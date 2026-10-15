@@ -5,6 +5,10 @@ import SwiftUI
 struct SettingsTabView: View {
     @Environment(CalendarConnection.self) private var connection
     @Environment(DepartureStore.self) private var departures
+    #if TIMYCUE_DEV_TOOLS
+    /// 画面写真用に、比べる画面を開いた状態で始める（起動引数 `-TimyCueDevScreen characterSizes`）
+    @State private var opensCharacterSizes = UserDefaults.standard.string(forKey: "TimyCueDevScreen") == "characterSizes"
+    #endif
 
     var body: some View {
         NavigationStack {
@@ -36,8 +40,27 @@ struct SettingsTabView: View {
                         }
                     }
                 }
+                #if TIMYCUE_DEV_TOOLS
+                // H1 の比べる画面（2026-10-15 決定 Q80）。検証用のビルドだけで、いちばん下。H1 で大きさが決まったら取り除く
+                Section {
+                    NavigationLink {
+                        CharacterSizeComparisonView()
+                    } label: {
+                        Label {
+                            Text("開発用：キャラクターの大きさ")
+                        } icon: {
+                            Image(systemName: "figure.stand").foregroundStyle(Theme.Colors.accent)
+                        }
+                    }
+                }
+                #endif
             }
             .navigationTitle("設定")
+            #if TIMYCUE_DEV_TOOLS
+            .navigationDestination(isPresented: $opensCharacterSizes) {
+                CharacterSizeComparisonView()
+            }
+            #endif
         }
     }
 }

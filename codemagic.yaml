@@ -35,6 +35,8 @@ workflows:
           echo "シミュレータ: $UDID"
           echo "SIM_UDID=$UDID" >> "$CM_ENV"
       - name: 自動テスト（シミュレータ）
+        # TIMYCUE_DEV_TOOLS：検証用のビルドの印。H1 の比べる画面（設定 ＞ 開発用：キャラクターの大きさ）を入れる（2026-10-15 決定 Q80）。
+        # 印を付けたビルドは App Store の審査に出さない。H1 で大きさが決まったら、比べる画面と一緒にこの印を取り除く
         script: |
           set -o pipefail
           mkdir -p build
@@ -45,6 +47,7 @@ workflows:
             -destination "id=$SIM_UDID" \
             -derivedDataPath build/derived \
             CODE_SIGNING_ALLOWED=NO \
+            SWIFT_ACTIVE_COMPILATION_CONDITIONS='$(inherited) TIMYCUE_DEV_TOOLS' \
             | tee build/test.log
       - name: 画面写真を撮る（見本の予定だけが入った状態）
         script: |
@@ -100,6 +103,15 @@ workflows:
           xcrun simctl launch --terminate-running-process "$SIM_UDID" io.github.takejiyuuri.timycue -TimyCueEditorDays "0,7,14"
           sleep "$WAIT"
           xcrun simctl io "$SIM_UDID" screenshot "build/screenshots/editor.png"
+          # H1 の比べる画面（設定 ＞ 開発用：キャラクターの大きさ）。高さ・姿勢・時計のあり／なしの代表の組み合わせ
+          for COMBO in "16 standing YES" "24 standing YES" "36 standing YES" "40 standing YES" "24 sitting YES" "40 sitting YES" "24 standing NO"; do
+            set -- $COMBO
+            xcrun simctl launch --terminate-running-process "$SIM_UDID" io.github.takejiyuuri.timycue -TimyCueTab settings \
+              -TimyCueDevScreen characterSizes -TimyCueCharacterHeight "$1" -TimyCueCharacterPosture "$2" -TimyCueCharacterClock "$3"
+            sleep "$WAIT"
+            CLOCK=$([ "$3" = YES ] && echo clock || echo noclock)
+            xcrun simctl io "$SIM_UDID" screenshot "build/screenshots/character-$1-$2-$CLOCK.png"
+          done
     artifacts:
       - build/screenshots/*.png
       - build/diagnostics/*.png
@@ -156,11 +168,14 @@ workflows:
           echo "ビルド番号: $NEXT"
           echo "IOS_BUILD_NUMBER=$NEXT" >> "$CM_ENV"
       - name: ipa を作る
+        # TIMYCUE_DEV_TOOLS：検証用のビルドの印（H1 の比べる画面を入れる。2026-10-15 決定 Q80）。Release には前からの条件がないので、そのまま置く。
+        # 印を付けたビルドは App Store の審査に出さない（TestFlight と App Store で同じバイナリを使えるので、公開版は印のないビルドで作る）。
+        # H1 で大きさが決まったら、比べる画面と一緒にこの印を取り除く
         script: |
           xcode-project build-ipa \
             --project "$XCODE_PROJECT" \
             --scheme "$XCODE_SCHEME" \
-            --archive-xcargs "COMPILER_INDEX_STORE_ENABLE=NO CURRENT_PROJECT_VERSION=$IOS_BUILD_NUMBER"
+            --archive-xcargs "COMPILER_INDEX_STORE_ENABLE=NO CURRENT_PROJECT_VERSION=$IOS_BUILD_NUMBER SWIFT_ACTIVE_COMPILATION_CONDITIONS=TIMYCUE_DEV_TOOLS"
     artifacts:
       - build/ios/ipa/*.ipa
       - /tmp/xcodebuild_logs/*.log
