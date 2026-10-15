@@ -65,6 +65,43 @@ final class CharacterTests: XCTestCase {
     }
 }
 
+/// キャラクターの案の作り方（2026-10-16 H1 の案の比較）
+final class CharacterDesignTests: XCTestCase {
+    func testCurrentDesignIsTheH1Figure() {
+        XCTAssertEqual(CharacterDesign.current.standing, .standing)
+        XCTAssertEqual(CharacterDesign.current.sitting, .sitting)
+        XCTAssertEqual(CharacterDesign.current.referenceHeight, 100, accuracy: 0.01)
+        XCTAssertEqual(CharacterDesign.current.style.cheekOpacity, 0.85)
+    }
+
+    func testAdjustmentKeepsTheNeckAndMovesTheFaceWithTheHead() {
+        let pose = CharacterPose.standing
+        let smaller = pose.adjusted(CharacterPose.Adjustment(headScale: 0.8))
+        XCTAssertEqual(smaller.head.center.y + smaller.head.size.height / 2, pose.head.center.y + pose.head.size.height / 2,
+                       accuracy: 0.001, "頭のいちばん下（首）は動かさない")
+        XCTAssertEqual(smaller.head.size.width, pose.head.size.width * 0.8, accuracy: 0.001)
+        let head = CharacterPose.ellipseBounds(smaller.head)
+        for part in smaller.eyes + smaller.cheeks {
+            XCTAssertTrue(head.contains(CharacterPose.ellipseBounds(part)), "目とほっぺは頭と一緒に動く")
+        }
+        let lifted = pose.adjusted(CharacterPose.Adjustment(faceLift: 0.05))
+        XCTAssertEqual(lifted.eyes[0].center.y, pose.eyes[0].center.y - 0.05 * pose.head.size.height, accuracy: 0.001)
+        let merged = pose.adjusted(CharacterPose.Adjustment(armLengthScale: 0.5, armsMergeWithBody: true))
+        XCTAssertTrue(merged.arms.allSatisfy(\.mergesWithBody))
+        XCTAssertEqual(merged.arms[0].length, pose.arms[0].length * 0.5, accuracy: 0.001)
+        XCTAssertEqual(merged.arms[0].joint, pose.arms[0].joint, "腕の付け根は動かさない")
+    }
+
+    func testDesignIsSizedByItsOwnStandingHeight() {
+        let taller = CharacterDesign.current.adjusted(CharacterPose.Adjustment(legLengthScale: 1.5), style: .current)
+        XCTAssertGreaterThan(taller.referenceHeight, 100)
+        let layout = CharacterLayout(height: 36, design: taller, posture: .standing)
+        XCTAssertEqual(layout.bodySize.height, 36, accuracy: 0.01, "○pt は案ごとの立った姿の全身の高さ")
+        let noCheeks = CharacterStyle(outlineRatio: 0.035, cheekOpacity: 0)
+        XCTAssertEqual(CharacterLayout(height: 36, pose: .standing, style: noCheeks).outlineWidth, 1.26, accuracy: 0.001)
+    }
+}
+
 /// 時計を小さくしたときの中の文字・針・目盛り（2026-10-16 Q85）
 final class HomeClockStyleTests: XCTestCase {
     func testCurrentHomeClockKeepsItsSizes() {
@@ -103,7 +140,7 @@ final class CharacterComparisonTests: XCTestCase {
         XCTAssertEqual(CharacterComparisonStore.label(for: 40), "約40pt", "約 40pt は画像からの推定")
         XCTAssertEqual(CharacterComparisonStore.label(for: 24), "24pt")
         let store = CharacterComparisonStore()
-        XCTAssertEqual(store.height, 24)
+        XCTAssertEqual(store.height, 36, "初めは第一の候補の 36pt（2026-10-16）")
         XCTAssertEqual(store.posture, .standing)
         XCTAssertTrue(store.showsClock)
 
@@ -137,7 +174,7 @@ final class CharacterComparisonTests: XCTestCase {
         defaults.set("30", forKey: "TimyCueCharacterHeight")
         defaults.set("74", forKey: "TimyCueClockWidth")
         let other = CharacterComparisonStore.fromLaunchArguments(defaults)
-        XCTAssertEqual(other.height, 24, "比べる 4 つ以外の高さは使わない")
+        XCTAssertEqual(other.height, 36, "比べる 4 つ以外の高さは使わない")
         XCTAssertEqual(other.clockWidth, 0.45, "比べる 3 つ以外の時計の大きさは使わない")
         defaults.removePersistentDomain(forName: "CharacterComparisonTests")
     }
@@ -168,6 +205,59 @@ final class CharacterComparisonTests: XCTestCase {
         XCTAssertEqual(Self.kinds(one.rows), ["出発 9:15 車", "9:30 A社打合せ（強調）"], "主状態の予定とその出発の点はいつも出す")
         XCTAssertEqual(one.hiddenEvents, 4)
         XCTAssertEqual(Self.kinds(sample.timeline(showingEvents: 0).rows), Self.kinds(one.rows), "0 件にはしない")
+    }
+
+    func testDesignCandidatesDifferInTheIntendedWays() {
+        // 1 現行・2 シンプル寄り・3 かわいさ控えめ・4 中間（2026-10-16 H1 の続き）
+        XCTAssertEqual(CharacterDesignComparisonStore.Candidate.allCases.map(\.title), ["現行", "シンプル", "控えめ", "中間"])
+        let current = CharacterDesign.current
+        let simple = CharacterDesign.simple
+        let calm = CharacterDesign.calm
+        let middle = CharacterDesign.middle
+        XCTAssertEqual(simple.style.cheekOpacity, 0, "シンプル寄りはほっぺなし")
+        XCTAssertTrue(simple.standing.arms.allSatisfy(\.mergesWithBody), "シンプル寄りは腕を胴とひと続きにして線を減らす")
+        XCTAssertLessThan(simple.standing.eyes[0].size.height, current.standing.eyes[0].size.height)
+        XCTAssertLessThan(calm.standing.head.size.height / calm.referenceHeight,
+                          current.standing.head.size.height / current.referenceHeight, "かわいさ控えめは頭が小さめ（全身に対して）")
+        XCTAssertLessThan(calm.standing.eyes[0].center.y - calm.standing.head.center.y,
+                          current.standing.eyes[0].center.y - current.standing.head.center.y, "目が少し上")
+        // 中間案は、目の大きさ・ほっぺの濃さ・輪郭の太さが現行案とシンプル寄りの間
+        XCTAssertTrue((simple.standing.eyes[0].size.height...current.standing.eyes[0].size.height)
+            .contains(middle.standing.eyes[0].size.height))
+        XCTAssertTrue((simple.style.cheekOpacity...current.style.cheekOpacity).contains(middle.style.cheekOpacity))
+        XCTAssertTrue((simple.style.outlineRatio...current.style.outlineRatio).contains(middle.style.outlineRatio))
+        for candidate in CharacterDesignComparisonStore.Candidate.allCases {
+            let design = candidate.design
+            let standing = CharacterLayout(height: 36, design: design, posture: .standing)
+            XCTAssertEqual(standing.bodySize.height, 36, accuracy: 0.01, "\(candidate.title)：36pt は立った姿の全身の高さ")
+            XCTAssertLessThan(CharacterLayout(height: 36, design: design, posture: .sitting).bodySize.height, 36, "座ると低くなる")
+            XCTAssertTrue((1...2).contains(standing.outlineWidth), "輪郭は 1〜2pt")
+            for posture in CharacterPosture.allCases {
+                let pose = design.pose(posture)
+                let head = CharacterPose.ellipseBounds(pose.head)
+                XCTAssertTrue((pose.eyes + pose.cheeks).allSatisfy { head.contains(CharacterPose.ellipseBounds($0)) },
+                              "\(candidate.title)：目とほっぺは頭の中")
+            }
+        }
+    }
+
+    func testDesignComparisonUsesTheFirstCandidateSizesAndLaunchArguments() {
+        XCTAssertEqual(CharacterDesignComparisonStore.height, 36, "人型 36pt に固定（2026-10-16 の第一の候補）")
+        XCTAssertEqual(CharacterDesignComparisonStore.clockWidth, 0.45, "時計 45％に固定")
+        let store = CharacterDesignComparisonStore()
+        XCTAssertEqual(store.candidate, .current)
+        XCTAssertEqual(store.posture, .standing)
+        XCTAssertTrue(store.showsClock)
+        let defaults = UserDefaults(suiteName: "CharacterDesignComparisonTests")!
+        defaults.removePersistentDomain(forName: "CharacterDesignComparisonTests")
+        defaults.set("calm", forKey: "TimyCueCharacterDesign")
+        defaults.set("sitting", forKey: "TimyCueCharacterPosture")
+        defaults.set("NO", forKey: "TimyCueCharacterClock")
+        let launched = CharacterDesignComparisonStore.fromLaunchArguments(defaults)
+        XCTAssertEqual(launched.candidate, .calm)
+        XCTAssertEqual(launched.posture, .sitting)
+        XCTAssertFalse(launched.showsClock)
+        defaults.removePersistentDomain(forName: "CharacterDesignComparisonTests")
     }
 
     private static func kinds(_ rows: [CharacterComparisonSample.Row]) -> [String] {

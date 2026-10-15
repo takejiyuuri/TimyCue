@@ -121,13 +121,15 @@ workflows:
           capture event-detail -TimyCueTab calendar -TimyCueDetailOfFirstEventToday YES
           # 3 分割の予定編集（新規。今日・1 週後・2 週後を選んだ状態）
           capture editor -TimyCueEditorDays "0,7,14"
-          # H1 の比べる画面（設定 ＞ 開発用：キャラクターの大きさ）。2026-10-16：時計の大きさ 40・45・50％×24pt・立つ、45％×24pt・座る、
-          # 時計なし×24pt・立つ の 5 つ。見本の予定と時刻（8:52）は同じで、大きさだけを変える
-          for COMBO in "24 standing YES 40" "24 standing YES 45" "24 standing YES 50" "24 sitting YES 45" "24 standing NO 45"; do
-            set -- $COMBO
-            if [ "$3" = YES ]; then NAME="character-$1-$2-clock$4"; else NAME="character-$1-$2-noclock"; fi
-            capture "$NAME" -TimyCueTab settings -TimyCueDevScreen characterSizes -TimyCueCharacterHeight "$1" \
-              -TimyCueCharacterPosture "$2" -TimyCueCharacterClock "$3" -TimyCueClockWidth "$4"
+          # H1 のキャラクターの案（設定 ＞ 開発用：キャラクターの案）。2026-10-16：4 案（現行・シンプル寄り・かわいさ控えめ・中間）×
+          # 時計 45％＋36pt・立つ、時計 45％＋36pt・座る、時計なし＋36pt・立つ。見本の予定と時刻（8:52）は同じで、案だけを変える
+          for DESIGN in current simple calm middle; do
+            for COMBO in "standing YES" "sitting YES" "standing NO"; do
+              set -- $COMBO
+              if [ "$2" = YES ]; then NAME="design-$DESIGN-$1-clock45"; else NAME="design-$DESIGN-$1-noclock"; fi
+              capture "$NAME" -TimyCueTab settings -TimyCueDevScreen characterDesigns -TimyCueCharacterDesign "$DESIGN" \
+                -TimyCueCharacterPosture "$1" -TimyCueCharacterClock "$2"
+            done
           done
           ls -l build/screenshots
     artifacts:

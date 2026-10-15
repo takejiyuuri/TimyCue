@@ -8,6 +8,7 @@ struct SettingsTabView: View {
     #if TIMYCUE_DEV_TOOLS
     /// 画面写真用に、比べる画面を開いた状態で始める（起動引数 `-TimyCueDevScreen characterSizes`）
     @State private var opensCharacterSizes = UserDefaults.standard.string(forKey: "TimyCueDevScreen") == "characterSizes"
+    @State private var opensCharacterDesigns = UserDefaults.standard.string(forKey: "TimyCueDevScreen") == "characterDesigns"
     #endif
 
     var body: some View {
@@ -52,6 +53,16 @@ struct SettingsTabView: View {
                             Image(systemName: "figure.stand").foregroundStyle(Theme.Colors.accent)
                         }
                     }
+                    // キャラクターの案の比較（2026-10-16 H1 の続き）
+                    NavigationLink {
+                        CharacterDesignComparisonView()
+                    } label: {
+                        Label {
+                            Text("開発用：キャラクターの案")
+                        } icon: {
+                            Image(systemName: "person.2").foregroundStyle(Theme.Colors.accent)
+                        }
+                    }
                 }
                 #endif
             }
@@ -59,6 +70,9 @@ struct SettingsTabView: View {
             #if TIMYCUE_DEV_TOOLS
             .navigationDestination(isPresented: $opensCharacterSizes) {
                 CharacterSizeComparisonView()
+            }
+            .navigationDestination(isPresented: $opensCharacterDesigns) {
+                CharacterDesignComparisonView()
             }
             #endif
         }

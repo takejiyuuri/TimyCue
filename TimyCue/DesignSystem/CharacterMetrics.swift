@@ -9,14 +9,14 @@ enum CharacterMetrics {
     static let outline = Color(hex: 0x4A3326)
     /// 目：小さな点。輪郭より少しだけ濃いブラウン
     static let eye = Color(hex: 0x3A281D)
-    /// ほっぺ：ブランドの淡いオレンジを控えめに
-    static let cheek = Color(hex: Theme.BrandPalette.lightOrange, opacity: 0.85)
-    /// 輪郭の太さ：立った姿の全身の高さに対する割合。小さくても見えるよう 1pt より細くせず、大きくても 2pt まで
+    /// ほっぺ：ブランドの淡いオレンジ。濃さは案ごとに CharacterStyle.cheekOpacity で決める（現行案は 85％）
+    static let cheek = Color(hex: Theme.BrandPalette.lightOrange)
+    /// 輪郭の太さ：立った姿の全身の高さに対する割合（現行案）。小さくても見えるよう 1pt より細くせず、大きくても 2pt まで
     static let outlineRatio: CGFloat = 0.045
     static let outlineMin: CGFloat = 1
     static let outlineMax: CGFloat = 2
 
-    static func outlineWidth(forHeight height: CGFloat) -> CGFloat {
-        min(max(height * outlineRatio, outlineMin), outlineMax)
+    static func outlineWidth(forHeight height: CGFloat, ratio: CGFloat = outlineRatio) -> CGFloat {
+        min(max(height * ratio, outlineMin), outlineMax)
     }
 }
