@@ -57,7 +57,7 @@ struct EventDetailCard: View {
             DetailLine(label: "場所", value: "なし")
         }
         DetailLine(label: "到着目標", value: rows.arrivalTarget)
-        DetailLine(label: "移動手段", value: rows.route.map { "\(rows.transport)（\($0)）" } ?? rows.transport)
+        DetailLine(label: "移動手段", value: rows.transportLine)
         DetailLine(label: "通知", value: rows.notifications)
         DetailLine(label: "出発目安", value: rows.departure)
     }
@@ -108,7 +108,8 @@ struct EventDetailRows: Equatable {
     let place: String?
     let arrivalTarget: String
     let transport: String
-    /// 移動手段が車のときだけ（仕様 §52）
+    /// 移動手段が車で、車のルート（仕様 §52）が「自動」以外のときだけ。「自動」は表示だけ省き、設定の値は変えない
+    /// （2026-10-15 決定 Q78：移動手段の「自動」と、車のルートの「自動」を見分けるため）
     let route: String?
     let notifications: String
     /// 出発目安。ホームと同じ出発時刻の計算の結果（2026-10-14 実機の指摘「場所を入れても『まだ計算しません』のまま」）
@@ -122,9 +123,14 @@ struct EventDetailRows: Equatable {
         let info = metadata ?? TimyCueEventMetadata()
         arrivalTarget = ScheduleEditorStore.arrivalTargetText(info.arrivalTargetMinutes)
         transport = info.transport.displayName
-        route = info.transport == .car ? info.route.displayName : nil
+        route = info.transport == .car && info.route != .auto ? info.route.displayName : nil
         notifications = info.notifications.summary
         departure = Self.departureText(estimate ?? .development(for: event))
+    }
+
+    /// 移動手段の行：「自動」「車」「車（高速優先）」「車（一般道優先）」（2026-10-15 決定 Q78）
+    var transportLine: String {
+        route.map { "\(transport)（\($0)）" } ?? transport
     }
 
     /// 出発目安の文字（言い方は仮）。計算できたら「16:52ごろ」。まだなら、近くなったら計算する（起点が決まらない予定は

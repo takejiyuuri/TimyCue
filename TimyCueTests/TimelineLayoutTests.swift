@@ -154,6 +154,21 @@ final class EventDetailRowsTests: XCTestCase {
         XCTAssertEqual(rows.notifications, "30分・10分・出発")
     }
 
+    func testTransportLineTellsAutoTransportFromAutoRoute() {
+        let event = CalendarEvent(day: day, startMinute: 570, durationMinutes: 60, title: "A社打合せ", locationName: "広島市中区")
+        func line(_ transport: TransportMode, _ route: RouteOption) -> String {
+            var info = TimyCueEventMetadata()
+            info.transport = transport
+            info.route = route
+            return EventDetailRows(event: event, metadata: info).transportLine
+        }
+        XCTAssertEqual(line(.auto, .auto), "自動")
+        XCTAssertEqual(line(.car, .auto), "車", "車のルートが「自動」なら表示だけ省く（2026-10-15 決定 Q78）")
+        XCTAssertEqual(line(.car, .preferHighway), "車（高速優先）")
+        XCTAssertEqual(line(.car, .preferLocalRoads), "車（一般道優先）")
+        XCTAssertEqual(line(.walk, .preferHighway), "徒歩", "ルートは車のときだけ")
+    }
+
     func testRowsForEventWithoutPlaceOrMetadata() {
         let event = CalendarEvent(day: day, startMinute: 600, title: "", source: .appleCalendar)
         let rows = EventDetailRows(event: event, metadata: nil)
