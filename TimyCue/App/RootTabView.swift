@@ -58,7 +58,10 @@ struct RootTabView: View {
         } message: {
             Text(connection.saveTargetNoticeMessage)
         }
-        .onAppear { openEditorForScreenshot() }
+        .onAppear {
+            openEditorForScreenshot()
+            markReadyForScreenshot()
+        }
         .fullScreenCover(isPresented: $showsEditorForScreenshot) {
             ScheduleEditorView(initialMonth: CalendarMonth(CalendarDay(Date())))
                 .environment(editorStore)
@@ -98,6 +101,17 @@ struct RootTabView: View {
         editorStore.setStartMinute(14 * 60, on: first)
         editorStore.content.title = "見本の打合せ"
         showsEditorForScreenshot = true
+        #endif
+    }
+
+    /// Codemagic の画面写真用：起動引数 `-TimyCueScreenshot YES` のとき、最初の画面を出したら書類のフォルダに印のファイルを書く
+    /// （DEBUG のときだけ）。撮る手順は、この印が出るのを待ってから撮る（シミュレータで起動画面が長く残ることがあり、
+    /// 決まった秒数だけ待つ撮り方では撮り損ねた：ビルド確認 #36・#39・#43）
+    private func markReadyForScreenshot() {
+        #if DEBUG
+        guard UserDefaults.standard.bool(forKey: "TimyCueScreenshot"),
+              let folder = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
+        try? Data().write(to: folder.appendingPathComponent("timycue-screenshot-ready"))
         #endif
     }
 
