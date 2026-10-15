@@ -74,12 +74,29 @@ workflows:
               WAITED=$((WAITED + 1))
             done
           }
-          capture() {   # $1 = 画面写真の名前、残りは起動の引数
+          # 写真が起動画面のままかを、上の帯の明るさのばらつきで見分ける（起動画面は約 12、中身のある画面は 24 以上）。
+          # アプリが最初の画面を出していても、シミュレータの画面が起動画面のまま残ることがある（#44）。見分けられないとき（Pillow を入れられない）は撮り直さない
+          python3 -m pip install --quiet --disable-pip-version-check pillow >/dev/null 2>&1 || true
+          cat > /tmp/is_launch_screen.py <<'PY'
+          import sys
+          from PIL import Image, ImageStat
+          image = Image.open(sys.argv[1]).convert("L")
+          width, height = image.size
+          band = image.crop((0, int(height * 0.05), width, int(height * 0.35)))
+          sys.exit(0 if ImageStat.Stat(band).stddev[0] < 18 else 1)
+          PY
+          is_launch_screen() { python3 /tmp/is_launch_screen.py "$1" 2>/dev/null; }
+          capture() {   # $1 = 画面写真の名前、残りは起動の引数。起動画面のままなら、開き直して 3 回まで撮り直す
             NAME=$1
             shift
-            launch_and_wait "$@"
-            sleep "$SETTLE"
-            xcrun simctl io "$SIM_UDID" screenshot "build/screenshots/$NAME.png" >/dev/null
+            for TRY in 1 2 3; do
+              launch_and_wait "$@"
+              sleep "$SETTLE"
+              xcrun simctl io "$SIM_UDID" screenshot "build/screenshots/$NAME.png" >/dev/null
+              if ! is_launch_screen "build/screenshots/$NAME.png"; then break; fi
+              echo "$NAME：起動画面のままだったので、開き直して撮り直す（${TRY} 回目）"
+              sleep 5
+            done
             echo "$NAME：最初の画面が出るまで約 ${WAITED} 秒"
           }
           # 入れた直後に一度開いておく（初めの起動は特に遅い）
