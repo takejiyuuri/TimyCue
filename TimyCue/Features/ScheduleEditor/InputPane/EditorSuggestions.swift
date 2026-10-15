@@ -86,14 +86,35 @@ extension ScheduleEditorStore {
         content.title = suggestion.title
     }
 
-    /// 候補の予定の設定（場所・色・到着目標・移動手段）も使う（§47）
+    /// 「この予定の設定も使う」を押したときに、入力中の値を置き換える前に確かめるか（2026-10-14 決定）。
+    /// 場所・色・到着目標・移動手段のどれかを 3 分割画面を開いたときの値から変えていて、しかも候補の値と違うときだけ確かめる。
+    /// 何も変えていなければ、確かめずにすぐ入れる
+    func settingsReplacementNeedsConfirmation(for suggestion: TitleSuggestion) -> Bool {
+        let initial = initialContent
+        if content.locationName != initial.locationName && content.locationName != suggestion.locationName {
+            return true
+        }
+        guard let info = suggestion.metadata else { return false }
+        let current = content.metadata
+        return (current.color != initial.metadata.color && current.color != info.color)
+            || (current.arrivalTargetMinutes != initial.metadata.arrivalTargetMinutes
+                && current.arrivalTargetMinutes != info.arrivalTargetMinutes)
+            || (current.transport != initial.metadata.transport && current.transport != info.transport)
+            || (info.transport == .car && current.route != initial.metadata.route && current.route != info.route)
+    }
+
+    /// 候補の予定の設定（場所・色・到着目標・移動手段の 4 つ）を使う。押したときだけ（§47・2026-10-14 決定）。
+    /// 移動手段が「車」のときだけ、車のルートの条件も移動手段に付いてくるものとして一緒に引き継ぐ。車以外なら、ルートは今の値のまま。
+    /// 通知と出発の余裕は写さず、今の値のまま（通知は予定ごとに意味が変わりやすく、余裕は設定の値を使う方が分かりやすいため）
     func useSettings(of suggestion: TitleSuggestion) {
-        content.locationName = suggestion.locationName
+        setLocationName(suggestion.locationName)
         guard let info = suggestion.metadata else { return }
         content.metadata.color = info.color
         content.metadata.arrivalTargetMinutes = info.arrivalTargetMinutes
         content.metadata.transport = info.transport
-        content.metadata.route = info.route
+        if info.transport == .car {
+            content.metadata.route = info.route
+        }
     }
 
     // MARK: - 場所の候補（§48）
@@ -128,19 +149,20 @@ extension ScheduleEditorStore {
         return result
     }
 
-    /// 場所を選ぶ。過去の場所なら、到着目標・移動手段がまだ決まっていなければ、その場所の前回の値を入れる（§48・§49）。
-    /// 到着目標の優先順位：今回の手動指定 → その場所の前回設定 → 既定値（既定値は設定画面の段階で足す）
+    /// 場所を選ぶ。過去の場所を選んでも、到着目標・移動手段は書き換えない（Q75）。
+    /// 到着目標はユーザーが決める予定側の設定で、場所から入れない（全体既定値のまま。Q70）。
+    /// 移動手段は、はっきり指定されていればそのまま、「自動」なら「自動」のまま（過去の実績は自動の判定の内部材料にだけ使う）
     func choosePlace(_ name: String?) {
+        setLocationName(name)
+    }
+
+    /// 場所を入れる・消す。場所あり／なしが変わったら、通知のタイミングの意味を置き換える
+    /// （出発○分前 ↔ 開始○分前、出発時刻 ↔ 予定開始。初めの値には戻さず、通知なしは通知なしのまま。2026-10-14 決定）
+    func setLocationName(_ name: String?) {
+        let hadPlace = content.hasPlace
         content.locationName = name
-        guard let name,
-              let last = historyNewestFirst.first(where: { $0.locationName == name }),
-              let info = metadata(for: last.id) else { return }
-        if content.metadata.arrivalTargetMinutes == nil {
-            content.metadata.arrivalTargetMinutes = info.arrivalTargetMinutes
-        }
-        if content.metadata.transport == .auto {
-            content.metadata.transport = info.transport
-            content.metadata.route = info.route
+        if content.hasPlace != hadPlace {
+            content.metadata.notifications = content.metadata.notifications.converted(hasPlace: content.hasPlace)
         }
     }
 

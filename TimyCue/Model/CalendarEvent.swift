@@ -26,22 +26,13 @@ enum RepeatFrequency: String, Codable, CaseIterable {
     case daily
     case weekly
     case monthly
-    /// Apple カレンダーから来る「毎年」（誕生日など）。TimyCue の選択肢では「カスタム」の単位として選べる
+    /// Apple カレンダーから来る「毎年」（誕生日など）
     case yearly
-
-    var unitName: String {
-        switch self {
-        case .daily: "日"
-        case .weekly: "週"
-        case .monthly: "か月"
-        case .yearly: "年"
-        }
-    }
 }
 
 /// 繰り返し（仕様 §54・Q37）。
 /// 本来の繰り返しは Apple カレンダー（EventKit）の繰り返しを正本にする。TimyCue 独自の繰り返しの仕組みは作らない（2026-10-12 変更）。
-/// ここに持つのは、EventKit の繰り返しの決まりを表す値だけ
+/// TimyCue の画面では繰り返しを作らない（2026-10-13 ユーザー決定）。ここに持つのは、Apple カレンダーから読んだ繰り返しの決まりを表す値だけ
 struct RepeatRule: Equatable, Codable {
     /// nil は「なし」
     var frequency: RepeatFrequency?
@@ -66,65 +57,6 @@ struct RepeatRule: Equatable, Codable {
     static let monthly = RepeatRule(frequency: .monthly)
 
     var isRepeating: Bool { frequency != nil }
-
-    /// 選択肢（§54）
-    enum Choice: CaseIterable {
-        case none, daily, weekly, biweekly, monthly, custom
-
-        var displayName: String {
-            switch self {
-            case .none: "なし"
-            case .daily: "毎日"
-            case .weekly: "毎週"
-            case .biweekly: "隔週"
-            case .monthly: "毎月"
-            case .custom: "カスタム"
-            }
-        }
-
-        /// その選択肢のふつうの決まり（カスタムは毎週を出発点にする）
-        var preset: RepeatRule {
-            switch self {
-            case .none: .none
-            case .daily: .daily
-            case .weekly, .custom: .weekly
-            case .biweekly: .biweekly
-            case .monthly: .monthly
-            }
-        }
-    }
-
-    /// どの選択肢にあたるか。終わりの日は選択肢を変えない（「毎週（〜11/30）」も毎週）
-    var choice: Choice {
-        guard let frequency else { return .none }
-        guard weekdays.isEmpty else { return .custom }
-        switch (frequency, interval) {
-        case (.daily, 1): return .daily
-        case (.weekly, 1): return .weekly
-        case (.weekly, 2): return .biweekly
-        case (.monthly, 1): return .monthly
-        default: return .custom
-        }
-    }
-
-    /// 入力の行に出す文字。例：「毎週」「3日ごと」「2週ごと（月・水）」「毎月（〜11/30まで）」
-    var displayName: String {
-        guard let frequency else { return "なし" }
-        var text: String
-        switch choice {
-        case .custom:
-            text = interval == 1 ? "毎\(frequency.unitName)" : "\(interval)\(frequency.unitName)ごと"
-            if frequency == .weekly, !weekdays.isEmpty {
-                text += "（" + weekdays.sorted().map { Weekday.symbols[$0] }.joined(separator: "・") + "）"
-            }
-        default:
-            text = choice.displayName
-        }
-        if let endDay {
-            text += "（〜\(endDay.month)/\(endDay.day)まで）"
-        }
-        return text
-    }
 
     // MARK: - 保存
 

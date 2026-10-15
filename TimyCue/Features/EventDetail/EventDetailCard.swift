@@ -1,15 +1,20 @@
 import SwiftUI
 
 /// 予定詳細の中身（v1.1「予定詳細画面」・Q27）。別の画面にはせず、各画面の吹き出しの中に出す。
-/// ここでは直接編集しない。「編集」を押した時だけ 3 分割の予定編集画面を開く（Q30）
+/// ここでは直接編集しない。「編集」を押した時だけ 3 分割の予定編集画面を開く（Q30）。
+/// 祝日など見るだけの予定は、何の日か（名前と日時）だけを出し、「編集」は出さない（2026-10-13 ユーザー決定）
 struct EventDetailCard: View {
     let event: CalendarEvent
     let metadata: TimyCueEventMetadata?
+    var isViewOnly = false
     let onEdit: () -> Void
     @Environment(\.openURL) private var openURL
+    /// 出発時刻の計算（ホームと同じ結果を出発目安に出す）。渡されていなければ、開発用の扱い
+    @Environment(DepartureStore.self) private var departures: DepartureStore?
 
     var body: some View {
-        let rows = EventDetailRows(event: event, metadata: metadata)
+        let estimate = departures?.estimate(for: event) ?? .development(for: event)
+        let rows = EventDetailRows(event: event, metadata: metadata, estimate: estimate)
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Circle()
@@ -20,29 +25,41 @@ struct EventDetailCard: View {
                     .foregroundStyle(Theme.Colors.textPrimary)
                     .lineLimit(2)
                 Spacer(minLength: 4)
-                Button("編集", action: onEdit)
+                if !isViewOnly {
+                    Button(action: onEdit) {
+                        Text("編集").foregroundStyle(Theme.Colors.onAccent)
+                    }
                     .font(CalendarMetrics.popoverSecondaryFont.weight(.semibold))
                     .buttonStyle(.bordered)
+                    .tint(Theme.Colors.accent)
                     .controlSize(.small)
+                }
             }
             DetailLine(label: "日時", value: rows.dateTime)
-            if let place = rows.place {
-                // 場所を押すと外部の地図へ渡す。TimyCue 自身はナビをしない（v1.1「外部地図」）
-                Button {
-                    if let url = EventDetailRows.mapsURL(for: place) { openURL(url) }
-                } label: {
-                    DetailLine(label: "場所", value: place, systemImage: "map")
-                }
-                .buttonStyle(.plain)
-            } else {
-                DetailLine(label: "場所", value: "なし")
+            if !isViewOnly {
+                details(rows)
             }
-            DetailLine(label: "到着目標", value: rows.arrivalTarget)
-            DetailLine(label: "移動手段", value: rows.route.map { "\(rows.transport)（\($0)）" } ?? rows.transport)
-            DetailLine(label: "通知", value: rows.notifications)
-            DetailLine(label: "出発目安", value: rows.departure)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// 場所・到着目標など（見るだけの予定では出さない）
+    @ViewBuilder
+    private func details(_ rows: EventDetailRows) -> some View {
+        if let place = rows.place {
+            // 暫定：地図のマークを押すと外部の地図（Apple マップ）へ渡す。住所は表示だけで、押しても開かない（2026-10-14 決定）。
+            // 簡易ルートを作ったら、TimyCue 内の簡易ルートを開くに置き換え、外部の地図／ナビを開く役目は「ナビ開始」へ移す
+            // （追加仕様書 §28.4・§29.1・Q57。2026-10-13 確認）
+            DetailLine(label: "場所", value: place, systemImage: "map") {
+                if let url = EventDetailRows.mapsURL(for: place) { openURL(url) }
+            }
+        } else {
+            DetailLine(label: "場所", value: "なし")
+        }
+        DetailLine(label: "到着目標", value: rows.arrivalTarget)
+        DetailLine(label: "移動手段", value: rows.transportLine)
+        DetailLine(label: "通知", value: rows.notifications)
+        DetailLine(label: "出発目安", value: rows.departure)
     }
 }
 
@@ -51,6 +68,8 @@ private struct DetailLine: View {
     let label: String
     let value: String
     var systemImage: String?
+    /// マークを押したときの動き（場所の行の「地図で開く」）。あるときは、マークだけが押せる
+    var onImageTap: (() -> Void)?
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -63,7 +82,17 @@ private struct DetailLine: View {
                 .foregroundStyle(Theme.Colors.textPrimary)
                 .lineLimit(2)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            if let systemImage {
+            if let systemImage, let onImageTap {
+                Button(action: onImageTap) {
+                    Image(systemName: systemImage)
+                        .font(CalendarMetrics.detailActionIconFont)
+                        .foregroundStyle(Theme.Colors.accent)
+                        .frame(minWidth: CalendarMetrics.detailActionTapSize, minHeight: CalendarMetrics.detailActionTapSize)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("地図で開く")
+            } else if let systemImage {
                 Image(systemName: systemImage)
                     .font(.system(size: 11))
                     .foregroundStyle(Theme.Colors.textSecondary)
@@ -79,23 +108,40 @@ struct EventDetailRows: Equatable {
     let place: String?
     let arrivalTarget: String
     let transport: String
-    /// 移動手段が車のときだけ（仕様 §52）
+    /// 移動手段が車で、車のルート（仕様 §52）が「自動」以外のときだけ。「自動」は表示だけ省き、設定の値は変えない
+    /// （2026-10-15 決定 Q78：移動手段の「自動」と、車のルートの「自動」を見分けるため）
     let route: String?
     let notifications: String
-    /// 出発目安。移動時間の計算（第5段階）ができるまでは出せない
+    /// 出発目安。ホームと同じ出発時刻の計算の結果（2026-10-14 実機の指摘「場所を入れても『まだ計算しません』のまま」）
     let departure: String
 
-    init(event: CalendarEvent, metadata: TimyCueEventMetadata?) {
+    init(event: CalendarEvent, metadata: TimyCueEventMetadata?, estimate: DepartureEstimate? = nil) {
         let day = event.day
         let date = "\(day.month)月\(day.day)日（\(day.weekdaySymbol())）"
         dateTime = event.isAllDay ? "\(date) 終日" : "\(date) \(CalendarStore.timeText(for: event))"
         place = event.locationName.flatMap { $0.isEmpty ? nil : $0 }
         let info = metadata ?? TimyCueEventMetadata()
-        arrivalTarget = info.arrivalTargetMinutes.map { "\($0)分前" } ?? "未設定"
+        arrivalTarget = ScheduleEditorStore.arrivalTargetText(info.arrivalTargetMinutes)
         transport = info.transport.displayName
-        route = info.transport == .car ? info.route.displayName : nil
+        route = info.transport == .car && info.route != .auto ? info.route.displayName : nil
         notifications = info.notifications.summary
-        departure = "まだ計算しません"
+        departure = Self.departureText(estimate ?? .development(for: event))
+    }
+
+    /// 移動手段の行：「自動」「車」「車（高速優先）」「車（一般道優先）」（2026-10-15 決定 Q78）
+    var transportLine: String {
+        route.map { "\(transport)（\($0)）" } ?? transport
+    }
+
+    /// 出発目安の文字（言い方は仮）。計算できたら「16:52ごろ」。まだなら、近くなったら計算する（起点が決まらない予定は
+    /// 開始の 4 時間前から、24 時間以内の 3 件まで。追加仕様書 §45・2026-10-14 決定 E6）。計算できなければその原因
+    static func departureText(_ estimate: DepartureEstimate) -> String {
+        switch estimate {
+        case .available(let date): "\(TimeText.hourMinute(Clock.minuteOfDay(date)))ごろ"
+        case .pending: "近くなったら計算します"
+        case .notNeeded: "場所なしのため計算しません"
+        case .unavailable(let problem): problem.message
+        }
     }
 
     /// 外部の地図（Apple マップ）で場所を開く URL

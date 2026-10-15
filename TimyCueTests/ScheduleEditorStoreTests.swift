@@ -28,7 +28,7 @@ final class ScheduleEditorStoreTests: XCTestCase {
         let store = makeStore().store
         store.startNew(on: d1)
         XCTAssertEqual(store.saveButtonTitle, "保存")
-        [d2, d3, d4].forEach(store.selectDay)
+        [d2, d3, d4].forEach(store.addDay)
         XCTAssertEqual(store.saveButtonTitle, "4件保存")
     }
 
@@ -43,29 +43,34 @@ final class ScheduleEditorStoreTests: XCTestCase {
         XCTAssertEqual(store.mode.headerLabel, "コピー中")
         store.selectDay(d2)
         XCTAssertEqual(store.saveButtonTitle, "コピーを保存")
-        [d3, d4, CalendarDay(year: 2026, month: 11, day: 9)].forEach(store.selectDay)
+        [d3, d4, CalendarDay(year: 2026, month: 11, day: 9)].forEach(store.addDay)
         XCTAssertEqual(store.saveButtonTitle, "4件コピー")
     }
 
-    // MARK: - 新規・複数日（仕様 §34〜§36・§60）
+    // MARK: - 新規・複数日（仕様 §34〜§36・§60、2026-10-14 ユーザー決定「同じ内容で追加」、追加仕様書 vNext §1.2）
 
     func testNewMultipleDaysSavesOneEventPerDay() throws {
         let (store, events, metadata) = makeStore()
         store.startNew()
-        [d3, d1, d2].forEach(store.selectDay)
+        store.selectDay(d3)
+        store.setStartMinute(9 * 60)
+        [d1, d2].forEach(store.addDay)
         XCTAssertEqual(store.selectedDays, [d1, d2, d3], "選択日は日付順に並ぶ")
-        XCTAssertEqual(store.displayedDay, d2, "最後に選んだ日を表示する")
+        XCTAssertEqual(store.displayedDay, d3, "足しても左上の日は変わらない")
+        XCTAssertEqual(store.additionalDays, [d1, d2], "最初に選んだ日のほかが「同じ内容で追加」で足した日")
+        XCTAssertFalse(store.setsTimesIndividually, "初めは一括")
+        XCTAssertEqual(store.startMinutes[d1], 9 * 60, "一括では、足した日も同じ時刻（2026-10-14 ユーザー決定）")
 
+        store.setTimesIndividually(true)
         store.content.title = "通院"
         store.content.metadata.color = .lavender
         store.setStartMinute(14 * 60, on: d1)
         store.setStartMinute(14 * 60 + 30, on: d2)
-        store.setStartMinute(9 * 60, on: d3)
         let saved = try store.save()
 
         XCTAssertEqual(saved.count, 3)
         XCTAssertEqual(events.allEvents().count, 3)
-        XCTAssertEqual(Set(saved.map(\.startMinute)), [840, 870, 540], "日ごとに違う時刻で保存できる")
+        XCTAssertEqual(Set(saved.map(\.startMinute)), [840, 870, 540], "個別にすれば日ごとに違う時刻で保存できる")
         for event in saved {
             XCTAssertEqual(metadata.allMetadata()[event.id]?.color, .lavender, "TimyCue の情報は予定と別に保存する（仕様 §84）")
             XCTAssertEqual(store.metadata(for: event.id)?.color, .lavender)
@@ -73,11 +78,61 @@ final class ScheduleEditorStoreTests: XCTestCase {
         XCTAssertFalse(store.hasUnsavedChanges)
     }
 
+    func testBatchKeepsTheSameTimeOnEveryDay() {
+        let store = makeStore().store
+        store.startNew(on: d1)
+        store.addDay(d2)
+        store.setStartMinute(600)
+        XCTAssertEqual([d1, d2].map { store.startMinutes[$0] }, [600, 600], "一括：時刻を決めると全部の日に入る")
+        store.selectDay(d2)
+        store.setStartMinute(660)
+        XCTAssertEqual([d1, d2].map { store.startMinutes[$0] }, [660, 660], "どの日を出していても全部の日が変わる")
+        store.setEndMinute(720)
+        XCTAssertEqual([d1, d2].map { store.durationMinutes(on: $0) }, [60, 60], "所要時間も全部の日で同じ")
+        store.addDay(d3)
+        XCTAssertEqual(store.startMinutes[d3], 660, "あとから足した日にも同じ時刻")
+    }
+
+    func testIndividualTimesAndBackToBatch() {
+        let store = makeStore().store
+        store.startNew(on: d1)
+        store.setStartMinute(600)
+        store.setEndMinute(660)
+        store.addDay(d2)
+        store.setTimesIndividually(true)
+        XCTAssertEqual(store.startMinutes[d2], 600, "個別にしても、それまでの時刻は残る")
+        store.selectDay(d2)
+        store.setStartMinute(780)
+        store.setEndMinute(870)
+        XCTAssertEqual([d1, d2].map { store.startMinutes[$0] }, [600, 780], "個別：その日だけ変わる")
+        XCTAssertEqual([d1, d2].map { store.durationMinutes(on: $0) }, [60, 90])
+        store.addDay(d3)
+        XCTAssertNil(store.startMinutes[d3], "個別のときに足した日は、時刻を日ごとに決める")
+
+        XCTAssertTrue(store.batchChangesSomeDays, "日ごとに値が違うので、一括に戻す前に確かめる")
+        XCTAssertEqual(store.batchConfirmationMessage, "すべて 13:00〜14:30 にそろえますか？", "今出している日（10/19）の値にそろえる")
+        store.setTimesIndividually(false)
+        XCTAssertEqual([d1, d2, d3].map { store.startMinutes[$0] }, [780, 780, 780],
+                       "一括に戻すと、今左上に出している日の開始時刻にそろう（2026-10-14 決定）")
+        XCTAssertEqual([d1, d2, d3].map { store.durationMinutes(on: $0) }, [90, 90, 90], "所要時間も")
+        XCTAssertFalse(store.batchChangesSomeDays)
+    }
+
+    func testBackToBatchWithoutConfirmationWhenAllDaysAreTheSame() {
+        let store = makeStore().store
+        store.startNew(on: d1)
+        store.setStartMinute(600)
+        store.addDay(d2)
+        store.setTimesIndividually(true)
+        XCTAssertFalse(store.batchChangesSomeDays, "全部の日が同じ値なら、確かめずに一括へ切り替えてよい")
+        XCTAssertEqual(store.batchConfirmationMessage, "すべて 10:00 にそろえますか？", "終了がなければ開始だけ")
+    }
+
     func testConfirmStartTimeMovesToNextUnsetDay() {
         let store = makeStore().store
-        store.startNew()
-        [d1, d2, d3].forEach(store.selectDay)
-        store.displayDay(d2)
+        store.startNew(on: d2)
+        store.setTimesIndividually(true)
+        [d1, d3].forEach(store.addDay)
         store.setStartMinute(600)
         XCTAssertEqual(store.confirmStartTime(), d3, "後ろの未設定の日へ移る")
         store.setStartMinute(660)
@@ -87,15 +142,102 @@ final class ScheduleEditorStoreTests: XCTestCase {
         XCTAssertEqual(store.displayedDay, d1)
     }
 
-    func testDeselectingDisplayedDayShowsFirstRemainingDay() {
+    func testTappingASelectedDayShowsItAndRemovingItShowsTheFirstDay() {
         let store = makeStore().store
-        store.startNew()
-        [d1, d2, d3].forEach(store.selectDay)
+        store.startNew(on: d1)
+        [d2, d3].forEach(store.addDay)
+        store.selectDay(d3)
+        XCTAssertEqual(store.displayedDay, d3, "選んである日をタップすると、その日を左上に出す（その日の時刻を決めるため）")
+        XCTAssertEqual(store.selectedDays, [d1, d2, d3], "選んである日をタップしても外れない")
         store.setStartMinute(600, on: d3)
-        store.deselectDay(d3)
+        store.removeDay(d3)
         XCTAssertEqual(store.selectedDays, [d1, d2])
-        XCTAssertEqual(store.displayedDay, d1)
+        XCTAssertEqual(store.displayedDay, d1, "左上の日を外したら、最初に選んだ日を出す")
         XCTAssertNil(store.startMinutes[d3], "外した日の時刻も消える")
+        store.removeDay(d1)
+        XCTAssertEqual(store.selectedDays, [d1, d2], "最初に選んだ日は外さない")
+    }
+
+    func testTappingAnUnselectedDayMovesTheShownDay() {
+        let store = makeStore().store
+        store.startNew(on: d1)
+        store.setStartMinute(600)
+        store.addDay(d2)
+        store.selectDay(d3)
+        XCTAssertEqual(store.selectedDays, [d2, d3], "左上の日を、タップした日へ動かす。足した日はそのまま")
+        XCTAssertEqual(store.displayedDay, d3)
+        XCTAssertEqual(store.startMinutes[d3], 600, "時刻も一緒に動く")
+        XCTAssertNil(store.startMinutes[d1])
+        XCTAssertEqual(store.baseDay, d3, "最初に選んだ日も動く")
+        XCTAssertEqual(store.additionalDays, [d2])
+
+        store.selectDay(d2)
+        store.setStartMinute(700)
+        store.selectDay(d4)
+        XCTAssertEqual(store.selectedDays, [d3, d4], "足した日を左上に出してから別の日をタップすると、その日が動く")
+        XCTAssertEqual(store.startMinutes[d4], 700)
+        XCTAssertEqual(store.additionalDays, [d4])
+    }
+
+    func testAddingDaysOnlyWhileTheRowIsOpen() throws {
+        let original = makeEvent("A社打合せ", on: d1, at: 600)
+        let store = makeStore([original]).store
+        store.startNew(on: d1)
+        XCTAssertEqual(store.visibleRows.last, .additionalDays, "「同じ内容で追加」は右の入力のいちばん下")
+        XCTAssertFalse(store.isAddingDays)
+        store.toggleRow(.additionalDays)
+        XCTAssertTrue(store.isAddingDays, "行を開いている間だけ、下のカレンダーで日を足したり外したりする")
+        store.toggleRow(.title)
+        XCTAssertFalse(store.isAddingDays, "ほかの行を開いたら終わる")
+
+        try store.startEditing(eventID: original.id)
+        XCTAssertFalse(store.visibleRows.contains(.additionalDays), "編集は 1 件だけなので出さない")
+        store.addDay(d2)
+        XCTAssertEqual(store.selectedDays, [d1])
+    }
+
+    func testAddingTheFirstDayWhenNothingIsSelectedChoosesIt() throws {
+        let original = makeEvent("A社打合せ", on: d1, at: 600)
+        let store = makeStore([original]).store
+        try store.startEditing(eventID: original.id)
+        try store.startCopy()
+        store.toggleRow(.additionalDays)
+        store.addDay(d3)
+        XCTAssertEqual(store.selectedDays, [d3], "まだ日を選んでいなければ、足した日をその日にする")
+        XCTAssertEqual(store.displayedDay, d3)
+        XCTAssertEqual(store.baseDay, d3)
+        XCTAssertTrue(store.additionalDays.isEmpty)
+    }
+
+    func testAdditionalDaysText() {
+        let days = [
+            CalendarDay(year: 2026, month: 10, day: 2), CalendarDay(year: 2026, month: 10, day: 3),
+            CalendarDay(year: 2026, month: 10, day: 12), CalendarDay(year: 2026, month: 11, day: 21),
+            CalendarDay(year: 2026, month: 11, day: 23), CalendarDay(year: 2026, month: 11, day: 24),
+            CalendarDay(year: 2026, month: 11, day: 25), CalendarDay(year: 2026, month: 11, day: 26),
+        ]
+        let texts = ScheduleEditorStore.additionalDaysTexts(days)
+        XCTAssertEqual(texts.first, "10/2・3・12　11/21・23-26",
+                       "同じ月は「・」、3 日以上続く日は「23-26」、月が変わるところは全角の空き（2026-10-14 ユーザー決定）")
+        XCTAssertEqual(Array(texts.dropFirst()), [
+            "10/2・3・12　11/21 +4",
+            "10/2・3・12 +5",
+            "10/2・3 +6",
+            "10/2 +7",
+            "8日",
+        ], "1 行に入らなければ、後ろを残りの日数「+N」にする")
+        XCTAssertEqual(ScheduleEditorStore.additionalDaysTexts([]), ["なし"])
+        XCTAssertEqual(ScheduleEditorStore.additionalDaysTexts([CalendarDay(year: 2026, month: 12, day: 31),
+                                                                CalendarDay(year: 2027, month: 1, day: 1)]).first,
+                       "12/31　1/1", "月をまたいで続く日はまとめない")
+    }
+
+    func testAdditionalDaysRowShowsOnlyTheAddedDays() {
+        let store = makeStore().store
+        store.startNew(on: d1)
+        XCTAssertEqual(store.valueText(for: .additionalDays), "なし")
+        [d2, d3].forEach(store.addDay)
+        XCTAssertEqual(store.valueText(for: .additionalDays), "10/19・26", "最初に選んだ日（左上の日）は出さない")
     }
 
     func testDraftEventsReflectInputImmediately() {
@@ -113,7 +255,9 @@ final class ScheduleEditorStoreTests: XCTestCase {
         let store = makeStore().store
         store.startNew()
         XCTAssertEqual(store.saveIssues, [.noDaySelected, .missingTitle])
-        [d1, d2].forEach(store.selectDay)
+        store.selectDay(d1)
+        store.setTimesIndividually(true)
+        store.addDay(d2)
         store.setStartMinute(600, on: d1)
         XCTAssertEqual(store.saveIssues, [.missingStartTime([d2]), .missingTitle])
         store.setStartMinute(660, on: d2)
@@ -143,8 +287,9 @@ final class ScheduleEditorStoreTests: XCTestCase {
 
     func testSavingWithoutStartTimeShowsThatDay() {
         let store = makeStore().store
-        store.startNew()
-        [d1, d2, d3].forEach(store.selectDay)
+        store.startNew(on: d1)
+        store.setTimesIndividually(true)
+        [d2, d3].forEach(store.addDay)
         store.content.title = "通院"
         store.setStartMinute(600, on: d1)
         store.setStartMinute(600, on: d3)
@@ -219,8 +364,9 @@ final class ScheduleEditorStoreTests: XCTestCase {
 
     func testDurationIsCommonFirstThenChangeableOnOneDay() throws {
         let store = makeStore().store
-        store.startNew()
-        [d1, d2, d3, d4].forEach(store.selectDay)
+        store.startNew(on: d1)
+        store.setTimesIndividually(true)
+        [d2, d3, d4].forEach(store.addDay)
         store.content.title = "通院"
         for day in [d1, d2, d3, d4] { store.setStartMinute(600, on: day) }
 
@@ -228,10 +374,10 @@ final class ScheduleEditorStoreTests: XCTestCase {
         XCTAssertEqual([d1, d2, d3, d4].map { store.durationMinutes(on: $0) }, [60, 60, 60, 60],
                        "最初に入れた所要時間は全部の日に入る")
 
-        store.displayDay(d2)
+        store.selectDay(d2)
         store.setEndMinute(690)
         XCTAssertEqual([d1, d2, d3, d4].map { store.durationMinutes(on: $0) }, [60, 90, 60, 60],
-                       "日付タブで選んだ日だけ変わる")
+                       "個別のとき、左上に出した日（下のカレンダーでタップした日）だけ変わる")
 
         store.setEndMinute(nil, on: d3)
         XCTAssertNil(store.durationMinutes(on: d3), "その日だけ終了未設定にもできる")
@@ -248,14 +394,15 @@ final class ScheduleEditorStoreTests: XCTestCase {
         store.setStartMinute(600)
         store.setEndMinute(660)
         store.setEndMinute(690)
-        store.selectDay(d2)
+        store.addDay(d2)
         XCTAssertEqual(store.durationMinutes(on: d2), 90, "1 日だけの間に変えた値は、あとで足した日にも入る")
     }
 
     func testDurationBackToCommonValueDropsOverride() {
         let store = makeStore().store
-        store.startNew()
-        [d1, d2].forEach(store.selectDay)
+        store.startNew(on: d1)
+        store.setTimesIndividually(true)
+        store.addDay(d2)
         store.setStartMinute(600, on: d1)
         store.setStartMinute(600, on: d2)
         store.setEndMinute(660, on: d1)
@@ -264,46 +411,17 @@ final class ScheduleEditorStoreTests: XCTestCase {
         XCTAssertTrue(store.durationOverrides.isEmpty, "共通の値に戻したら、その日だけの値は消える")
     }
 
-    func testApplyDurationToAllDays() {
-        let store = makeStore().store
-        store.startNew()
-        [d1, d2, d3].forEach(store.selectDay)
-        for day in [d1, d2, d3] { store.setStartMinute(600, on: day) }
-        store.setEndMinute(660, on: d1)
-        XCTAssertFalse(store.canApplyDurationToAllDays, "全部同じなら「全日に適用」は要らない")
-
-        store.displayDay(d2)
-        store.setEndMinute(690)
-        XCTAssertTrue(store.canApplyDurationToAllDays, "違う日があれば出す")
-
-        store.applyDurationToAllDays()
-        XCTAssertEqual([d1, d2, d3].map { store.durationMinutes(on: $0) }, [90, 90, 90],
-                       "表示中の日の所要時間を全部の日に入れ直す（Q5）")
-        XCTAssertFalse(store.canApplyDurationToAllDays)
-
-        store.displayDay(d3)
-        store.setEndMinute(630)
-        XCTAssertEqual([d1, d2, d3].map { store.durationMinutes(on: $0) }, [90, 90, 30],
-                       "適用したあとも、日ごとに変えられる")
-    }
-
-    func testApplyDurationIsNotOfferedWhileEditing() throws {
-        let original = makeEvent("A社打合せ", on: d1, at: 600, duration: 60)
-        let store = makeStore([original]).store
-        try store.startEditing(eventID: original.id)
-        XCTAssertFalse(store.canApplyDurationToAllDays, "編集は 1 件だけ")
-    }
-
     func testDeselectingDayDropsItsDuration() {
         let store = makeStore().store
-        store.startNew()
-        [d1, d2].forEach(store.selectDay)
+        store.startNew(on: d1)
+        store.setTimesIndividually(true)
+        store.addDay(d2)
         store.setStartMinute(600, on: d1)
         store.setStartMinute(600, on: d2)
         store.setEndMinute(660, on: d1)
         store.setEndMinute(690, on: d2)
-        store.deselectDay(d2)
-        store.selectDay(d2)
+        store.removeDay(d2)
+        store.addDay(d2)
         XCTAssertEqual(store.durationMinutes(on: d2), 60, "外して選び直した日は共通の値に戻る")
     }
 
@@ -364,7 +482,8 @@ final class ScheduleEditorStoreTests: XCTestCase {
         XCTAssertTrue(store.startMinutes.isEmpty, "開始時刻は引き継がない")
         XCTAssertEqual(store.content.repeatRule, .none)
 
-        [d2, d3].forEach(store.selectDay)
+        store.selectDay(d2)
+        store.addDay(d3)
         store.setStartMinute(540, on: d2)
         store.setStartMinute(780, on: d3)
         let copies = try store.save()
@@ -379,6 +498,91 @@ final class ScheduleEditorStoreTests: XCTestCase {
             XCTAssertEqual(store.metadata(for: copy.id), info, "色・到着目標・移動手段・ルート・通知を引き継ぐ")
         }
         XCTAssertEqual(events.allEvents().first(where: { $0.id == original.id }), original, "元の予定は変えない")
+    }
+
+    func testCopyDestinationsAreToggledByTappingTheCalendar() throws {
+        let original = makeEvent("A社打合せ", on: d1, at: 600, duration: 60)
+        let store = makeStore([original]).store
+        try store.startEditing(eventID: original.id)
+        try store.startCopy()
+        XCTAssertTrue(store.isChoosingCopyDestinations)
+        XCTAssertFalse(store.isAddingDays, "「同じ内容で追加」を開かなくてよい")
+        [d2, d3, d4].forEach(store.toggleCopyDestination)
+        XCTAssertEqual(store.selectedDays, [d2, d3, d4], "押すたびにコピー先を足す（2026-10-14 ユーザー決定）")
+        XCTAssertEqual(store.displayedDay, d4, "最後に選んだコピー先を左上に出す（2026-10-14 決定 G1）")
+        store.toggleCopyDestination(d3)
+        XCTAssertEqual(store.selectedDays, [d2, d4], "選んである日を押すと外す")
+        XCTAssertEqual(store.displayedDay, d4, "左上に出していない日を外しても、左上はそのまま")
+        store.toggleCopyDestination(d4)
+        XCTAssertEqual(store.displayedDay, d2, "左上に出していた日を外したら、直前に選んだ残りのコピー先へ")
+        store.toggleCopyDestination(d2)
+        XCTAssertTrue(store.selectedDays.isEmpty, "最初に選んだ日も外せる")
+        XCTAssertEqual(store.displayedDay, d1, "コピー先が 0 件ならコピー元の日へ戻る")
+        store.toggleCopyDestination(d3)
+        XCTAssertEqual(store.displayedDay, d3)
+        XCTAssertEqual(store.saveButtonTitle, "コピーを保存")
+    }
+
+    func testCopyRowListsEveryDestinationAndCopyCanBeCancelled() throws {
+        let original = makeEvent("A社打合せ", on: d1, at: 600, duration: 60)
+        let store = makeStore([original]).store
+        try store.startEditing(eventID: original.id)
+        store.content.title = "A社打合せ（資料）"
+        try store.startCopy()
+        [d2, d3].forEach(store.toggleCopyDestination)
+        XCTAssertEqual(store.daysListedInAdditionalRow, [d2, d3],
+                       "コピーは最初に押した日も含めて全部を行に出す（2026-10-14 実機の指摘）")
+
+        store.cancelCopy()
+        XCTAssertEqual(store.mode, .edit(eventID: original.id), "コピーをやめたら編集の画面に戻る")
+        XCTAssertEqual(store.selectedDays, [d1])
+        XCTAssertEqual(store.displayedDay, d1)
+        XCTAssertEqual(store.startMinutes[d1], 600)
+        XCTAssertEqual(store.content.title, "A社打合せ（資料）", "コピーを押す前に直していた中身のまま")
+        XCTAssertTrue(store.hasUnsavedChanges, "直していた分は、保存していない変更のまま")
+    }
+
+    func testCopySourceDayCannotBeChosenAsDestination() throws {
+        let original = makeEvent("A社打合せ", on: d1, at: 600)
+        let store = makeStore([original]).store
+        try store.startEditing(eventID: original.id)
+        try store.startCopy()
+        XCTAssertEqual(store.copySourceDay, d1)
+        store.toggleCopyDestination(d1)
+        store.addDay(d1)
+        store.selectDay(d1)
+        store.setStartMinute(540, on: d1)
+        XCTAssertTrue(store.selectedDays.isEmpty, "コピー元の日はコピー先にできない（2026-10-14 ユーザー決定）")
+        XCTAssertTrue(store.startMinutes.isEmpty)
+    }
+
+    func testNewEventStillKeepsTheFirstChosenDay() {
+        let store = makeStore().store
+        store.startNew(on: d1)
+        store.addDay(d2)
+        store.removeDay(d1)
+        XCTAssertEqual(store.selectedDays, [d1, d2], "新規では最初に選んだ日は外さない")
+        XCTAssertNil(store.copySourceDay)
+        XCTAssertFalse(store.isChoosingCopyDestinations)
+    }
+
+    func testNotificationsAreConvertedWhenThePlaceIsAddedOrRemoved() {
+        let store = makeStore().store
+        store.startNew(on: d1)
+        XCTAssertEqual(store.content.metadata.notifications, .noPlaceDefault, "場所なしで始まるので開始の基準（2026-10-14 決定）")
+        store.setLocationName("広島駅")
+        XCTAssertEqual(store.content.metadata.notifications, NotificationPreference(),
+                       "場所を入れたら 出発30分前・出発10分前・出発時刻 に置き換わる")
+        store.content.metadata.notifications = NotificationPreference(timings: [.beforeDeparture(minutes: 60), .atStart])
+        store.setLocationName("見本ビル")
+        XCTAssertEqual(store.content.metadata.notifications.timings, [.beforeDeparture(minutes: 60), .atStart],
+                       "場所ありのまま場所を変えただけなら置き換えない（予定開始もそのまま）")
+        store.setLocationName(nil)
+        XCTAssertEqual(store.content.metadata.notifications.timings, [.beforeStart(minutes: 60), .atStart],
+                       "場所を消したら意味を置き換える")
+        store.content.metadata.notifications = .off
+        store.setLocationName("広島駅")
+        XCTAssertTrue(store.content.metadata.notifications.isOff, "通知なしは通知なしのまま")
     }
 
     func testCopyRequiresEditMode() {
@@ -403,36 +607,6 @@ final class ScheduleEditorStoreTests: XCTestCase {
         XCTAssertFalse(store.hasUnsavedChanges)
     }
 
-    // MARK: - 予測で一括（仕様 §36・Q2。アルゴリズムはモック）
-
-    func testPredictionNeverOverwritesManualTimeAndDoesNotSave() {
-        let history = [
-            makeEvent("A社打合せ", on: CalendarDay(year: 2026, month: 9, day: 1), at: 570),
-            makeEvent("A社打合せ", on: CalendarDay(year: 2026, month: 9, day: 8), at: 570),
-            makeEvent("A社打合せ", on: CalendarDay(year: 2026, month: 9, day: 15), at: 600),
-        ]
-        let (store, events, _) = makeStore(history)
-        store.startNew()
-        [d1, d2, d3].forEach(store.selectDay)
-        store.content.title = "A社打合せ"
-        store.setStartMinute(14 * 60, on: d1)
-
-        store.applyPrediction()
-        XCTAssertEqual(store.predictionState, .applied([d2, d3]))
-        XCTAssertEqual(store.startMinutes[d1], 14 * 60, "自分で入れた時刻は予測で上書きしない（Q2）")
-        XCTAssertEqual(store.startMinutes[d2], 570)
-        XCTAssertEqual(store.startMinutes[d3], 570)
-        XCTAssertEqual(events.allEvents().count, 3, "予測しただけでは保存しない")
-    }
-
-    func testPredictionWithoutHistory() {
-        let store = makeStore().store
-        store.startNew(on: d1)
-        store.content.title = "初めての予定"
-        store.applyPrediction()
-        XCTAssertEqual(store.predictionState, .noSuggestion)
-    }
-
     // MARK: - 右上の行（仕様 §44・§45・§52）
 
     func testOnlyOneRowIsExpandedAtATime() {
@@ -453,7 +627,8 @@ final class ScheduleEditorStoreTests: XCTestCase {
         store.content.metadata.transport = .car
         XCTAssertTrue(store.visibleRows.contains(.route))
         XCTAssertEqual(store.visibleRows.map(\.label),
-                       ["予定名", "場所", "到着目標", "移動手段", "ルート", "通知", "繰り返し", "色", "終了"])
+                       ["予定名", "場所", "到着目標", "移動手段", "ルート", "通知", "色", "同じ内容で追加"],
+                       "繰り返しの行は出さない（2026-10-13）。「終了」の行もなくした（下端のハンドルで決める。2026-10-14）。「同じ内容で追加」はいちばん下")
     }
 
     // MARK: - 時間画面の表示（仕様 §37・§43）
@@ -467,6 +642,8 @@ final class ScheduleEditorStoreTests: XCTestCase {
         XCTAssertEqual(store.timedEvents(on: d1).map(\.title), ["朝", "午後"])
         XCTAssertEqual(store.allDayEvents(on: d1).map(\.title), ["終日"])
         XCTAssertEqual(store.suggestedScrollMinute(for: d1), 510, "最初の予定の少し前（仕様 §43）")
+        XCTAssertEqual(store.suggestedScrollMinute(for: d1, leadMinutes: EditorMetrics.futureDayScrollLeadMinutes), 480,
+                       "未来の日は、最初の予定の約 1 時間前が見える位置（2026-10-14 決定 E8）")
         XCTAssertNil(store.suggestedScrollMinute(for: d2))
     }
 }

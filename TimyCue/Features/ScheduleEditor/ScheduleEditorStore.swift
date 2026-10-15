@@ -4,51 +4,58 @@ import Observation
 /// 予定登録・編集・コピーの 3 分割画面の状態（仕様 §31〜§66）。
 /// 画面（View）は表示と操作の受け渡しだけにして、決まりごとはすべてここに置く。
 ///
-/// 日付はタップで 1 日ずつ選ぶ（仕様 §34）。もう一度タップしたら外すのか、なぞって選ぶときの細かな扱いは
-/// 画面を作る段階で確かめるので、ここでは「選ぶ」「外す」「表示する日を変える」を別々の操作として用意する。
+/// 日付（2026-10-14 ユーザー決定）：下のカレンダーをタップすると、左上に出す日を選ぶ（選んでいない日なら左上の日をその日へ動かす）。
+/// 複数の日は、右の入力のいちばん下の「同じ内容で追加」を開いている間だけ、なぞったりタップしたりして足す・外す。
+/// 足した日の時刻は、初めは「一括」（全部の日で同じ時刻）。「個別」を選ぶと日ごとに決める。左上には 1 日だけ出す。
 @MainActor
 @Observable
 final class ScheduleEditorStore {
     private(set) var mode: EditorMode = .new
     /// 予定を登録する日（新規・コピーは複数、編集は 1 日）。日付順
     private(set) var selectedDays: [CalendarDay] = []
-    /// 左上の時間画面に出している日（1 日。仕様 §35 の日付タブで切り替える）
+    /// 最初に選んだ日（下のカレンダーをタップして選んだ日）。「同じ内容で追加」で足した日はこれ以外
+    private(set) var baseDay: CalendarDay?
+    /// 左上の時間画面に出している日（1 日）。選んである日を下のカレンダーでタップすると切り替わる（2026-10-14 ユーザー決定）
     private(set) var displayedDay: CalendarDay?
     /// 日ごとの開始時刻（仕様 §36：日ごとに違ってよい）
     private(set) var startMinutes: [CalendarDay: MinuteOfDay] = [:]
     /// 全部の日に共通の所要時間（Q1：最初に入れた値が全部の日に入る）。nil は終了未設定
     private(set) var commonDurationMinutes: Int?
-    /// その日だけ変えた所要時間（Q1）。値が nil の日は、その日だけ終了未設定
+    /// その日だけ変えた所要時間（Q1。「個別」のとき、その日を左上に出して変える）。値が nil の日は、その日だけ終了未設定
     private(set) var durationOverrides: [CalendarDay: Int?] = [:]
+    /// 「同じ内容で追加」の時刻を日ごとに決めるか（2026-10-14 ユーザー決定）。
+    /// false（一括。初め）：全部の日で同じ開始時刻・所要時間。true（個別）：日ごとに決める
+    private(set) var setsTimesIndividually = false
+    /// コピー先を選んだ順（コピー中だけ使う）。左上に出す日を決めるのに使う（2026-10-14 決定 G1）
+    private var copyPicks: [CalendarDay] = []
+    /// 「別の日にコピー」を押す前の編集の状態。「コピーをやめる」で戻す（2026-10-14 実機の指摘）
+    @ObservationIgnored private var stateBeforeCopy: (snapshot: Snapshot, displayedDay: CalendarDay?,
+                                                      setsTimesIndividually: Bool, baseline: Snapshot)?
     /// 右上の入力欄の中身
     var content = EventContent()
     /// 右上で開いている行（仕様 §45：同時に 1 行だけ）
     private(set) var expandedRow: InputRow?
-    private(set) var predictionState: PredictionState = .idle
     private(set) var events: [CalendarEvent] = []
     private(set) var metadataByEventID: [UUID: TimyCueEventMetadata] = [:]
     /// 予定を書き込める Apple カレンダー（つないでいないときは空）と、新しい予定の既定の保存先（Q32）
     private(set) var writableCalendars: [CalendarChoice] = []
     private(set) var defaultCalendarID: String?
+    /// 到着目標の全体既定値（Q70。設定画面で変えられるようにするのは後の段階）
+    var defaultArrivalTargetMinutes = TimyCueEventMetadata.defaultArrivalTargetMinutes
     /// 書き込めない Apple カレンダー（共有・購読など）の id → 名前（追加仕様書 §1.7）
     private(set) var readOnlyCalendarTitles: [String: String] = [:]
-    /// 繰り返しを決めたあとに 2 日目を選ぼうとした日。繰り返しを解除するか確かめている間だけ持つ（Q49）
-    private(set) var dayWaitingForRepeatClear: CalendarDay?
 
     /// 保存しようとして足りないものがあったか。あったら、直るまで知らせを出し続ける（仕様 §46）
     private var showsSaveIssue = false
 
     @ObservationIgnored private let repository: EventRepository
     @ObservationIgnored private let metadataRepository: EventMetadataRepository
-    @ObservationIgnored private let predictor: PredictionService
     @ObservationIgnored private var baseline = Snapshot()
 
     init(repository: EventRepository,
-         metadataRepository: EventMetadataRepository,
-         predictor: PredictionService = SameTitlePredictionService()) {
+         metadataRepository: EventMetadataRepository) {
         self.repository = repository
         self.metadataRepository = metadataRepository
-        self.predictor = predictor
         reloadEvents()
         baseline = snapshot
     }
@@ -97,12 +104,14 @@ final class ScheduleEditorStore {
     }
 
     /// 右上に出す行。ルートは移動手段が車のときだけ（仕様 §52）。
-    /// カレンダーは書き込める Apple カレンダーが 2 つ以上あるときだけ（Q32）
+    /// カレンダーは書き込める Apple カレンダーが 2 つ以上あるときだけ（Q32）。
+    /// 「同じ内容で追加」は新規・コピーのときだけ、いちばん下に出す（2026-10-14 ユーザー決定）
     var visibleRows: [InputRow] {
         InputRow.allCases.filter { row in
             switch row {
             case .route: content.metadata.transport == .car
             case .calendar: writableCalendars.count > 1
+            case .additionalDays: mode.allowsMultipleDays
             default: true
             }
         }
@@ -178,6 +187,11 @@ final class ScheduleEditorStore {
     }
 
     /// 未保存の変更があるか（仕様 §66）
+    /// 3 分割画面を開いたとき（新規・編集・コピーを始めたとき）の入力欄の中身
+    var initialContent: EventContent {
+        baseline.content
+    }
+
     var hasUnsavedChanges: Bool {
         snapshot != baseline
     }
@@ -188,11 +202,17 @@ final class ScheduleEditorStore {
     func startNew(on day: CalendarDay? = nil) {
         mode = .new
         content = EventContent()
+        // 到着目標は作った瞬間の全体既定値を入れる（Q70。全体既定値の設定は後の段階。今は初期値の 0 分前）
+        content.metadata.arrivalTargetMinutes = defaultArrivalTargetMinutes
+        // 場所なしで始まるので、通知の初期値は開始の基準。場所を入れたら出発の基準に置き換わる（2026-10-14 決定）
+        content.metadata.notifications = .noPlaceDefault
         selectedDays = []
         startMinutes = [:]
         commonDurationMinutes = nil
         durationOverrides = [:]
         displayedDay = day
+        baseDay = day
+        setsTimesIndividually = false
         resetTransientState()
         if let day { selectedDays = [day] }
         baseline = snapshot
@@ -205,11 +225,17 @@ final class ScheduleEditorStore {
         }
         mode = .edit(eventID: eventID)
         content = EventContent(event: event, metadata: metadataByEventID[eventID] ?? TimyCueEventMetadata())
+        // 場所なしの予定に出発の基準の通知が入っていたら（前の版のもの・Apple カレンダーの予定の初期値）、開始の基準で出す（2026-10-14 決定 C3）
+        if !content.hasPlace {
+            content.metadata.notifications = content.metadata.notifications.converted(hasPlace: false)
+        }
         selectedDays = [event.day]
         startMinutes = [event.day: event.startMinute]
         commonDurationMinutes = event.durationMinutes
         durationOverrides = [:]
         displayedDay = event.day
+        baseDay = event.day
+        setsTimesIndividually = false
         resetTransientState()
         baseline = snapshot
     }
@@ -218,10 +244,14 @@ final class ScheduleEditorStore {
     /// 日付と開始時刻は引き継がない。所要時間は引き継ぐ。編集中に直した中身は、そのままコピーの中身になる
     func startCopy() throws {
         guard case .edit(let id) = mode else { throw ScheduleEditorError.copyRequiresEditMode }
+        stateBeforeCopy = (snapshot, displayedDay, setsTimesIndividually, baseline)
         let duration = selectedDays.first.flatMap { durationMinutes(on: $0) } ?? commonDurationMinutes
         mode = .copy(sourceID: id)
         content = content.copiedForNewEvent()
         selectedDays = []
+        copyPicks = []
+        baseDay = nil
+        setsTimesIndividually = false
         startMinutes = [:]
         commonDurationMinutes = duration
         durationOverrides = [:]
@@ -229,61 +259,168 @@ final class ScheduleEditorStore {
         // 表示中の日はコピー元の日のまま。コピー先はカレンダーで選んでもらう
     }
 
+    /// 「コピーをやめる」：コピーを押す前の編集の画面へ、そのときの中身のまま戻す（2026-10-14 実機の指摘「コピーをキャンセルする方法がない」。仮）
+    func cancelCopy() {
+        guard case .copy = mode, let saved = stateBeforeCopy else { return }
+        mode = saved.snapshot.mode
+        content = saved.snapshot.content
+        selectedDays = saved.snapshot.selectedDays
+        baseDay = saved.snapshot.baseDay
+        startMinutes = saved.snapshot.startMinutes
+        commonDurationMinutes = saved.snapshot.commonDurationMinutes
+        durationOverrides = saved.snapshot.durationOverrides
+        displayedDay = saved.displayedDay
+        setsTimesIndividually = saved.setsTimesIndividually
+        copyPicks = []
+        resetTransientState()
+        baseline = saved.baseline
+        stateBeforeCopy = nil
+    }
+
     // MARK: - 日付
 
-    /// 日を選ぶ。新規・コピーでは選んだ日を足し、編集ではその日へ移動する（仕様 §34・§61）。選んだ日を表示する
+    /// 下のカレンダーをタップしたとき（「同じ内容で追加」を開いていないとき。仕様 §34・§61、2026-10-14 ユーザー決定）。
+    /// 選んである日なら、その日を左上に出す（日ごとに時刻を決めるため。追加仕様書 vNext §1.2）。
+    /// 選んでいない日なら、左上に出している日をその日へ動かす（開始時刻・所要時間はそのまま。編集の移動と同じ）。
+    /// まだ何も選んでいなければ、その日を選ぶ
     func selectDay(_ day: CalendarDay) {
-        guard !areAppleFieldsLocked else { return }
-        // 繰り返しを決めたまま 2 日目は選べない。解除するか確かめる（Q49：複数日登録と繰り返しは併用しない）
-        if mode.allowsMultipleDays, content.repeatRule.isRepeating, !selectedDays.isEmpty, !selectedDays.contains(day) {
-            dayWaitingForRepeatClear = day
-            return
-        }
-        if mode.allowsMultipleDays {
-            if !selectedDays.contains(day) {
-                selectedDays.append(day)
-                selectedDays.sort()
+        guard !areAppleFieldsLocked, day != copySourceDay else { return }
+        if !selectedDays.contains(day) {
+            if let shown = displayedDay, selectedDays.contains(shown) {
+                moveDay(shown, to: day)
+            } else {
+                selectedDays = (selectedDays + [day]).sorted()
+                if baseDay == nil { baseDay = day }
             }
-        } else {
-            let carriedStart = selectedDays.first.flatMap { startMinutes[$0] }
-            selectedDays = [day]
-            startMinutes = carriedStart.map { [day: $0] } ?? [:]
         }
         displayedDay = day
     }
 
-    /// 「繰り返しを解除しますか？」に「解除する」：繰り返しを外して、選ぼうとした日を足す（Q49）
-    func clearRepeatAndSelectWaitingDay() {
-        guard let day = dayWaitingForRepeatClear else { return }
-        dayWaitingForRepeatClear = nil
-        content.repeatRule = .none
-        selectDay(day)
+    /// 「同じ内容で追加」の行を開いている間は、下のカレンダーで日を足したり外したりする（新規・コピーのみ。2026-10-14 ユーザー決定）
+    var isAddingDays: Bool {
+        expandedRow == .additionalDays && mode.allowsMultipleDays
     }
 
-    /// 「繰り返しを解除しますか？」に「キャンセル」：日は足さない
-    func cancelWaitingDay() {
-        dayWaitingForRepeatClear = nil
+    /// 「同じ内容で追加」で足した日（最初に選んだ日は含めない）。日付順
+    var additionalDays: [CalendarDay] {
+        selectedDays.filter { $0 != baseDay }
     }
 
-    /// 2 日以上選んでいる（複数日登録）ので、繰り返しは選べない（Q49）
-    var repeatBlockedByMultipleDays: Bool {
-        selectedDays.count >= 2
+    /// コピー先を選んでいる（コピー中）。下のカレンダーの日付を押すたびに、コピー先を足す・外す（2026-10-14 ユーザー決定）
+    var isChoosingCopyDestinations: Bool {
+        if case .copy = mode { return true }
+        return false
     }
 
-    /// 選んだ日を外す（新規・コピーのみ）。表示中の日を外したら、残りの最初の日を表示する
-    func deselectDay(_ day: CalendarDay) {
-        guard mode.allowsMultipleDays, let index = selectedDays.firstIndex(of: day) else { return }
-        selectedDays.remove(at: index)
+    /// コピー元の予定の日。コピー先にはできない（2026-10-14 ユーザー決定）
+    var copySourceDay: CalendarDay? {
+        guard case .copy(let id) = mode else { return nil }
+        return events.first { $0.id == id }?.day
+    }
+
+    /// コピー中に下のカレンダーの日付を押したとき：選んでいなければコピー先に足し、選んであれば外す。
+    /// 「同じ内容で追加」を開かなくてよい（あの行は一括／個別の時刻の切り替えに使う）。コピー元の日は選べない（2026-10-14 ユーザー決定）。
+    /// 足した日を左上に出す（最後に選んだコピー先。2026-10-14 決定 G1）
+    func toggleCopyDestination(_ day: CalendarDay) {
+        guard isChoosingCopyDestinations, !areAppleFieldsLocked, day != copySourceDay else { return }
+        if selectedDays.contains(day) {
+            removeDay(day)
+        } else {
+            addDay(day)
+            if selectedDays.contains(day) { displayedDay = day }
+        }
+    }
+
+    /// 同じ内容で日を足す（新規・コピーのみ）。「一括」なら開始時刻も同じものを入れる。「個別」なら時刻は日ごとに決めてもらう。
+    /// 所要時間は全部の日に共通の値が入る（Q1）。まだ何も選んでいなければ、その日を選ぶ
+    func addDay(_ day: CalendarDay) {
+        guard mode.allowsMultipleDays, !selectedDays.contains(day), day != copySourceDay else { return }
+        if selectedDays.isEmpty {
+            selectDay(day)
+        } else {
+            selectedDays = (selectedDays + [day]).sorted()
+            if !setsTimesIndividually, let start = sharedStartMinute {
+                startMinutes[day] = start
+            }
+        }
+        if isChoosingCopyDestinations && selectedDays.contains(day) {
+            copyPicks.append(day)
+        }
+    }
+
+    /// 「一括」のときの、全部の日に共通の開始時刻（最初に選んだ日の時刻）
+    private var sharedStartMinute: MinuteOfDay? {
+        baseDay.flatMap { startMinutes[$0] } ?? selectedDays.lazy.compactMap { self.startMinutes[$0] }.first
+    }
+
+    /// 「一括」と「個別」を切り替える（2026-10-14 ユーザー決定）。
+    /// 一括に戻すときは、今左上に出している日（編集中の日）の開始時刻・所要時間を、全部の日に入れ直す（2026-10-14 決定）
+    func setTimesIndividually(_ individually: Bool) {
+        guard mode.allowsMultipleDays, individually != setsTimesIndividually else { return }
+        setsTimesIndividually = individually
+        guard !individually else { return }
+        let start = batchStart
+        let duration = batchDuration
+        for day in selectedDays {
+            startMinutes[day] = start
+        }
+        commonDurationMinutes = duration
+        durationOverrides = [:]
+    }
+
+    /// 一括にそろえる値の元になる日：今左上に出している日。出している日が選んである日でなければ、最初に選んだ日
+    private var activeDay: CalendarDay? {
+        if let shown = displayedDay, selectedDays.contains(shown) { return shown }
+        return baseDay
+    }
+
+    /// 一括にそろえる開始時刻・所要時間。出している日に時刻がなければ、ほかの日の時刻（仮）
+    private var batchStart: MinuteOfDay? {
+        activeDay.flatMap { startMinutes[$0] } ?? sharedStartMinute
+    }
+
+    private var batchDuration: Int? {
+        activeDay.flatMap { durationMinutes(on: $0) } ?? commonDurationMinutes
+    }
+
+    /// 一括にすると、開始時刻・所要時間が変わる日があるか。あれば切り替える前に一度確かめる。全部同じなら確かめずに切り替える
+    var batchChangesSomeDays: Bool {
+        let start = batchStart
+        let duration = batchDuration
+        return selectedDays.contains { startMinutes[$0] != start || durationMinutes(on: $0) != duration }
+    }
+
+    /// 一括にそろえる前に確かめる文（2026-10-14 決定）。例：すべて 10:00〜11:00 にそろえますか？
+    var batchConfirmationMessage: String {
+        guard let start = batchStart else { return "すべての日の時刻をそろえますか？" }
+        let end = batchDuration.map { "〜\(TimeText.hourMinute(start + $0))" } ?? ""
+        return "すべて \(TimeText.hourMinute(start))\(end) にそろえますか？"
+    }
+
+    /// 足した日を外す（新規・コピーのみ）。新規では最初に選んだ日は外さない（コピーはどの日も外せる。2026-10-14 ユーザー決定）。
+    /// 左上に出していた日を外したら、新規では最初に選んだ日を出す。コピーでは直前に選んだ残りのコピー先へ移り、
+    /// コピー先が 0 件ならコピー元の日へ戻る（2026-10-14 決定 G1）
+    func removeDay(_ day: CalendarDay) {
+        guard mode.allowsMultipleDays, selectedDays.contains(day),
+              day != baseDay || isChoosingCopyDestinations else { return }
+        selectedDays.removeAll { $0 == day }
         startMinutes[day] = nil
         durationOverrides[day] = nil
+        copyPicks.removeAll { $0 == day }
+        if baseDay == day { baseDay = selectedDays.first }
         if displayedDay == day {
-            displayedDay = selectedDays.first
+            displayedDay = isChoosingCopyDestinations ? (copyPicks.last ?? copySourceDay) : (baseDay ?? day)
         }
     }
 
-    /// 左上に出す日を切り替える（日付タブ。仕様 §35）
-    func displayDay(_ day: CalendarDay) {
-        displayedDay = day
+    /// 左上に出している日を別の日へ動かす。その日の開始時刻と、その日だけの所要時間も一緒に動かす
+    private func moveDay(_ old: CalendarDay, to new: CalendarDay) {
+        selectedDays = (selectedDays.filter { $0 != old } + [new]).sorted()
+        startMinutes[new] = startMinutes.removeValue(forKey: old)
+        if let duration = durationOverrides.removeValue(forKey: old) {
+            durationOverrides[new] = .some(duration)
+        }
+        if baseDay == old { baseDay = new }
     }
 
     // MARK: - 時刻
@@ -293,7 +430,13 @@ final class ScheduleEditorStore {
     func setStartMinute(_ minute: MinuteOfDay, on day: CalendarDay? = nil) {
         guard !areAppleFieldsLocked, let target = day ?? displayedDay else { return }
         if !selectedDays.contains(target) { selectDay(target) }
-        startMinutes[target] = clampToDay(minute)
+        // コピー元の日のように選べない日なら、時刻も入れない
+        guard selectedDays.contains(target) else { return }
+        // 「一括」なら全部の日で同じ時刻（2026-10-14 ユーザー決定）
+        let days = mode.allowsMultipleDays && !setsTimesIndividually ? selectedDays : [target]
+        for each in days {
+            startMinutes[each] = clampToDay(minute)
+        }
     }
 
     /// 時刻を確定して、まだ時刻のない次の日へ表示を移す（仕様 §36）。移った先の日を返す
@@ -320,7 +463,7 @@ final class ScheduleEditorStore {
     /// 終了時刻を入れる（仮予定の下端のハンドル・右上の終了行。仕様 §41）。nil で終了未設定に戻す。
     /// 終了は開始より後のときだけ有効。開始時刻を動かすと、所要時間を保ったまま終了も動く。
     ///
-    /// 複数日（Q1）：最初に入れた所要時間は全部の日に入る。そのあと日付タブで選んだ日で変えると、その日だけ変わる。
+    /// 複数日（Q1）：最初に入れた所要時間は全部の日に入る。そのあと左上に出した日で変えると、その日だけ変わる。
     /// 1 日だけ選んでいる間は、何度変えても全部の日に共通の値として持つ（あとで足した日にも同じ値が入る）
     func setEndMinute(_ end: MinuteOfDay?, on day: CalendarDay? = nil) {
         guard !areAppleFieldsLocked, let target = day ?? displayedDay else { return }
@@ -333,7 +476,7 @@ final class ScheduleEditorStore {
         }
 
         let isFirstEntry = commonDurationMinutes == nil && durationOverrides.isEmpty
-        if !mode.allowsMultipleDays || selectedDays.count <= 1 || isFirstEntry {
+        if !mode.allowsMultipleDays || !setsTimesIndividually || selectedDays.count <= 1 || isFirstEntry {
             commonDurationMinutes = duration
             durationOverrides = [:]
         } else if duration == commonDurationMinutes {
@@ -341,33 +484,6 @@ final class ScheduleEditorStore {
         } else {
             durationOverrides[target] = .some(duration)
         }
-    }
-
-    /// 「全日に適用」を出すか（Q5）。複数日を選んでいて、表示中の日と所要時間が違う日があるとき
-    var canApplyDurationToAllDays: Bool {
-        guard mode.allowsMultipleDays, selectedDays.count > 1, let shown = displayedDay else { return false }
-        let duration = durationMinutes(on: shown)
-        return selectedDays.contains { durationMinutes(on: $0) != duration }
-    }
-
-    /// 「全日に適用」（Q5）：表示中の日の所要時間を、選んでいる全部の日に入れ直す
-    func applyDurationToAllDays() {
-        guard let shown = displayedDay else { return }
-        commonDurationMinutes = durationMinutes(on: shown)
-        durationOverrides = [:]
-    }
-
-    // MARK: - 予測で一括
-
-    /// 時刻のない日だけに予測の候補を入れる。自分で入れた時刻は上書きしない（Q2）。保存はしない（仕様 §36）
-    func applyPrediction() {
-        let unset = selectedDays.filter { startMinutes[$0] == nil }
-        let suggestions = predictor.suggestStartMinutes(for: unset, content: content, existing: events)
-        let applied = unset.filter { suggestions[$0] != nil }
-        for day in applied {
-            if let minute = suggestions[day] { startMinutes[day] = clampToDay(minute) }
-        }
-        predictionState = applied.isEmpty ? .noSuggestion : .applied(applied)
     }
 
     // MARK: - 右上の行
@@ -389,11 +505,6 @@ final class ScheduleEditorStore {
     var isEditingRecurringEvent: Bool {
         guard case .edit(let id) = mode else { return false }
         return events.first { $0.id == id }?.repeatRule.isRepeating ?? false
-    }
-
-    /// 繰り返しを選べるか。繰り返しは Apple カレンダーの繰り返しを正本にするので、連携しているときだけ（Q37 の変更・Q48 は仮）
-    var canRepeat: Bool {
-        !writableCalendars.isEmpty
     }
 
     /// 保存して、保存した予定を返す。足りないものがあれば、その項目を開いて知らせ、保存しない（仕様 §46）。
@@ -435,7 +546,12 @@ final class ScheduleEditorStore {
                                             source: original.source)
             let isRecurring = original.repeatRule.isRepeating
             let effectiveScope: RecurrenceScope = isRecurring ? scope : .thisEvent
-            let before = metadataByEventID[id] ?? TimyCueEventMetadata()
+            var before = metadataByEventID[id] ?? TimyCueEventMetadata()
+            // 場所なしの予定は、開いたときに通知を開始の基準へ置き換えて出している（2026-10-14 決定 C3）。
+            // その置き換えはユーザーの変更ではないので、元の値も同じように置き換えてから比べる（繰り返しの回ごとの上書きを作らない）
+            if (original.locationName ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                before.notifications = before.notifications.converted(hasPlace: false)
+            }
             let changed = before.changedFields(to: content.metadata)
             let targets = repository.occurrenceIDs(sameSeriesAs: id, scope: effectiveScope)
             let oldCommon = repository.seriesID(of: id).flatMap { metadataByEventID[$0] }
@@ -563,10 +679,15 @@ final class ScheduleEditorStore {
     func discardChanges() {
         mode = baseline.mode
         selectedDays = baseline.selectedDays
+        baseDay = baseline.baseDay
         startMinutes = baseline.startMinutes
         commonDurationMinutes = baseline.commonDurationMinutes
         durationOverrides = baseline.durationOverrides
         content = baseline.content
+        setsTimesIndividually = false
+        if let shown = displayedDay, !selectedDays.isEmpty, !selectedDays.contains(shown) {
+            displayedDay = baseDay ?? selectedDays.first
+        }
         resetTransientState()
     }
 
@@ -588,7 +709,6 @@ final class ScheduleEditorStore {
 
     private func resetTransientState() {
         expandedRow = nil
-        predictionState = .idle
         showsSaveIssue = false
     }
 
@@ -608,6 +728,7 @@ final class ScheduleEditorStore {
     private struct Snapshot: Equatable {
         var mode: EditorMode = .new
         var selectedDays: [CalendarDay] = []
+        var baseDay: CalendarDay?
         var startMinutes: [CalendarDay: MinuteOfDay] = [:]
         var commonDurationMinutes: Int?
         var durationOverrides: [CalendarDay: Int?] = [:]
@@ -617,6 +738,7 @@ final class ScheduleEditorStore {
     private var snapshot: Snapshot {
         Snapshot(mode: mode,
                  selectedDays: selectedDays,
+                 baseDay: baseDay,
                  startMinutes: startMinutes,
                  commonDurationMinutes: commonDurationMinutes,
                  durationOverrides: durationOverrides,

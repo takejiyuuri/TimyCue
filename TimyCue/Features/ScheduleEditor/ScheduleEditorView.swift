@@ -74,14 +74,6 @@ struct ScheduleEditorView: View {
                 laterTitle: "連携しないで保存")
             .presentationDetents([.medium])
         }
-        // 繰り返しを決めたまま 2 日目を選ぼうとしたら、解除するか確かめる（Q49）
-        .confirmationDialog("複数日登録では繰り返しを使えません。繰り返しを解除しますか？",
-                            isPresented: Binding(get: { store.dayWaitingForRepeatClear != nil },
-                                                 set: { if !$0 { store.cancelWaitingDay() } }),
-                            titleVisibility: .visible) {
-            Button("解除する") { store.clearRepeatAndSelectWaitingDay() }
-            Button("キャンセル", role: .cancel) { store.cancelWaitingDay() }
-        }
         // 繰り返し予定は、保存するときに 1 回だけ範囲を聞く（Q44）
         .confirmationDialog("繰り返し予定の変更", isPresented: $asksSaveScope, titleVisibility: .visible) {
             ForEach(RecurrenceScope.allCases, id: \.self) { scope in
@@ -127,10 +119,12 @@ struct ScheduleEditorView: View {
                 .font(EditorMetrics.headerTitleFont)
                 .foregroundStyle(Theme.Colors.textPrimary)
             Spacer()
-            Button(store.saveButtonTitle) { save() }
-                .font(EditorMetrics.saveButtonFont)
-                .buttonStyle(.borderedProminent)
-                .tint(Theme.Colors.accent)
+            Button { save() } label: {
+                Text(store.saveButtonTitle).foregroundStyle(Theme.Colors.onAccent)
+            }
+            .font(EditorMetrics.saveButtonFont)
+            .buttonStyle(.borderedProminent)
+            .tint(Theme.Colors.accentFill)
         }
         .padding(.horizontal, Theme.Spacing.l)
         .frame(height: EditorMetrics.headerHeight)

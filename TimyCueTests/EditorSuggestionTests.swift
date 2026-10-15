@@ -64,6 +64,59 @@ final class EditorSuggestionTests: XCTestCase {
         XCTAssertEqual(store.content.metadata.transport, .car)
     }
 
+    func testUsingSettingsKeepsNotificationsAndAsksBeforeReplacingWhatWasEntered() {
+        let past = event("A社打合せ", daysAgo: 7, place: "広島市中区")
+        var info = TimyCueEventMetadata()
+        info.color = .mint
+        info.arrivalTargetMinutes = 10
+        info.transport = .car
+        info.notifications = NotificationPreference(timings: [.beforeDeparture(minutes: 60)])
+        let store = makeStore([past], metadata: [past.id: info])
+        store.startNew(on: today)
+        store.content.title = "A社"
+        let suggestion = store.titleSuggestions()[0]
+        store.useTitle(of: suggestion)
+        XCTAssertFalse(store.settingsReplacementNeedsConfirmation(for: suggestion), "何も変えていなければ、確かめずにすぐ入れる")
+
+        store.content.locationName = "見本ビル"
+        XCTAssertTrue(store.settingsReplacementNeedsConfirmation(for: suggestion),
+                      "場所を入れたあとなら、置き換える前に確かめる（2026-10-14 決定）")
+        store.content.locationName = "広島市中区"
+        XCTAssertFalse(store.settingsReplacementNeedsConfirmation(for: suggestion), "同じ値なら確かめない")
+        store.content.metadata.transport = .walk
+        XCTAssertTrue(store.settingsReplacementNeedsConfirmation(for: suggestion), "移動手段を変えたあとも確かめる")
+
+        let before = store.content.metadata.notifications
+        store.useSettings(of: suggestion)
+        XCTAssertEqual(store.content.metadata.transport, .car)
+        XCTAssertEqual(store.content.metadata.notifications, before, "通知は写さない（2026-10-14 決定）")
+    }
+
+    func testCarRouteComesWithTheCarOnly() {
+        let byCar = event("A社打合せ", daysAgo: 7, place: "広島市中区")
+        let onFoot = event("歯医者", daysAgo: 3, place: "見本クリニック")
+        var car = TimyCueEventMetadata()
+        car.transport = .car
+        car.route = .preferHighway
+        var walk = TimyCueEventMetadata()
+        walk.transport = .walk
+        walk.route = .preferHighway
+        let store = makeStore([byCar, onFoot], metadata: [byCar.id: car, onFoot.id: walk])
+
+        store.startNew(on: today)
+        store.content.title = "歯医者"
+        let current = store.content.metadata.route
+        store.useSettings(of: store.titleSuggestions()[0])
+        XCTAssertEqual(store.content.metadata.transport, .walk)
+        XCTAssertEqual(store.content.metadata.route, current, "車以外を引き継ぐときは、車のルートは写さない（2026-10-14 決定）")
+
+        store.startNew(on: today)
+        store.content.title = "A社打合せ"
+        store.useSettings(of: store.titleSuggestions()[0])
+        XCTAssertEqual(store.content.metadata.transport, .car)
+        XCTAssertEqual(store.content.metadata.route, .preferHighway, "車のときは、車のルートも一緒に引き継ぐ")
+    }
+
     // MARK: - 場所の候補（§48・§49）
 
     func testPlaceCandidates() {
@@ -83,19 +136,62 @@ final class EditorSuggestionTests: XCTestCase {
         XCTAssertEqual(Set(candidates.map(\.name)).count, candidates.count, "同じ場所は 1 回だけ")
     }
 
-    func testChoosingPastPlaceFillsOnlyUnsetSettings() {
+    func testArrivalTargetAlwaysHasAValue() throws {
+        let store = makeStore([])
+        store.startNew(on: today)
+        XCTAssertEqual(store.content.metadata.arrivalTargetMinutes, 0, "新しい予定は作った瞬間の全体既定値（初期値は 0 分前＝予定開始時刻）")
+
+        store.defaultArrivalTargetMinutes = 10
+        store.startNew(on: today)
+        XCTAssertEqual(store.content.metadata.arrivalTargetMinutes, 10, "全体既定値を変えたら、以後の新しい予定にその値")
+
+        // 前の版の「未設定」（到着目標のないファイル）は 0 分前として読む。保存した値は全体既定値を変えても変わらない
+        let old = #"{"color":"mint","transport":"walk","route":"auto"}"#
+        let decoded = try JSONDecoder().decode(TimyCueEventMetadata.self, from: Data(old.utf8))
+        XCTAssertEqual(decoded.arrivalTargetMinutes, 0)
+        XCTAssertEqual(decoded.color, .mint)
+        XCTAssertEqual(decoded.transport, .walk)
+        var saved = TimyCueEventMetadata()
+        saved.arrivalTargetMinutes = 15
+        let roundTrip = try JSONDecoder().decode(TimyCueEventMetadata.self, from: JSONEncoder().encode(saved))
+        XCTAssertEqual(roundTrip, saved)
+    }
+
+    func testArrivalTargetTextUsesHoursAndMinutes() {
+        XCTAssertEqual(ScheduleEditorStore.arrivalTargetText(0), "0分前（予定開始時刻）")
+        XCTAssertEqual(ScheduleEditorStore.arrivalTargetText(45), "45分前")
+        XCTAssertEqual(ScheduleEditorStore.arrivalTargetText(60), "1時間前")
+        XCTAssertEqual(ScheduleEditorStore.arrivalTargetText(95), "1時間35分前", "60 分以上は時間と分で（2026-10-13 実機の指摘）")
+    }
+
+    func testArrivalTargetWheelIsEveryFiveMinutes() {
+        let values = ScheduleEditorStore.arrivalTargetWheelValues(including: 10)
+        XCTAssertEqual(values.first, 0, "0 分前（予定開始時刻）から")
+        XCTAssertEqual(values.last, 180)
+        XCTAssertEqual(values.count, 37, "5 分おき（2026-10-13 実機の指摘）")
+        XCTAssertTrue(ScheduleEditorStore.arrivalTargetWheelValues(including: 7).contains(7),
+                      "前の版の 5 分おきでない値も並べ、開いただけで変わらないようにする")
+    }
+
+    func testChoosingPastPlaceDoesNotRewriteArrivalTargetOrTransport() {
         let past = event("現場", daysAgo: 5, place: "見本ビル")
         var info = TimyCueEventMetadata()
         info.arrivalTargetMinutes = 15
         info.transport = .publicTransit
         let store = makeStore([past], metadata: [past.id: info])
-        store.startNew(on: today)
 
-        store.content.metadata.arrivalTargetMinutes = 5
+        store.startNew(on: today)
         store.choosePlace("見本ビル")
         XCTAssertEqual(store.content.locationName, "見本ビル")
-        XCTAssertEqual(store.content.metadata.arrivalTargetMinutes, 5, "今回手で決めた到着目標が優先（§49）")
-        XCTAssertEqual(store.content.metadata.transport, .publicTransit, "決まっていない移動手段はその場所の前回の値（§48）")
+        XCTAssertEqual(store.content.metadata.arrivalTargetMinutes, 0, "その場所で前回使った到着目標は入れない（全体既定値のまま。Q70・Q75）")
+        XCTAssertEqual(store.content.metadata.transport, .auto, "「自動」は「自動」のまま。画面の設定を勝手に変えない（Q75）")
+
+        store.startNew(on: today)
+        store.content.metadata.arrivalTargetMinutes = 5
+        store.content.metadata.transport = .walk
+        store.choosePlace("見本ビル")
+        XCTAssertEqual(store.content.metadata.arrivalTargetMinutes, 5, "今回決めた到着目標はそのまま")
+        XCTAssertEqual(store.content.metadata.transport, .walk, "はっきり指定した移動手段は上書きしない（Q75）")
 
         store.choosePlace(nil)
         XCTAssertNil(store.content.locationName, "場所なし")
@@ -129,8 +225,11 @@ final class EditorSuggestionTests: XCTestCase {
         XCTAssertEqual(try store.save().count, 1, "警告があっても保存できる（Soft Constraint）")
     }
 
-    func testCustomNotificationLabels() {
-        XCTAssertEqual(NotificationTiming.beforeDeparture(minutes: 45).fullLabel, "出発45分前")
-        XCTAssertEqual(NotificationTiming.beforeStart(minutes: 15).fullLabel, "予定開始15分前", "Q7")
+    func testNotificationLabels() {
+        XCTAssertEqual(NotificationTiming.beforeDeparture(minutes: 60).fullLabel, "出発60分前")
+        XCTAssertEqual(NotificationTiming.atDeparture.fullLabel, "出発時刻", "vNext §11.1")
+        XCTAssertEqual(NotificationTiming.atStart.fullLabel, "予定開始", "vNext §11.1")
+        XCTAssertEqual(NotificationTiming.beforeStart(minutes: 15).fullLabel, "開始15分前",
+                       "開始基準は、出発基準と取り違えない「開始○分前」（Q7・2026-10-14 決定 C3）")
     }
 }

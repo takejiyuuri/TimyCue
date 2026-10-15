@@ -46,8 +46,9 @@ enum MetadataField: String, Codable, CaseIterable {
 /// 予定のうち、TimyCue だけが使う情報（仕様 §84）。Apple カレンダーの予定とは別に保存する（仕様 §68）。
 struct TimyCueEventMetadata: Equatable, Codable {
     var color: EventColor = .orange
-    /// 到着目標：予定開始の何分前に着きたいか（仕様 §49）。nil は未設定（その場所の前回設定や既定値を使う）
-    var arrivalTargetMinutes: Int?
+    /// 到着目標：予定開始の何分前に着きたいか（仕様 §49）。必ず値を持つ（「未設定」は作らない）。
+    /// 新しい予定は、作った瞬間の全体既定値を入れる（初期値は 0 分前＝予定開始時刻。Q70）。あとで全体既定値を変えても、この値は変わらない
+    var arrivalTargetMinutes: Int = TimyCueEventMetadata.defaultArrivalTargetMinutes
     var transport: TransportMode = .auto
     var route: RouteOption = .auto
     var notifications = NotificationPreference()
@@ -59,6 +60,13 @@ struct TimyCueEventMetadata: Equatable, Codable {
     var overriddenFields: Set<MetadataField> {
         get { overrides ?? [] }
         set { overrides = newValue.isEmpty ? nil : newValue }
+    }
+
+    /// 到着目標の全体既定値の初期値：0 分前＝予定開始時刻（Q70）。設定画面で変えられるようにするのは後の段階
+    static let defaultArrivalTargetMinutes = 0
+
+    private enum CodingKeys: String, CodingKey {
+        case color, arrivalTargetMinutes, transport, route, notifications, overrides
     }
 
     /// その項目の値が同じか
@@ -86,6 +94,20 @@ struct TimyCueEventMetadata: Equatable, Codable {
     /// ユーザーが変えた項目
     func changedFields(to other: TimyCueEventMetadata) -> Set<MetadataField> {
         Set(MetadataField.allCases.filter { !hasSameValue(as: other, for: $0) })
+    }
+}
+
+extension TimyCueEventMetadata {
+    /// 前の版のファイルも読む。到着目標がない（前の版の「未設定」）ときは、初期値の 0 分前＝予定開始時刻として読む
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init()
+        color = try container.decodeIfPresent(EventColor.self, forKey: .color) ?? color
+        arrivalTargetMinutes = try container.decodeIfPresent(Int.self, forKey: .arrivalTargetMinutes) ?? Self.defaultArrivalTargetMinutes
+        transport = try container.decodeIfPresent(TransportMode.self, forKey: .transport) ?? transport
+        route = try container.decodeIfPresent(RouteOption.self, forKey: .route) ?? route
+        notifications = try container.decodeIfPresent(NotificationPreference.self, forKey: .notifications) ?? notifications
+        overrides = try container.decodeIfPresent(Set<MetadataField>.self, forKey: .overrides)
     }
 }
 

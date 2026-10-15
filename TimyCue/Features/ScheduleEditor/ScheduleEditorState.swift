@@ -32,11 +32,12 @@ enum InputRow: CaseIterable, Equatable {
     case transport
     case route
     case notifications
-    case repeatRule
     case color
-    case end
     /// 保存先の Apple カレンダー。書き込めるカレンダーが 2 つ以上あるときだけ出す（Q32）
     case calendar
+    /// 同じ内容で別の日にも登録する。新規・コピーのときだけ、いちばん下に出す。
+    /// 開いている間だけ、下のカレンダーをなぞって日を足したり外したりできる（2026-10-14 ユーザー決定）
+    case additionalDays
 
     var label: String {
         switch self {
@@ -46,17 +47,16 @@ enum InputRow: CaseIterable, Equatable {
         case .transport: "移動手段"
         case .route: "ルート"
         case .notifications: "通知"
-        case .repeatRule: "繰り返し"
         case .color: "色"
-        case .end: "終了"
         case .calendar: "カレンダー"
+        case .additionalDays: "同じ内容で追加"
         }
     }
 
     /// Apple カレンダーの予定そのものの項目か。書き込めないカレンダーの予定ではロックする（追加仕様書 §1.7）
     var isAppleField: Bool {
         switch self {
-        case .title, .location, .repeatRule, .end, .calendar: true
+        case .title, .location, .calendar, .additionalDays: true
         case .arrivalTarget, .transport, .route, .notifications, .color: false
         }
     }
@@ -77,15 +77,6 @@ enum SaveIssue: Equatable {
         case .missingTitle: "予定名を入力してください"
         }
     }
-}
-
-/// 「予測で一括」の状態（仕様 §36）
-enum PredictionState: Equatable {
-    case idle
-    /// 候補を入れた日。保存はしていない
-    case applied([CalendarDay])
-    /// 候補を出せなかった
-    case noSuggestion
 }
 
 enum ScheduleEditorError: Error, Equatable {

@@ -52,29 +52,4 @@ final class DuplicateAndMultiDayTests: XCTestCase {
         XCTAssertNil(preferences.keptBothDuplicates)
         XCTAssertNil(preferences.notifiedDuplicates)
     }
-
-    // MARK: - 複数日登録と繰り返し（Q49）
-
-    @MainActor
-    func testRepeatAndMultipleDaysAreNotUsedTogether() {
-        let store = ScheduleEditorStore(repository: InMemoryEventRepository(), metadataRepository: InMemoryEventMetadataRepository())
-        store.setCalendars([CalendarChoice(id: "home", title: "家", sourceTitle: "iCloud", isWritable: true, color: .orange)],
-                           defaultCalendarID: "home")
-        store.startNew(on: day)
-        store.content.repeatRule = .weekly
-
-        store.selectDay(day.adding(days: 2))
-        XCTAssertEqual(store.selectedDays, [day], "繰り返しを決めたまま 2 日目は選ばず、解除するか確かめる")
-        XCTAssertEqual(store.dayWaitingForRepeatClear, day.adding(days: 2))
-
-        store.cancelWaitingDay()
-        XCTAssertEqual(store.selectedDays, [day], "キャンセルなら日は足さない")
-        XCTAssertEqual(store.content.repeatRule, .weekly)
-
-        store.selectDay(day.adding(days: 2))
-        store.clearRepeatAndSelectWaitingDay()
-        XCTAssertEqual(store.selectedDays, [day, day.adding(days: 2)], "解除したら、選ぼうとした日を足す")
-        XCTAssertEqual(store.content.repeatRule, .none)
-        XCTAssertTrue(store.repeatBlockedByMultipleDays, "2 日以上選んでいる間は繰り返しを選べない")
-    }
 }

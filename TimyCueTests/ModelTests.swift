@@ -45,17 +45,59 @@ final class ModelTests: XCTestCase {
             .beforeDeparture(minutes: 10),
             .beforeDeparture(minutes: 60),
         ])
-        XCTAssertEqual(mixed.summary, "60分・10分・出発・予定開始15分前",
-                       "出発の早い順 → 出発 → 予定開始前。予定開始基準は「予定開始○分前」と書く（Q7）")
+        XCTAssertEqual(mixed.summary, "60分・10分・出発・開始15分前",
+                       "出発の早い順 → 出発 → 開始前。開始基準は「開始○分前」と書く（Q7・2026-10-14 決定 C3）")
     }
 
-    func testNotificationPresetsIncludeSixtyMinutes() {
+    func testNotificationsFollowWhetherTheEventHasAPlace() {
+        XCTAssertEqual(NotificationTiming.presets(hasPlace: false).map(\.fullLabel),
+                       ["開始60分前", "開始30分前", "開始10分前", "予定開始"],
+                       "場所なしの予定は出発の候補を出さない（2026-10-14 決定 C3）")
+        XCTAssertEqual(NotificationTiming.presets(hasPlace: true), NotificationTiming.presets)
+
+        let chosen = NotificationPreference(timings: [.beforeDeparture(minutes: 60), .atDeparture])
+        let withoutPlace = chosen.converted(hasPlace: false)
+        XCTAssertEqual(withoutPlace.timings, [.beforeStart(minutes: 60), .atStart],
+                       "場所を消したら、出発60分前→開始60分前、出発時刻→予定開始（初めの値に戻さない）")
+        XCTAssertEqual(withoutPlace.converted(hasPlace: true), chosen, "場所を足したら逆に置き換える")
+        XCTAssertTrue(NotificationPreference.off.converted(hasPlace: false).isOff, "通知なしは通知なしのまま")
+        XCTAssertEqual(NotificationPreference.noPlaceDefault.timings,
+                       [.beforeStart(minutes: 30), .beforeStart(minutes: 10), .atStart],
+                       "場所なしの新しい予定の初期値は 開始30分前・開始10分前・予定開始")
+        XCTAssertEqual(NotificationPreference.noPlaceDefault.summaryCandidates,
+                       ["開始30分前・開始10分前・予定開始", "開始30分前・10分前・予定開始", "開始30分前ほか2件"],
+                       "行に入りきらないときは、続く「開始」を略し、それでも入らなければ「ほか○件」")
+        XCTAssertEqual(NotificationPreference().summaryCandidates, ["30分・10分・出発", "30分ほか2件"])
+        XCTAssertEqual(NotificationPreference.off.summaryCandidates, ["通知なし"])
+    }
+
+    func testNotificationPresetsAreTheFixedCandidates() {
         XCTAssertEqual(NotificationTiming.presets, [
             .beforeDeparture(minutes: 60),
             .beforeDeparture(minutes: 30),
             .beforeDeparture(minutes: 10),
             .atDeparture,
-        ])
+            .atStart,
+        ], "出発60分前・出発30分前・出発10分前・出発時刻・予定開始（ほかに「通知なし」。vNext §11.1）")
+        XCTAssertEqual(NotificationTiming.presets.map(\.fullLabel),
+                       ["出発60分前", "出発30分前", "出発10分前", "出発時刻", "予定開始"])
+    }
+
+    func testNoNotificationIsExclusive() {
+        var preference = NotificationPreference.off
+        XCTAssertTrue(preference.isOff, "「通知なし」を選ぶと、ほかは全部オフ（vNext §11.1）")
+        preference.timings.insert(.atStart)
+        XCTAssertFalse(preference.isOff, "ほかを 1 つでもオンにしたら「通知なし」ではなくなる")
+        XCTAssertEqual(preference.summary, "予定開始")
+    }
+
+    func testOldCustomNotificationStillLoads() throws {
+        let old = NotificationPreference(timings: [.beforeStart(minutes: 15), .atDeparture])
+        let reloaded = try JSONDecoder().decode(NotificationPreference.self, from: JSONEncoder().encode(old))
+        XCTAssertEqual(reloaded, old, "カスタムの通知はやめたが、前の版で保存したものは読める")
+        let withStart = NotificationPreference(timings: [.atStart, .beforeDeparture(minutes: 10)])
+        XCTAssertEqual(try JSONDecoder().decode(NotificationPreference.self, from: JSONEncoder().encode(withStart)), withStart)
+        XCTAssertEqual(withStart.summary, "10分・予定開始")
     }
 
     // MARK: - 移動手段・ルート（仕様 §50・§52）

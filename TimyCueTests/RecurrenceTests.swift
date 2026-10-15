@@ -8,19 +8,32 @@ final class RecurrenceTests: XCTestCase {
 
     // MARK: - 決まりの表し方
 
-    func testChoicesAndLabels() {
-        XCTAssertEqual(RepeatRule.none.choice, .none)
-        XCTAssertEqual(RepeatRule.none.displayName, "なし")
-        XCTAssertEqual(RepeatRule.daily.displayName, "毎日")
-        XCTAssertEqual(RepeatRule.weekly.displayName, "毎週")
-        XCTAssertEqual(RepeatRule.biweekly.displayName, "隔週")
-        XCTAssertEqual(RepeatRule.monthly.displayName, "毎月")
-        XCTAssertEqual(RepeatRule(frequency: .daily, interval: 3).choice, .custom)
-        XCTAssertEqual(RepeatRule(frequency: .daily, interval: 3).displayName, "3日ごと")
-        XCTAssertEqual(RepeatRule(frequency: .weekly, interval: 2, weekdays: [2, 0]).displayName, "2週ごと（月・水）")
-        XCTAssertEqual(RepeatRule(frequency: .monthly, endDay: CalendarDay(year: 2026, month: 11, day: 30)).displayName,
-                       "毎月（〜11/30まで）", "終わりの日は選択肢を変えない")
+    func testRuleValues() {
+        XCTAssertFalse(RepeatRule.none.isRepeating)
+        XCTAssertTrue(RepeatRule.weekly.isRepeating)
         XCTAssertEqual(RepeatRule(frequency: .weekly, interval: 0).interval, 1, "間隔は 1 以上")
+    }
+
+    // MARK: - TimyCue では繰り返しを作らない（2026-10-13 ユーザー決定）
+
+    @MainActor
+    func testTimyCueDoesNotCreateRecurringEvents() throws {
+        let day = self.day
+        let recurring = CalendarEvent(day: day, startMinute: 600, title: "朝会", repeatRule: .weekly, source: .appleCalendar)
+        let repository = InMemoryEventRepository(events: [recurring])
+        let store = ScheduleEditorStore(repository: repository, metadataRepository: InMemoryEventMetadataRepository())
+        XCTAssertFalse(store.visibleRows.contains { $0.label == "繰り返し" }, "予定編集画面に繰り返しの行はない")
+
+        store.startNew(on: day.adding(days: 1))
+        XCTAssertEqual(store.content.repeatRule, .none, "新しい予定は繰り返しなし")
+
+        try store.startEditing(eventID: recurring.id)
+        try store.startCopy()
+        XCTAssertEqual(store.content.repeatRule, .none, "繰り返し予定をコピーしても、繰り返しは引き継がない（§63）")
+        store.selectDay(day.adding(days: 2))
+        store.setStartMinute(600, on: day.adding(days: 2))
+        let saved = try store.save()
+        XCTAssertTrue(saved.allSatisfy { !$0.repeatRule.isRepeating }, "TimyCue から繰り返し予定を作らない")
     }
 
     func testOldFilesWithRepeatNoneStillLoad() throws {
@@ -200,14 +213,6 @@ final class RecurrenceTests: XCTestCase {
         XCTAssertEqual(afterFuture[first.id]?.arrivalTargetMinutes, 15, "「これ以降」は前の回を変えない")
     }
 
-    @MainActor
-    func testRepeatIsOnlyAvailableWhenConnected() {
-        let store = ScheduleEditorStore(repository: InMemoryEventRepository(), metadataRepository: InMemoryEventMetadataRepository())
-        XCTAssertFalse(store.canRepeat, "連携していないときは繰り返しを選べない（EventKit が正本。Q48 は仮）")
-        store.setCalendars([CalendarChoice(id: "home", title: "家", sourceTitle: "iCloud", isWritable: true, color: .orange)],
-                           defaultCalendarID: "home")
-        XCTAssertTrue(store.canRepeat)
-    }
 }
 
 /// 範囲つきの変更・削除を記録するだけの保存先（テスト用）。同じ予定名の予定を、同じ繰り返しの回とみなす

@@ -26,8 +26,16 @@ enum CalendarMetrics {
     /// 画面上部の年（Q20。2026-10-12 から真ん中に置く）
     static let yearFont = Font.system(size: 17, weight: .semibold)
     static let yearHeaderHeight: CGFloat = 30
-    /// その月の 1 日のセルに出す「10/」（2026-10-12 ユーザー決定。日付の数字より大きめ）
-    static let monthStartFont = Font.system(size: 16, weight: .bold)
+    /// 右上の「＋」（前の右下の 54 より少し小さく）と「今日」（2026-10-12 ユーザー決定。大きさは仮）
+    static let newEventButtonSize: CGFloat = 30
+    static let newEventButtonFont = Font.system(size: 15, weight: .semibold)
+    /// 「今日」も「＋」と同じ丸にする（2026-10-13 デザインの指摘）
+    static let todayButtonFont = Font.system(size: 11, weight: .bold)
+    static let headerButtonSpacing: CGFloat = 8
+    /// 「＋」を右端から少し内側へ（2026-10-13 デザインの指摘。値は仮）
+    static let headerButtonsTrailingInset: CGFloat = 10
+    /// その月の 1 日のセルに出す「10/」（2026-10-12 ユーザー決定。2026-10-13 にもう少し大きく。値は仮）
+    static let monthStartFont = Font.system(size: 19, weight: .bold)
 
     /// 日付吹き出し（仕様 §22。2026-10-12 デザインの指摘で少し大きく）
     static let popoverMaxWidth: CGFloat = 300
@@ -44,4 +52,11 @@ enum CalendarMetrics {
     static let popoverTimeFont = Font.system(size: 13, weight: .medium).monospacedDigit()
     /// 時刻の欄の幅（「10:00–11:30」が入る幅。Q12）
     static let popoverTimeWidth: CGFloat = 86
+    /// 保存のあとの軽い知らせ（「3件コピーしました」など）の位置と、出しておく秒数（2026-10-14。仮）
+    static let completionToastBottomPadding: CGFloat = 16
+    static let completionToastSeconds: Double = 2
+    /// 予定詳細の場所の行の、押せる地図のマーク（2026-10-14 決定。住所は表示だけ、マークは「地図を開く」。
+    /// 小さいマークだけを押せる範囲にせず、周りを 44pt ほどの押しやすいボタンの範囲にする）
+    static let detailActionIconFont = Font.system(size: 14, weight: .semibold)
+    static let detailActionTapSize: CGFloat = 44
 }

@@ -14,14 +14,11 @@ struct CalendarTabView: View {
         @Bindable var store = store
         NavigationStack(path: $store.path) {
             VStack(spacing: 0) {
-                CalendarHeaderView(year: store.stickyMonth.yearLabel)
+                CalendarHeaderView(year: store.stickyMonth.yearLabel,
+                                   onNewEvent: { openNewEvent() })
                     .contentShape(Rectangle())
                     .onTapGesture { store.closeAllPopovers() }
                 MonthCalendarView()
-                    .overlay(alignment: .bottomTrailing) {
-                        NewEventButton { openNewEvent() }
-                            .padding(Theme.Spacing.l)
-                    }
             }
             .background(Theme.Colors.background.ignoresSafeArea())
             .toolbar(.hidden, for: .navigationBar)
@@ -32,7 +29,12 @@ struct CalendarTabView: View {
                 }
             }
             .fullScreenCover(item: $store.editRequest) { request in
-                ScheduleEditorView(initialMonth: request.month, onDeleted: { store.closeEventDetail(request.id) })
+                ScheduleEditorView(initialMonth: request.month,
+                                   onSaved: { saved in
+                                       // 「別の日にコピー」を保存したら、元の画面のまま軽い完了の知らせを出す（2026-10-14 決定 C8）
+                                       if case .copy = editorStore.mode { store.showCopyCompletion(count: saved.count) }
+                                   },
+                                   onDeleted: { store.closeEventDetail(request.id) })
                     .environment(editorStore)
                     .environment(store)
                     .environment(connection)
@@ -41,6 +43,20 @@ struct CalendarTabView: View {
         .onAppear {
             store.updateToday()
             openForScreenshot()
+        }
+        // 保存のあとの軽い知らせ（「3件コピーしました」など。2026-10-14 決定 C8。見た目と出す長さは仮）
+        .overlay(alignment: .bottom) {
+            if let message = store.completionMessage {
+                CompletionToast(message: message)
+                    .padding(.bottom, CalendarMetrics.completionToastBottomPadding)
+                    .transition(.opacity)
+            }
+        }
+        .animation(.easeInOut(duration: 0.2), value: store.completionMessage)
+        .task(id: store.completionMessage) {
+            guard store.completionMessage != nil else { return }
+            try? await Task.sleep(for: .seconds(CalendarMetrics.completionToastSeconds))
+            if !Task.isCancelled { store.clearCompletionMessage() }
         }
         // 開いただけでは iOS の許可のダイアログを出さない。未連携のときだけ、使う理由と「カレンダーを連携」の案内を出す（Q38）
         .overlay {
@@ -91,5 +107,20 @@ struct CalendarTabView: View {
             store.tapTimelineEvent(first.id)
         }
         #endif
+    }
+}
+
+/// 保存のあとの軽い知らせ。強い影は付けず、面の色と区切り線で分ける（2026-10-14 決定）
+private struct CompletionToast: View {
+    let message: String
+
+    var body: some View {
+        Text(message)
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(Theme.Colors.textPrimary)
+            .padding(.horizontal, Theme.Spacing.l)
+            .padding(.vertical, Theme.Spacing.s)
+            .background(Capsule().fill(Theme.Colors.surface))
+            .overlay(Capsule().strokeBorder(Theme.Colors.separator, lineWidth: 1))
     }
 }

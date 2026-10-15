@@ -43,6 +43,20 @@ enum HomeSchedule {
         return next.map(Main.upcoming)
     }
 
+    /// ホームの時計で数える先（spec §6・追加仕様書 §44）。時計は「次に行動すべき時刻までの残り」を見せる：
+    /// 場所のある予定は出発まで、場所のない予定は開始まで（追加仕様書 §44.11）。どちらにするかは HomeState が決める
+    struct ClockTarget: Equatable {
+        let date: Date
+        let isDeparture: Bool
+        /// 時計の中と下に出す呼び名（「出発まで」「出発予定」／「開始まで」「開始予定」）
+        var word: String { isDeparture ? "出発" : "開始" }
+    }
+
+    /// 場所のある予定か。場所が空白だけなら場所なし（追加仕様書 §36）
+    static func hasPlace(_ event: CalendarEvent) -> Bool {
+        !(event.locationName ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     /// まだ先なので静かに出すか（§5.2）。
     /// 暫定：出発時刻の計算（第 5 段階）までの実装途中の代用として、開始時刻で見る。仕様ではない。第 5 段階で推奨出発時刻に置き換える
     static func isQuiet(now: Date, start: Date) -> Bool {

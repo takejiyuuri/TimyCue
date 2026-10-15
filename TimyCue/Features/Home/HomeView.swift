@@ -4,12 +4,16 @@ import SwiftUI
 /// 長い初回チュートリアルは作らず、初めから通常のホームを開く（Q42-8）。
 /// カレンダー未連携なら「カレンダーを連携、または予定を登録すると…」と［カレンダーを連携］［予定を登録］を出す（Q42-8・Q43）。
 /// 予定がないときも［予定を登録］を出す（Q43。通常のホームに常設の＋は置かない：Q21）。
-/// 出発時刻・あと○分の時計（§6）・移動中（§7）などは、移動時間の計算（第 5 段階）から足す
+/// 何を出すかは主状態（HomeState）で 1 つだけ決める（追加仕様書 §45）。次の行動時刻（場所ありは出発、場所なしは開始）まで
+/// 60 分以内は、残り時間を外周の弧で見せる時計を出す（§6・追加仕様書 §44）。
+/// 出発時刻の計算（地図の移動時間）・移動中（§7）などは、第 5 段階の続きで足す。それまでは場所ありの予定も開始で仮に動かす
 struct HomeView: View {
     @Environment(CalendarStore.self) private var store
     @Environment(ScheduleEditorStore.self) private var editorStore
     @Environment(CalendarConnection.self) private var connection
+    @Environment(DepartureStore.self) private var departures
     @Environment(\.openURL) private var openURL
+    @Environment(\.scenePhase) private var scenePhase
 
     /// ［予定を登録］で開いた新規の 3 分割画面（初期日付は今日、開始時刻は未設定。Q42-8）
     @State private var newEventDay: CalendarDay?
@@ -19,12 +23,16 @@ struct HomeView: View {
     @State private var showsDetail = false
     /// 重複候補の一覧（Q50）
     @State private var showsDuplicates = false
+    /// 「場所を確認」の候補選択／検索（Q66）を開いている予定
+    @State private var placeCheck: CalendarEvent?
 
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 30)) { context in
+        // 分が変わった瞬間に更新する（時計の針と残りの分を、iPhone の時計の表示とそろえる）
+        TimelineView(.everyMinute) { context in
             let now = context.date
-            let events = store.loadedEvents
-            let main = HomeSchedule.main(in: events, now: now)
+            let events = store.guidanceEvents
+            // 主状態は 1 つだけ。場所ありの予定は推奨出発時刻、場所なしの予定は開始が基準（追加仕様書 §45）
+            let state = HomeState.resolve(events: events, now: now, estimate: departures.estimate(for:))
             ScrollView {
                 VStack(alignment: .leading, spacing: Theme.Spacing.l) {
                     Text(dateTitle(now))
@@ -36,10 +44,10 @@ struct HomeView: View {
                         duplicateNotice
                     }
 
-                    if let main {
-                        nextEventSection(main, now: now)
+                    if let event = state.event {
+                        nextEventSection(state, event: event, now: now)
                     } else {
-                        Text(HomeSchedule.hasOnlyAllDayToday(in: events, now: now)
+                        Text(state == .noEvents(onlyAllDayToday: true)
                              ? "今日は時間指定の予定はありません"
                              : "予定はありません")
                             .font(.headline)
@@ -48,7 +56,7 @@ struct HomeView: View {
 
                     if connection.state != .connected {
                         setupCard
-                    } else if main == nil {
+                    } else if state.event == nil {
                         registerButton
                     }
                 }
@@ -58,9 +66,43 @@ struct HomeView: View {
             // 吹き出しの外を押したら閉じる（Q29）
             .contentShape(Rectangle())
             .onTapGesture { showsDetail = false }
+            // 出発時刻を計算し直す：ホームを開いたとき・1 分ごと（5 分たったものだけ）・予定が変わったとき（2026-10-14 決定）
+            .onChange(of: now, initial: true) { _, _ in refreshDepartures(now: now) }
+            .onChange(of: events) { _, _ in refreshDepartures(now: Date()) }
         }
-        .background(Theme.Colors.background.ignoresSafeArea())
-        .onAppear { store.updateToday() }
+        // アプリを前面へ戻したら、すぐ計算し直す（追加仕様書 §8.6）
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { refreshDepartures(now: Date(), force: true) }
+        }
+        // 移動手段が「自動」の予定を初めて計算するとき、1 回だけ聞く（2026-10-14 決定。文言も決定）
+        .confirmationDialog("普段よく使う移動手段は？",
+                            isPresented: Binding(get: { departures.asksUsualTransport },
+                                                 set: { if !$0 { departures.dismissUsualTransportQuestion() } }),
+                            titleVisibility: .visible) {
+            ForEach(TransportMode.allCases.filter { $0 != .auto }, id: \.self) { mode in
+                Button(mode.displayName) {
+                    departures.setUsualTransport(mode)
+                    refreshDepartures(now: Date(), force: true)
+                }
+            }
+            Button("あとで", role: .cancel) { departures.dismissUsualTransportQuestion() }
+        } message: {
+            Text("移動手段を『自動』にした予定で、まだ十分な移動実績がないときの出発時刻計算に使います。あとから設定で変更できます。")
+        }
+        // 場所を確認：候補の一覧／検索から 1 地点を選び、地点を決めて計算し直す（Q66。2026-10-14 決定）
+        .sheet(item: $placeCheck) { event in
+            PlaceSearchView(title: "場所を確認", initialQuery: event.locationName ?? "",
+                            near: departures.location.location?.coordinate) { candidate in
+                departures.confirmPlace(candidate.savedPlace(), for: event.locationName ?? "")
+                refreshDepartures(now: Date(), force: true)
+            }
+        }
+        .background(Theme.Colors.homeBackground.ignoresSafeArea())
+        .onAppear {
+            store.updateToday()
+            departures.location.startWatching()
+        }
+        .onDisappear { departures.location.stopWatching() }
         .sheet(isPresented: $showsDuplicates) {
             NavigationStack {
                 DuplicateListView()
@@ -90,21 +132,28 @@ struct HomeView: View {
 
     // MARK: - 次の予定
 
-    private func nextEventSection(_ main: HomeSchedule.Main, now: Date) -> some View {
-        let event = main.event
-        let start = HomeSchedule.startDate(of: event)
-        let isStarted: Bool = {
-            if case .started = main { return true }
-            return false
-        }()
-        // 60 分以上先は大きな「あと○分」にせず、静かに出す（追加仕様書 §5.2。今は暫定で開始時刻を使う。第 5 段階で推奨出発時刻へ）
-        let countdown = isStarted || HomeSchedule.isQuiet(now: now, start: start)
-            ? "" : HomeSchedule.countdownText(from: now, to: start)
+    private func nextEventSection(_ state: HomeState, event: CalendarEvent, now: Date) -> some View {
+        // 時計は、次の行動時刻まで 60 分以内のときだけ（それより前は静かな表示。追加仕様書 §5.2・§44.12）
+        let target = state.clockTarget()
+        let face = target.flatMap { HomeClockMath.face(now: now, target: $0.date) }
         return VStack(alignment: .leading, spacing: Theme.Spacing.s) {
+            if let face, let target {
+                clock(face, word: target.word)
+            }
+            // 出発時刻を計算できないときの原因・目安の知らせ。時計の下（時計がなければ予定の上）に小さく（2026-10-14 決定）
+            if let problem = state.problem {
+                problemNotice(problem, event: event)
+                    .frame(maxWidth: .infinity, alignment: face == nil ? .leading : .center)
+            } else if let note = departures.note(for: event) {
+                Text(note.message)
+                    .font(.footnote)
+                    .foregroundStyle(Theme.Colors.textSecondary)
+                    .frame(maxWidth: .infinity, alignment: face == nil ? .leading : .center)
+            }
             VStack(alignment: .leading, spacing: 6) {
-                if isStarted {
-                    // 開始時刻から最大 3 分（§5.1）
-                    Text("予定時刻になりました")
+                if let headline = state.headline {
+                    // 出発時刻・出発時刻超過・予定開始の知らせ（spec §6・Q46、追加仕様書 §5.1・§8.7）
+                    Text(headline)
                         .font(.title3.weight(.semibold))
                         .foregroundStyle(Theme.Colors.accent)
                 } else {
@@ -130,12 +179,6 @@ struct HomeView: View {
                         .foregroundStyle(Theme.Colors.textSecondary)
                         .lineLimit(1)
                 }
-                if !countdown.isEmpty {
-                    Text(countdown)
-                        .font(.title3.weight(.semibold).monospacedDigit())
-                        .foregroundStyle(Theme.Colors.accent)
-                        .padding(.top, 4)
-                }
             }
             .padding(Theme.Spacing.l)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -154,6 +197,50 @@ struct HomeView: View {
                 .transition(.opacity)
             }
         }
+    }
+
+    /// 出発時刻を計算できない原因の小さな知らせ。地点が決まっていなければ押して「場所を確認」へ（Q66）。
+    /// 普段よく使う移動手段をまだ選んでいなければ、押してもう一度選べる
+    @ViewBuilder
+    private func problemNotice(_ problem: DepartureProblem, event: CalendarEvent) -> some View {
+        Group {
+            switch problem {
+            case .placeUnconfirmed:
+                // 押せると分かるよう、操作の文字の色にする（2026-10-14 実機の指摘「ずっと出る」）
+                Button { placeCheck = event } label: {
+                    Label(problem.message, systemImage: "mappin.and.ellipse")
+                        .foregroundStyle(Theme.Colors.actionText)
+                }
+            case .transportNotChosen:
+                Button { departures.askUsualTransport() } label: {
+                    Text(problem.message)
+                        .foregroundStyle(Theme.Colors.actionText)
+                }
+            default:
+                Text(problem.message)
+            }
+        }
+        .font(.footnote)
+        .foregroundStyle(Theme.Colors.textSecondary)
+    }
+
+    /// 出発時刻を計算し直す（5 分たった・入力が変わった・現在地が大きく動いた予定だけ。force なら全部すぐ）
+    private func refreshDepartures(now: Date, force: Bool = false) {
+        departures.refresh(events: store.guidanceEvents, metadata: store.metadata(for:), now: now, force: force)
+    }
+
+    /// 時計と、その下の「16:52 → 17:15 出発予定」。時計で空いた所にカードは足さない（追加仕様書 §44）
+    private func clock(_ face: HomeClockMath.Face, word: String) -> some View {
+        VStack(spacing: Theme.Spacing.s) {
+            HomeClockView(face: face, targetWord: word)
+                .containerRelativeFrame(.horizontal) { length, _ in length * HomeMetrics.clockWidthRatio }
+                .padding(.vertical, HomeMetrics.clockLabelRoom)
+            // 「16:52 → 17:15」と「17:15 出発予定」は、同じ時刻が重なるので 1 行にまとめた（2026-10-14 の指示で整理してよい点。仮）
+            Text("\(HomeClockMath.flowText(now: face.now, target: face.target)) \(word)予定")
+                .font(HomeMetrics.flowFont)
+                .foregroundStyle(Theme.Colors.textSecondary)
+        }
+        .frame(maxWidth: .infinity)
     }
 
     private func timeText(_ event: CalendarEvent, now: Date) -> String {
@@ -179,9 +266,11 @@ struct HomeView: View {
                 .foregroundStyle(Theme.Colors.textPrimary)
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
-            Button("確認") {
+            Button {
                 connection.markDuplicatesNotified()
                 showsDuplicates = true
+            } label: {
+                Text("確認").foregroundStyle(Theme.Colors.onAccent)
             }
             .buttonStyle(.bordered)
             .tint(Theme.Colors.accent)
@@ -212,18 +301,23 @@ struct HomeView: View {
                 Text("カレンダーへのアクセスは、iPhone の設定から許可してください")
                     .font(.footnote)
                     .foregroundStyle(Theme.Colors.textSecondary)
-                Button("設定アプリで許可する") {
+                Button {
                     if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
+                } label: {
+                    Text("設定アプリで許可する").foregroundStyle(Theme.Colors.onAccent)
                 }
                 .buttonStyle(.bordered)
+                .tint(Theme.Colors.accent)
             } else if connection.state == .notAsked {
                 Button {
                     Task { await connection.connect() }
                 } label: {
-                    Text("カレンダーを連携").frame(maxWidth: .infinity)
+                    Text("カレンダーを連携")
+                        .foregroundStyle(Theme.Colors.onAccent)
+                        .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
-                .tint(Theme.Colors.accent)
+                .tint(Theme.Colors.accentFill)
                 .controlSize(.large)
             }
             registerButton
@@ -243,7 +337,9 @@ struct HomeView: View {
             editorStore.startNew(on: today)
             newEventDay = today
         } label: {
-            Text("予定を登録").frame(maxWidth: .infinity)
+            Text("予定を登録")
+                .foregroundStyle(Theme.Colors.onAccent)
+                .frame(maxWidth: .infinity)
         }
         .buttonStyle(.bordered)
         .tint(Theme.Colors.accent)

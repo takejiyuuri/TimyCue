@@ -46,9 +46,10 @@ struct DayCellView: View {
         let color = Theme.Colors.weekdayText(day.weekdayIndexFromMonday(), normal: Theme.Colors.textPrimary)
         return HStack(alignment: .firstTextBaseline, spacing: 0) {
             if day.day == 1 {
+                // 「10/」は曜日の色にせず、どの月も同じ見分けやすい色（2026-10-13 デザインの指摘）
                 Text(verbatim: "\(day.month)/")
                     .font(CalendarMetrics.monthStartFont)
-                    .foregroundStyle(color)
+                    .foregroundStyle(Theme.Colors.monthStartText)
                     .fixedSize()
             }
             Text(verbatim: "\(day.day)")

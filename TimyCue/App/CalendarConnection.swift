@@ -173,6 +173,23 @@ final class CalendarConnection {
         notify()
     }
 
+    /// 祝日カレンダーとして扱うか（設定 ＞ カレンダー連携 ＞ 祝日カレンダー。Q55）
+    func isHolidayCalendar(_ calendar: CalendarChoice) -> Bool {
+        preferences.isHolidayCalendar(calendar)
+    }
+
+    /// 祝日カレンダーとして扱うかを手で決める。自動の判定より優先する（Q55）
+    func setHoliday(_ isHoliday: Bool, calendar: CalendarChoice) {
+        preferences.setHoliday(isHoliday, calendarID: calendar.id)
+        savePreferences()
+        notify()
+    }
+
+    /// 祝日カレンダーとして扱っているカレンダー
+    var holidayCalendars: [CalendarChoice] {
+        calendars.filter { preferences.isHolidayCalendar($0) }
+    }
+
     /// 書き込めるカレンダー（予定の保存先にできるもの）
     var writableCalendars: [CalendarChoice] {
         calendars.filter(\.isWritable)
@@ -271,6 +288,12 @@ final class CalendarConnection {
 
     private func notify() {
         refreshDuplicates()
-        onChange(calendars, defaultSaveCalendarID)
+        // 祝日カレンダーは、手で直した分を当ててから渡す（Q55）
+        let resolved = calendars.map { calendar in
+            var copy = calendar
+            copy.isHolidays = preferences.isHolidayCalendar(calendar)
+            return copy
+        }
+        onChange(resolved, defaultSaveCalendarID)
     }
 }

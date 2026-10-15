@@ -25,27 +25,52 @@ enum EditorMetrics {
     static let dateTabHeight: CGFloat = 32
     static let dateTabFont = Font.system(size: 13, weight: .semibold).monospacedDigit()
     static let hourRowHeight: CGFloat = 44
+    /// 時間画面を開いたときの位置（§43。2026-10-14 決定 E8）：予定がある日は最初の予定のこの分だけ前（未来の日は約 1 時間前）、
+    /// 予定のない未来の日は 8:00
+    static let dayScrollLeadMinutes = 30
+    static let futureDayScrollLeadMinutes = 60
+    static let emptyDayScrollMinute = 8 * 60
     static let hourLabelWidth: CGFloat = 34
     static let hourLabelFont = Font.system(size: 10, weight: .medium).monospacedDigit()
     static let blockFont = Font.system(size: 11, weight: .semibold)
     /// 終了時刻のない予定は短い固定の高さ（§37）
     static let noEndBlockHeight: CGFloat = 20
+    /// 予定ブロックがこの高さ以上なら、2 段目に終了の時刻も出す（2026-10-14 ユーザー決定。値は仮）
+    static let blockTwoLineHeight: CGFloat = 30
+    /// 「同じ内容で追加」を「個別」にしたときの、日付の丸いボタン（2026-10-14 ユーザー決定。大きさ・文字は仮）
+    static let dayButtonSize: CGFloat = 44
+    static let dayButtonSpacing: CGFloat = 8
+    static let dayButtonBorderWidth: CGFloat = 2
+    static let dayButtonMonthFont = Font.system(size: 10, weight: .medium).monospacedDigit()
+    static let dayButtonDayFont = Font.system(size: 17, weight: .bold).monospacedDigit()
     static let draftOpacity: Double = 0.55
     /// 仮予定を動かしている間に出す時刻（§40）
     static let dragTimeFont = Font.system(size: 11, weight: .bold).monospacedDigit()
     /// 仮予定の下端の、終了時刻のハンドル（§41）
     static let endHandleWidth: CGFloat = 28
-    static let endHandleHeight: CGFloat = 16
+    /// ハンドルを押さえられる所の高さと、そのうちブロックの下端より上に重ねる分（2026-10-14。指で押さえやすい大きさ。仮）
+    static let endHandleHitHeight: CGFloat = 30
+    static let endHandleOverlap: CGFloat = 6
+    /// これより短い動きは「触れただけ」として、終了を変えない
+    static let endHandleMinimumMove: CGFloat = 3
+    /// 終了を伸ばしている間の時刻を、ブロックの下端からどれだけ上に出すか（指で隠れないように。2026-10-14 実機の指摘。仮）
+    static let dragEndLabelLift: CGFloat = 44
+    /// 重なりの警告を出す位置（ブロックの下端から下へ）
+    static let warningOffsetBelowBlock: CGFloat = 20
     /// 分ホイール（§38。形は実機で確かめて決める）
     static let wheelFont = Font.system(size: 14, weight: .medium).monospacedDigit()
     static let wheelSelectedFont = Font.system(size: 16, weight: .bold).monospacedDigit()
     static let wheelRowHeight: CGFloat = 24
     static let wheelWidth: CGFloat = 36
+    /// 到着目標・移動手段・色のドラムロールの高さ（2026-10-13。値は仮）
+    static let wheelPickerHeight: CGFloat = 130
 
     // MARK: 予定入力（§44・§45）
 
     static let inputRowHeight: CGFloat = 40
     static let inputLabelWidth: CGFloat = 68
+    /// 開いている行の左端のオレンジの線の太さ（2026-10-14。仮）
+    static let expandedRowBarWidth: CGFloat = 3
     static let inputLabelFont = Font.system(size: 13)
     static let inputValueFont = Font.system(size: 14, weight: .medium)
     static let chipFont = Font.system(size: 13, weight: .medium)
@@ -56,14 +81,28 @@ enum EditorMetrics {
     static let lockNoticeFont = Font.system(size: 12)
     static let lockIconFont = Font.system(size: 11)
 
-    // MARK: 下カレンダーと年月バー（v1.1）
+    // MARK: 下カレンダーと左右のバー（2026-10-13 ユーザー決定）
 
-    /// 日付の行の最低の高さ。枠にちょうど収まる行数を、ここから決める
-    static let calendarMinRowHeight: CGFloat = 40
+    /// 見える高さは、日付の行 6 行ぶん（月の行は別に数える）
+    static let calendarVisibleWeeks: CGFloat = 6
+    /// 日付の行のいちばん低い高さ。キーボードが出て下カレンダーが縮んだとき（§67）は、行をつぶさず見える週を減らす。
+    /// 暫定値（仕様の値ではない。実機で見て直す）
+    static let calendarMinRowHeight: CGFloat = 38
+    /// 月の初めに空ける、月帯の高さ（日付の行を 1 として）。日付の行の半分くらい（2026-10-13 ユーザー決定）
+    static let calendarMonthRowRatio: Double = 0.5
+    static let calendarMonthFont = Font.system(size: 12, weight: .semibold)
+    /// いちばん上（曜日の上）に固定して出す年月（例：2026年　10月）
+    static let calendarYearHeight: CGFloat = 20
+    static let calendarYearFont = Font.system(size: 12, weight: .semibold).monospacedDigit()
     static let calendarDayFont = Font.system(size: 14, weight: .medium).monospacedDigit()
-    static let calendarWeekdayHeight: CGFloat = 20
+    static let calendarWeekdayHeight: CGFloat = 18
     static let calendarWeekdayFont = Font.system(size: 11, weight: .medium)
     static let selectedCircleSize: CGFloat = 26
+    /// コピー元の日の外周のリングの太さと、ハイライトが 1 周する時間（秒）。1 周は 1.5〜2 秒の間で実機を見て決める（2026-10-14。仮）
+    static let copySourceRingWidth: CGFloat = 2.5
+    static let copySourceRingPeriod: Double = 1.8
+    /// ハイライトの長さ（リング 1 周に対する割合。仮）
+    static let copySourceRingHighlightLength: Double = 0.3
     /// 予定がある日の予定色のドット（Q23）
     static let eventDotSize: CGFloat = 4
     static let eventDotSpacing: CGFloat = 2
@@ -71,15 +110,10 @@ enum EditorMetrics {
     /// なぞって選んでいるとみなす、指の動きの大きさ
     static let dragSelectThreshold: CGFloat = 8
 
-    static let yearMonthBarWidth: CGFloat = 64
-    /// バーの上での 1 週の高さ（カレンダーの行より小さくして、前後の月まで見えるようにする）
-    static let barWeekHeight: CGFloat = 7
-    static let barYearFont = Font.system(size: 11, weight: .medium).monospacedDigit()
-    static let barMonthFont = Font.system(size: 12, weight: .regular).monospacedDigit()
-    /// 固定帯の近くに来た月は少し太く・濃く（v1.1「表示範囲帯」）
-    static let barMonthFocusedFont = Font.system(size: 13, weight: .bold).monospacedDigit()
-    static let barBandCornerRadius: CGFloat = 6
-    /// 年月バーを長押ししたときに動く速さ（週／秒）と、動き始めるまでの長さ（秒）。仮の値（実機で決める）
-    static let barHoldWeeksPerSecond: CGFloat = 1.5
-    static let barHoldDelay: Double = 0.3
+    /// 左右のスクロールバーの幅（前の年月バー 64 の半分くらい。候補）
+    static let scrollBarWidth: CGFloat = 30
+    static let scrollBarCornerRadius: CGFloat = 8
+    /// バーだとわかるマーク（上下の矢印とつまみの線）
+    static let scrollBarMarkFont = Font.system(size: 11, weight: .bold)
+    static let scrollBarGripFont = Font.system(size: 14, weight: .semibold)
 }

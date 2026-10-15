@@ -60,12 +60,12 @@ final class NewEventFlowTests: XCTestCase {
         XCTAssertEqual(editor.eventDots(on: today.adding(days: 1)).more, 0)
     }
 
-    func testCustomDurationIsKeptInSyncWithEndRow() {
+    func testEndIsSetWithTheHandle() {
         let editor = ScheduleEditorStore(repository: InMemoryEventRepository(), metadataRepository: InMemoryEventMetadataRepository())
         editor.startNew(on: today)
         editor.setStartMinute(600)
-        editor.setDuration(75)
-        XCTAssertEqual(editor.durationMinutes(on: today), 75, "カスタムの所要時間（Q24）")
-        XCTAssertEqual(editor.valueText(for: .end), "11:15")
+        editor.setEndMinute(675)
+        XCTAssertEqual(editor.durationMinutes(on: today), 75, "終了は下端のハンドルで決める（「終了」の行はなくした。2026-10-14）")
+        XCTAssertEqual(editor.endMinute(on: today), 675)
     }
 }

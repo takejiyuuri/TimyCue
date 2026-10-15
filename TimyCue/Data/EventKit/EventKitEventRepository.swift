@@ -52,7 +52,9 @@ final class EventKitEventRepository: EventRepository {
                            title: ekCalendar.title,
                            sourceTitle: ekCalendar.source?.title ?? "",
                            isWritable: ekCalendar.allowsContentModifications,
-                           color: Self.nearestColor(of: ekCalendar))
+                           color: Self.nearestColor(of: ekCalendar),
+                           isHolidays: CalendarChoice.isHolidayCalendar(title: ekCalendar.title,
+                                                                        isWritable: ekCalendar.allowsContentModifications))
         }
     }
 
@@ -232,6 +234,8 @@ final class EventKitEventRepository: EventRepository {
                     common.overrides = nil
                     newMetadata[id] = common
                 } else {
+                    // 初めて読んだ瞬間を、新しい予定を作った瞬間と同じに扱う（到着目標はそのときの全体既定値。
+                    // 全体既定値の設定ができるまでは初期値の 0 分前。追加仕様書 §8.1）
                     var info = TimyCueEventMetadata()
                     info.color = item.calendarColor
                     newMetadata[id] = info

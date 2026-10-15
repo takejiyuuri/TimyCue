@@ -1,7 +1,16 @@
+import UIKit
 import XCTest
 @testable import TimyCue
 
 final class CalendarWeekTests: XCTestCase {
+    func testTodayButtonOnlyWhenTodayIsOutOfView() {
+        let today = CalendarDay(year: 2026, month: 10, day: 13)
+        let top = CalendarWeek(containing: CalendarDay(year: 2026, month: 9, day: 28))
+        XCTAssertTrue(CalendarStore.isDay(today, visibleFrom: top, rows: 6), "今日が見えているときは「今日」を出さない")
+        XCTAssertFalse(CalendarStore.isDay(today, visibleFrom: top, rows: 2), "今日が表示範囲の下にあるときは出す")
+        XCTAssertFalse(CalendarStore.isDay(today, visibleFrom: top.adding(weeks: 3), rows: 6), "上にあるときも出す")
+    }
+
     func testWeekStartsOnMondayAndCrossesMonthBoundary() {
         // 2026 年 10 月 31 日は土曜
         let week = CalendarWeek(containing: CalendarDay(year: 2026, month: 10, day: 31))
@@ -87,6 +96,105 @@ final class CalendarStoreTests: XCTestCase {
         CalendarStore(repository: InMemoryEventRepository(events: events),
                       metadataRepository: InMemoryEventMetadataRepository(metadata: metadata),
                       today: today)
+    }
+
+    func testViewOnlyCalendarEventsAreNotGuidedOnHome() {
+        let holidays = CalendarChoice(id: "jp", title: "日本の祝日", sourceTitle: "購読", isWritable: false, color: .green,
+                                      isHolidays: true)
+        let viewOnly = CalendarEvent(day: today, startMinute: 600, title: "表示のみの予定", source: .appleCalendar, calendarID: "jp")
+        let mine = CalendarEvent(day: today, startMinute: 660, title: "自分の予定", source: .appleCalendar, calendarID: "work")
+        let store = makeStore([viewOnly, mine])
+        store.setCalendars([holidays])
+        XCTAssertEqual(store.guidanceEvents.map(\.title), ["自分の予定"],
+                       "表示のみのカレンダー（祝日など）の予定は、出発案内の対象にしない（2026-10-14 決定）")
+    }
+
+    func testHolidayCalendarEventsAreViewOnlyInTheMonthCalendar() {
+        let holidays = CalendarChoice(id: "jp", title: "日本の祝日", sourceTitle: "購読", isWritable: false, color: .green,
+                                      isHolidays: true)
+        let shared = CalendarChoice(id: "team", title: "チーム", sourceTitle: "共有", isWritable: false, color: .saxeBlue)
+        let holiday = CalendarEvent(day: today, startMinute: 0, title: "スポーツの日", isAllDay: true,
+                                    source: .appleCalendar, calendarID: "jp")
+        let local = CalendarEvent(day: today, startMinute: 600, title: "TimyCue の中の予定", source: .timyCue, calendarID: "jp")
+        let sharedAllDay = CalendarEvent(day: today, startMinute: 0, title: "チームの休み", isAllDay: true,
+                                         source: .appleCalendar, calendarID: "team")
+        let store = makeStore([holiday, local, sharedAllDay])
+        store.setCalendars([holidays, shared])
+
+        XCTAssertTrue(store.isViewOnly(holiday), "祝日カレンダーの予定は見るだけ（編集を出さない。Q55）")
+        XCTAssertFalse(store.isViewOnly(local), "同じカレンダー ID でも、TimyCue の中の予定は祝日にしない")
+        XCTAssertFalse(store.isViewOnly(sharedAllDay), "祝日でない編集できないカレンダーは §1.7 のまま")
+    }
+
+    func testShowCurrentMonthAsksTheCalendarToScrollEvenIfAlreadyThere() {
+        let store = makeStore([])
+        let before = store.scrollRequest
+        store.showCurrentMonth()
+        XCTAssertEqual(store.topWeekID, CalendarWeek(containing: CalendarMonth(today).firstDay).id, "開いたときと同じ今月の位置")
+        store.showCurrentMonth()
+        XCTAssertEqual(store.scrollRequest, before + 2,
+                       "位置が同じでも毎回スクロールし直す合図を出す（iOS が勝手にスクロールしたあとでも戻せるように）")
+    }
+
+    func testTabTappedAgainKeepsThePlaceWhenTodayIsVisible() {
+        let store = makeStore([])
+        store.setVisibleRows(6)
+        XCTAssertTrue(store.isTodayVisible)
+        let place = store.topWeekID
+        let before = store.scrollRequest
+        XCTAssertEqual(store.tabTappedAgain(), place, "今日が見えていれば今の位置のまま")
+        XCTAssertEqual(store.scrollRequest, before + 1,
+                       "月カレンダーの UIScrollView がまだ見つかっていなければ、前と同じくその週へスクロールし直す")
+        XCTAssertFalse(store.isOpen(today), "今日の吹き出しは開かない")
+    }
+
+    func testTabTappedAgainHoldsTheExactPlaceWhenTodayIsVisible() {
+        let store = makeStore([])
+        store.setVisibleRows(6)
+        let scrollView = UIScrollView(frame: CGRect(x: 0, y: 0, width: 400, height: 800))
+        scrollView.contentSize = CGSize(width: 400, height: 100_000)
+        scrollView.contentOffset = CGPoint(x: 0, y: 5_030)
+        store.scrollHold.scrollView = scrollView
+        let place = store.topWeekID
+        let before = store.scrollRequest
+        XCTAssertNil(store.tabTappedAgain(), "今日が見えていれば、もう一度確かめる週はない")
+        XCTAssertEqual(store.topWeekID, place)
+        XCTAssertEqual(store.scrollRequest, before, "週の頭へそろえ直さない（そろえた分だけピクッと動くので。2026-10-14 実機の指摘）")
+        scrollView.setContentOffset(.zero, animated: false)
+        XCTAssertEqual(scrollView.contentOffset.y, 5_030, "iOS がいちばん上へ動かしても、押した瞬間の位置へすぐ戻す")
+        store.scrollHold.release()
+        scrollView.setContentOffset(CGPoint(x: 0, y: 6_000), animated: false)
+        XCTAssertEqual(scrollView.contentOffset.y, 6_000, "とどめ終わったら、ふつうに動く")
+    }
+
+    func testSavedCopyShowsALightCompletionMessage() {
+        let store = makeStore([])
+        store.showCopyCompletion(count: 3)
+        XCTAssertEqual(store.completionMessage, "3件コピーしました", "コピー先へは動かず、軽い完了の知らせだけ（2026-10-14 決定 C8）")
+        XCTAssertTrue(store.openDays.isEmpty, "吹き出しは今のまま（元の画面・元の位置。Q30）")
+        XCTAssertTrue(store.path.isEmpty)
+        store.clearCompletionMessage()
+        XCTAssertNil(store.completionMessage)
+        store.showCopyCompletion(count: 1)
+        XCTAssertEqual(store.completionMessage, "コピーしました")
+    }
+
+    func testTabTappedAgainGoesToTodayWhenItIsNotVisible() {
+        let store = makeStore([])
+        store.setVisibleRows(6)
+        store.scroll(to: CalendarWeek(containing: today.adding(days: 120)).id)
+        XCTAssertFalse(store.isTodayVisible)
+        XCTAssertEqual(store.tabTappedAgain(), CalendarWeek(containing: CalendarMonth(today).firstDay).id, "タブが「今日」なら今月へ")
+        XCTAssertTrue(store.isOpen(today), "今日を選ぶ")
+    }
+
+    func testTodayButtonMovesToTodayAndSelectsIt() {
+        let store = makeStore([])
+        store.topWeekID = CalendarWeek(containing: today).adding(weeks: 30).id
+        XCTAssertFalse(store.isTodayVisible, "今日が画面の外なら「今日」を出す")
+        store.scrollToToday()
+        XCTAssertTrue(store.isTodayVisible, "押すと今日へ移動する")
+        XCTAssertTrue(store.isOpen(today), "今日を選ぶ")
     }
 
     func testWeeksStartAroundTodayWithCurrentMonthOnTop() {

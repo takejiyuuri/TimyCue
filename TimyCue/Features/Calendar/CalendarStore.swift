@@ -72,6 +72,8 @@ final class CalendarStore {
     var path: [CalendarRoute] = []
     /// 1 日タイムラインの「＋」から保存したあと、作った予定が見える位置までスクロールする目印（Q22）
     private(set) var timelineFocus: TimelineFocus?
+    /// 月カレンダーを今の位置にしばらくとどめる（タブの押し直し。2026-10-14 実機の指摘「ピクッと動く」）
+    @ObservationIgnored let scrollHold = ScrollHold()
     private var eventsByDay: [CalendarDay: [CalendarEvent]] = [:]
     private var metadataByEventID: [UUID: TimyCueEventMetadata] = [:]
 
@@ -98,6 +100,63 @@ final class CalendarStore {
         CalendarWeek(containing: topWeekID ?? CalendarMonth(today).firstDay)
     }
 
+    /// 月カレンダーに見えている週の数（画面の高さから決まる。「今日」を出すかに使う）
+    private(set) var visibleRows = 6
+
+    func setVisibleRows(_ rows: Int) {
+        if rows != visibleRows { visibleRows = max(1, rows) }
+    }
+
+    /// 今日が今の表示範囲に見えているか。見えていないときだけ「今日」を出す（2026-10-12 ユーザー決定）
+    var isTodayVisible: Bool {
+        Self.isDay(today, visibleFrom: topWeek, rows: visibleRows)
+    }
+
+    nonisolated static func isDay(_ day: CalendarDay, visibleFrom top: CalendarWeek, rows: Int) -> Bool {
+        let distance = top.weeks(to: CalendarWeek(containing: day))
+        return distance >= 0 && distance < max(1, rows)
+    }
+
+    /// 月カレンダーを動かす合図。数が変わったら、画面が topWeekID の週へスクロールし直す
+    /// （iOS が勝手にスクロールしたあとは topWeekID が同じ値のままのことがあり、値を入れ直すだけでは動かないため）
+    private(set) var scrollRequest = 0
+
+    /// 「今日」：今日へ移動し、今日を選ぶ（今日の吹き出しを開く。2026-10-12 決定）。
+    /// 今日を画面のどこに置くかは未決。今は仮に、開いたときと同じく今月の 1 日を含む週をいちばん上にしている
+    func scrollToToday() {
+        closeAllPopovers()
+        showCurrentMonth()
+        if !isOpen(today) { tapDay(today) }
+    }
+
+    /// 今月を、開いたときと同じ位置に出す（仮）
+    func showCurrentMonth() {
+        scroll(to: CalendarWeek(containing: CalendarMonth(today).firstDay).id)
+    }
+
+    /// その週をいちばん上に出す（同じ位置でもスクロールし直す）
+    func scroll(to weekID: CalendarDay?) {
+        guard let weekID else { return }
+        topWeekID = weekID
+        scrollRequest += 1
+    }
+
+    /// カレンダーのタブを押し直したとき（2026-10-13 ユーザー決定）。今日が見えていなければ（タブが「今日」のとき）今日へ移動して今日を選び、
+    /// 見えていれば今の位置のまま。見えているときは週の頭へそろえ直さず、押した瞬間の位置にとどめる（iOS が押し直しで画面を
+    /// いちばん上へ動かし始めても、描く前に戻す。そろえ直すと、そろえた分だけピクッと動いていた。2026-10-14 実機の指摘）。
+    /// 少しあとにもう一度確かめる週を返す（とどめたときは nil）
+    @discardableResult
+    func tabTappedAgain() -> CalendarDay? {
+        if isTodayVisible {
+            if scrollHold.hold() { return nil }
+            // 月カレンダーの UIScrollView がまだ見つかっていないとき：前と同じく、その週へすぐスクロールし直す
+            scroll(to: topWeekID)
+        } else {
+            scrollToToday()
+        }
+        return topWeekID
+    }
+
     /// 画面上部の年（Q20）を決める月。一番上の週で決まる（月の sticky 表示 Q19 は 2026-10-12 にやめた）
     var stickyMonth: CalendarMonth { topWeek.stickyMonth }
 
@@ -105,6 +164,30 @@ final class CalendarStore {
     func focusMonth(visibleRows: Int) -> CalendarMonth {
         let middle = topWeek.adding(weeks: max(0, visibleRows) / 2)
         return CalendarMonth(middle.days[3])
+    }
+
+    /// 祝日のカレンダーの id（祝日だと判断できたものだけ）
+    private(set) var holidayCalendarIDs: Set<String> = []
+
+    /// Apple カレンダーとつないだ・設定を変えたとき（書き込めないカレンダーも含めて渡す）
+    func setCalendars(_ calendars: [CalendarChoice]) {
+        holidayCalendarIDs = Set(calendars.filter(\.isHolidays).map(\.id))
+    }
+
+    /// 見るだけの予定か。祝日は編集画面を出さず、吹き出しで何の日か分かればよい（2026-10-13 ユーザー決定）。
+    /// 祝日だと判断できるものだけ。誕生日・購読・共有の予定は、編集できなくても §1.7 のとおり（Apple 由来の項目はロック、TimyCue の設定は変えられる）
+    func isViewOnly(_ event: CalendarEvent) -> Bool {
+        Self.isViewOnly(event, holidayCalendarIDs: holidayCalendarIDs)
+    }
+
+    /// ホームと出発時刻の計算に使う予定。表示のみのカレンダー（祝日など）の予定は、編集も出発案内もしない（2026-10-14 決定）
+    var guidanceEvents: [CalendarEvent] {
+        loadedEvents.filter { !isViewOnly($0) }
+    }
+
+    nonisolated static func isViewOnly(_ event: CalendarEvent, holidayCalendarIDs: Set<String>) -> Bool {
+        guard event.source == .appleCalendar, let calendarID = event.calendarID else { return false }
+        return holidayCalendarIDs.contains(calendarID)
     }
 
     /// 予定を読み直す（予定を保存したあとなど）
@@ -285,6 +368,21 @@ final class CalendarStore {
     func showSavedDay(_ day: CalendarDay) {
         reload()
         if !isOpen(day) { tapDay(day) }
+    }
+
+    /// 保存のあとに軽く出す知らせ（「3件コピーしました」など）。少したつと消える
+    private(set) var completionMessage: String?
+
+    /// 予定詳細の「編集」から「別の日にコピー」を保存したあと（2026-10-14 決定 C8）。コピー先へは動かさず、
+    /// 元の画面・元の位置・元の予定の詳細の吹き出しのまま（Q30）、軽い完了の知らせだけ出す
+    func showCopyCompletion(count: Int) {
+        guard count > 0 else { return }
+        reload()
+        completionMessage = count == 1 ? "コピーしました" : "\(count)件コピーしました"
+    }
+
+    func clearCompletionMessage() {
+        completionMessage = nil
     }
 
     /// 1 日タイムラインの「＋」から保存したあと：作った予定が見える位置までスクロールする（Q22）

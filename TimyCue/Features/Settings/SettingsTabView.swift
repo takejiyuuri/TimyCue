@@ -1,9 +1,10 @@
 import SwiftUI
 
-/// 設定タブ（仕様 §81）。今あるのは「カレンダー連携」だけ。ほかのカテゴリ（通知・表示・移動・学習など）は、それぞれの段階で
+/// 設定タブ（仕様 §81）。今あるのは「カレンダー連携」と「出発・移動」。ほかのカテゴリ（通知・表示・学習など）は、それぞれの段階で
 /// v1.2「設定画面」の順番（通知、表示・拡大表示、カレンダー連携、移動・学習…）に足す。各行の右には今の状態を短く出す
 struct SettingsTabView: View {
     @Environment(CalendarConnection.self) private var connection
+    @Environment(DepartureStore.self) private var departures
 
     var body: some View {
         NavigationStack {
@@ -14,7 +15,25 @@ struct SettingsTabView: View {
                     LabeledContent {
                         Text(connection.statusLabel)
                     } label: {
-                        Label("カレンダー連携", systemImage: "calendar")
+                        Label {
+                            Text("カレンダー連携")
+                        } icon: {
+                            Image(systemName: "calendar").foregroundStyle(Theme.Colors.accent)
+                        }
+                    }
+                }
+                // 出発の余裕・自宅・最初の予定の出発地点・普段よく使う移動手段（2026-10-14 決定）
+                NavigationLink {
+                    DepartureSettingsView()
+                } label: {
+                    LabeledContent {
+                        Text(departures.settings.marginLevel.displayName)
+                    } label: {
+                        Label {
+                            Text("出発・移動")
+                        } icon: {
+                            Image(systemName: "figure.walk").foregroundStyle(Theme.Colors.accent)
+                        }
                     }
                 }
             }
@@ -57,6 +76,17 @@ struct CalendarSettingsView: View {
                         Text("予定を作るときに、書き込めるカレンダーが 2 つ以上あれば、その予定だけ保存先を変えられます。")
                     }
                 }
+                // 祝日カレンダー（Q55）：ふだんは自動の判定のまま。必要なときだけ手で直す
+                Section {
+                    NavigationLink {
+                        HolidayCalendarsView()
+                    } label: {
+                        LabeledContent("表示のみのカレンダー（祝日など）",
+                                       value: connection.holidayCalendars.isEmpty
+                                           ? "なし"
+                                           : connection.holidayCalendars.map(\.title).joined(separator: "・"))
+                    }
+                }
                 ForEach(groupedCalendars, id: \.source) { group in
                     Section {
                         ForEach(group.calendars) { calendar in
@@ -65,6 +95,7 @@ struct CalendarSettingsView: View {
                                 set: { connection.setShown($0, calendarID: calendar.id) })) {
                                 CalendarLabel(calendar: calendar)
                             }
+                            .tint(Theme.Colors.accent)
                         }
                     } header: {
                         Text(group.source.isEmpty ? "カレンダー" : group.source)
@@ -113,6 +144,38 @@ struct CalendarSettingsView: View {
         return groups.keys.sorted().map { key in
             (key, groups[key, default: []].sorted { $0.title < $1.title })
         }
+    }
+}
+
+/// 設定 ＞ カレンダー連携 ＞ 祝日カレンダー（Q55）。祝日カレンダーの予定は、編集画面を出さず、
+/// 吹き出しで名前と日付だけを見る。ふだんは自動の判定のままでよく、ここで直した分は自動の判定より優先する。複数選べる
+struct HolidayCalendarsView: View {
+    @Environment(CalendarConnection.self) private var connection
+
+    var body: some View {
+        List {
+            Section {
+                ForEach(connection.calendars.sorted { ($0.sourceTitle, $0.title) < ($1.sourceTitle, $1.title) }) { calendar in
+                    Toggle(isOn: Binding(
+                        get: { connection.isHolidayCalendar(calendar) },
+                        set: { connection.setHoliday($0, calendar: calendar) })) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            CalendarLabel(calendar: calendar)
+                            if calendar.isHolidays {
+                                Text("自動で ON")
+                                    .font(.caption)
+                                    .foregroundStyle(Theme.Colors.textSecondary)
+                            }
+                        }
+                    }
+                    .tint(Theme.Colors.accent)
+                }
+            } footer: {
+                // 補足の文は 2026-10-14 決定
+                Text("このカレンダーの予定は表示だけで、編集や出発案内の対象にしません。名前に「祝日」「Holiday」が入った読み取りのみのカレンダーは、自動で ON になります。")
+            }
+        }
+        .navigationTitle("表示のみのカレンダー")
     }
 }
 

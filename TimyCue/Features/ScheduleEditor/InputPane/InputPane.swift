@@ -13,9 +13,12 @@ struct InputPane: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // コピーは既存予定の編集中だけ、右の入力の上（固定ヘッダー付近）に出す。削除とは離す（Q25）
+            // コピーは既存予定の編集中だけ、右の入力の上（固定ヘッダー付近）に出す。削除とは離す（Q25）。
+            // コピー中は同じ所に「コピーをやめる」（2026-10-14 実機の指摘。仮）
             if case .edit = store.mode {
                 CopyBar(onCopy: onCopy)
+            } else if case .copy = store.mode {
+                CopyBar(title: "コピーをやめる", systemImage: "xmark", onCopy: { store.cancelCopy() })
             }
             rows
         }
@@ -48,7 +51,7 @@ struct InputPane: View {
                     }
                     ForEach(store.visibleRows, id: \.self) { row in
                         InputRowView(row: row,
-                                     value: store.valueText(for: row),
+                                     values: store.valueTexts(for: row),
                                      isExpanded: store.expandedRow == row,
                                      isLocked: store.isLocked(row),
                                      color: row == .color ? store.content.metadata.color : nil)
@@ -76,18 +79,22 @@ struct InputPane: View {
     }
 }
 
-/// 右の入力の上に固定する、コピーの操作（Q25）
+/// 右の入力の上に固定する、コピーの操作（Q25）。ボタンの名前は「別の日にコピー」（2026-10-14 ユーザー決定）
 private struct CopyBar: View {
+    var title = "別の日にコピー"
+    var systemImage = "doc.on.doc"
     let onCopy: () -> Void
 
     var body: some View {
         HStack {
             Spacer()
             Button(action: onCopy) {
-                Label("コピー", systemImage: "doc.on.doc")
+                Label(title, systemImage: systemImage)
                     .font(EditorMetrics.chipFont)
+                    .foregroundStyle(Theme.Colors.onAccent)
             }
             .buttonStyle(.bordered)
+            .tint(Theme.Colors.accent)
         }
         .padding(.horizontal, Theme.Spacing.m)
         .padding(.vertical, Theme.Spacing.xs)
@@ -97,44 +104,77 @@ private struct CopyBar: View {
     }
 }
 
-/// 右上の 1 行（左に項目名、右に今の値）
+/// 右上の 1 行（左に項目名、右に今の値）。「同じ内容で追加」だけは、足した日を項目名の 1 段下に出す
 private struct InputRowView: View {
     let row: InputRow
-    let value: String
+    /// 今の値。長い順の候補で、1 行に入るいちばん長いものを出す（「同じ内容で追加」の「+3」）
+    let values: [String]
     let isExpanded: Bool
     /// 書き込めない Apple カレンダーの予定の、Apple 由来の項目（§1.7）
     let isLocked: Bool
     let color: EventColor?
 
     var body: some View {
-        HStack(spacing: Theme.Spacing.s) {
-            Text(row.label)
-                .font(EditorMetrics.inputLabelFont)
-                .foregroundStyle(Theme.Colors.textSecondary)
-                .frame(width: EditorMetrics.inputLabelWidth, alignment: .leading)
-            if let color {
-                Circle()
-                    .fill(EventPalette.color(for: color))
-                    .frame(width: 12, height: 12)
-            }
-            Text(value)
-                .font(EditorMetrics.inputValueFont)
-                .foregroundStyle(isLocked ? Theme.Colors.textSecondary : Theme.Colors.textPrimary)
-                .lineLimit(1)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            if isLocked {
-                Image(systemName: "lock.fill")
-                    .font(EditorMetrics.lockIconFont)
-                    .foregroundStyle(Theme.Colors.textSecondary)
+        Group {
+            if row == .additionalDays {
+                // 名前が長く、横に並べると日付が少ししか入らないので、足した日は名前の 1 段下に 1 行で出す（2026-10-14 実機の指摘）
+                VStack(alignment: .leading, spacing: 2) {
+                    label
+                    value
+                }
+                .padding(.vertical, 6)
+                .frame(minHeight: EditorMetrics.inputRowHeight)
+            } else {
+                HStack(spacing: Theme.Spacing.s) {
+                    label
+                        .frame(width: EditorMetrics.inputLabelWidth, alignment: .leading)
+                    if let color {
+                        Circle()
+                            .fill(EventPalette.color(for: color))
+                            .frame(width: 12, height: 12)
+                    }
+                    value
+                    if isLocked {
+                        Image(systemName: "lock.fill")
+                            .font(EditorMetrics.lockIconFont)
+                            .foregroundStyle(Theme.Colors.textSecondary)
+                    }
+                }
+                .frame(height: EditorMetrics.inputRowHeight)
             }
         }
         .padding(.horizontal, Theme.Spacing.m)
-        .frame(height: EditorMetrics.inputRowHeight)
-        .background(isExpanded ? Theme.Colors.accent.opacity(0.10) : Color.clear)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        // 開いている行は、淡いオレンジの塗りと左端のオレンジの線（2026-10-14 決定。緑は意味のある状態色に残す）
+        .background(isExpanded ? Theme.Colors.expandedRow : Color.clear)
+        .overlay(alignment: .leading) {
+            if isExpanded {
+                Theme.Colors.expandedRowBar.frame(width: EditorMetrics.expandedRowBarWidth)
+            }
+        }
         .overlay(alignment: .bottom) {
             Theme.Colors.separator.frame(height: 1)
         }
         .contentShape(Rectangle())
+    }
+
+    private var label: some View {
+        Text(row.label)
+            .font(EditorMetrics.inputLabelFont)
+            .foregroundStyle(Theme.Colors.textSecondary)
+            .lineLimit(1)
+    }
+
+    private var value: some View {
+        ViewThatFits(in: .horizontal) {
+            ForEach(values, id: \.self) { text in
+                Text(text)
+                    .lineLimit(1)
+            }
+        }
+        .font(EditorMetrics.inputValueFont)
+        .foregroundStyle(isLocked ? Theme.Colors.textSecondary : Theme.Colors.textPrimary)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -152,22 +192,27 @@ private struct InlineEditor: View {
         case .location:
             LocationEditor(focusedRow: focusedRow)
         case .arrivalTarget:
-            ArrivalTargetEditor()
+            // ドラムロール。5 分おき（2026-10-13 実機の指摘）
+            WheelPicker(options: ScheduleEditorStore.arrivalTargetWheelValues(including: store.content.metadata.arrivalTargetMinutes),
+                        selection: $store.content.metadata.arrivalTargetMinutes) { minutes in
+                Text(ScheduleEditorStore.arrivalTargetText(minutes))
+            }
         case .transport:
-            ChipRow(options: TransportMode.allCases,
-                    label: \.displayName,
-                    isSelected: { store.content.metadata.transport == $0 },
-                    onTap: { store.content.metadata.transport = $0 })
+            // ドラムロール（2026-10-13 実機の指摘）
+            WheelPicker(options: TransportMode.allCases, selection: $store.content.metadata.transport) { mode in
+                Text(mode.displayName)
+            }
         case .route:
             ChipRow(options: RouteOption.allCases,
                     label: \.displayName,
                     isSelected: { store.content.metadata.route == $0 },
                     onTap: { store.content.metadata.route = $0 })
         case .notifications:
-            // 複数選べる。何も選ばなければ「通知なし」（§17）
+            // 決まった候補を複数オン・オフする。「通知なし」はほかと一緒に選べない。カスタムの分は作らない（追加仕様書 vNext §11）。
+            // 場所なしの予定は出発の候補を出さず、開始の候補にする（2026-10-14 決定 C3）
             VStack(alignment: .leading, spacing: Theme.Spacing.s) {
-                ChipRow(options: NotificationTiming.presets,
-                        label: { $0 == .atDeparture ? "出発時" : "出発\($0.label)前" },
+                ChipRow(options: NotificationTiming.presets(hasPlace: store.content.hasPlace),
+                        label: \.fullLabel,
                         isSelected: { store.content.metadata.notifications.timings.contains($0) },
                         onTap: { timing in
                             if store.content.metadata.notifications.timings.contains(timing) {
@@ -180,42 +225,117 @@ private struct InlineEditor: View {
                         label: { _ in "通知なし" },
                         isSelected: { _ in store.content.metadata.notifications.isOff },
                         onTap: { _ in store.content.metadata.notifications = .off })
-                CustomNotificationEditor()
             }
-        case .repeatRule:
-            RepeatEditor()
         case .color:
-            HStack(spacing: Theme.Spacing.m) {
-                ForEach(EventColor.allCases, id: \.self) { color in
+            // ドラムロール（2026-10-13 実機の指摘）
+            WheelPicker(options: EventColor.allCases, selection: $store.content.metadata.color) { color in
+                HStack(spacing: Theme.Spacing.s) {
                     Circle()
                         .fill(EventPalette.color(for: color))
-                        .frame(width: 26, height: 26)
-                        .overlay {
-                            if store.content.metadata.color == color {
-                                Circle().strokeBorder(Theme.Colors.textPrimary, lineWidth: 2)
-                            }
-                        }
-                        .onTapGesture { store.content.metadata.color = color }
+                        .frame(width: 14, height: 14)
+                    Text(color.displayName)
                 }
             }
-        case .end:
-            EndEditor()
         case .calendar:
             // その予定だけ保存先を変える（Q32）
             ChipRow(options: store.writableCalendars,
                     label: \.title,
                     isSelected: { $0.id == (store.content.calendarID ?? store.defaultCalendarID) },
                     onTap: { store.content.calendarID = $0.id })
+        case .additionalDays:
+            AdditionalDaysEditor()
         }
     }
 }
 
+/// 「同じ内容で追加」を開いたところ（2026-10-14 ユーザー決定）。開いている間だけ、下のカレンダーをなぞって日を足したり外したりできる。
+/// 時刻は「一括」（全部の日で同じ）か「個別」。個別のときは、選んだ日を丸いボタンで並べ、押した日の時刻を左上で決める。
+/// 時刻を決めた日は丸の枠の色を変える。多ければ横にすべらせる
+private struct AdditionalDaysEditor: View {
+    @Environment(ScheduleEditorStore.self) private var store
+    /// 個別から一括に戻すと時刻が変わる日があるので、確かめている
+    @State private var confirmsBatch = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Theme.Spacing.s) {
+            // 文言は仮
+            Text("下のカレンダーで日をなぞって選んでください（選んだ日をなぞると外れます）")
+                .font(EditorMetrics.lockNoticeFont)
+                .foregroundStyle(Theme.Colors.textSecondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Picker("時刻", selection: Binding(get: { store.setsTimesIndividually },
+                                            set: { individually in
+                                                // 日ごとに値が違うときは、そろえる前に一度確かめる（2026-10-14 決定）
+                                                if !individually && store.batchChangesSomeDays {
+                                                    confirmsBatch = true
+                                                } else {
+                                                    store.setTimesIndividually(individually)
+                                                }
+                                            })) {
+                Text("一括").tag(false)
+                Text("個別").tag(true)
+            }
+            .pickerStyle(.segmented)
+            .confirmationDialog(store.batchConfirmationMessage, isPresented: $confirmsBatch, titleVisibility: .visible) {
+                // ボタンの文言は仮
+                Button("そろえる") { store.setTimesIndividually(false) }
+                Button("やめる", role: .cancel) {}
+            }
+            if store.setsTimesIndividually {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: EditorMetrics.dayButtonSpacing) {
+                        ForEach(store.selectedDays, id: \.self) { day in
+                            DayCircleButton(day: day,
+                                            isShown: store.displayedDay == day,
+                                            hasTime: store.startMinutes[day] != nil) {
+                                store.selectDay(day)
+                            }
+                        }
+                    }
+                    .padding(.vertical, 2)
+                }
+            }
+        }
+    }
+}
+
+/// 「個別」のときの日付の丸いボタン。10/12 なら「10/」を小さく、「12」を大きめに。
+/// 時刻を決めた日は枠の色を変え、左上に出している日は塗る（色は仮）
+private struct DayCircleButton: View {
+    let day: CalendarDay
+    let isShown: Bool
+    let hasTime: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: -2) {
+                Text("\(day.month)/")
+                    .font(EditorMetrics.dayButtonMonthFont)
+                Text("\(day.day)")
+                    .font(EditorMetrics.dayButtonDayFont)
+            }
+            .foregroundStyle(isShown ? Theme.Colors.onAccent : Theme.Colors.textPrimary)
+            .frame(width: EditorMetrics.dayButtonSize, height: EditorMetrics.dayButtonSize)
+            .background(Circle().fill(isShown ? Theme.Colors.accentFill : Theme.Colors.surface))
+            .overlay {
+                Circle().strokeBorder(hasTime ? Theme.Colors.dayButtonTimeSet : Theme.Colors.separator,
+                                      lineWidth: EditorMetrics.dayButtonBorderWidth)
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(day.month)月\(day.day)日\(hasTime ? "、時刻あり" : "、時刻なし")")
+    }
+}
+
 /// 予定名の編集と、過去の同名・似た名前の予定の候補（§47）。
-/// 候補を選ぶと予定名だけ入れ、場所・色・到着目標・移動手段は「この予定の設定も使う」を押したときだけ入れる（勝手にすべて確定しない）
+/// 候補を選ぶと予定名だけ入れ、場所・色・到着目標・移動手段は「この予定の設定も使う」を押したときだけ入れる（勝手にすべて確定しない）。
+/// 入力中の値を変えたあとに押したら、置き換える前に確かめる（2026-10-14 決定）
 private struct TitleEditor: View {
     var focusedRow: FocusState<InputRow?>.Binding
     @Environment(ScheduleEditorStore.self) private var store
     @State private var chosen: TitleSuggestion?
+    @State private var confirmsReplacement = false
 
     var body: some View {
         @Bindable var store = store
@@ -250,14 +370,37 @@ private struct TitleEditor: View {
                 }
             }
             if let chosen, chosen.title == store.content.title {
-                Button("この予定の設定も使う（場所・色・到着目標・移動手段）") {
-                    store.useSettings(of: chosen)
-                    self.chosen = nil
+                Button {
+                    if store.settingsReplacementNeedsConfirmation(for: chosen) {
+                        confirmsReplacement = true
+                    } else {
+                        useSettings(of: chosen)
+                    }
+                } label: {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("この予定の設定も使う")
+                            .font(EditorMetrics.chipFont)
+                            .foregroundStyle(Theme.Colors.onAccent)
+                        Text("場所・色・到着目標・移動手段")
+                            .font(EditorMetrics.lockNoticeFont)
+                            .foregroundStyle(Theme.Colors.textSecondary)
+                    }
                 }
-                .font(EditorMetrics.chipFont)
                 .buttonStyle(.bordered)
+                .tint(Theme.Colors.accent)
+                // 文言は 2026-10-14 決定
+                .confirmationDialog("入力中の設定を、前回の設定に置き換えますか？", isPresented: $confirmsReplacement,
+                                    titleVisibility: .visible) {
+                    Button("置き換える") { useSettings(of: chosen) }
+                    Button("やめる", role: .cancel) {}
+                }
             }
         }
+    }
+
+    private func useSettings(of suggestion: TitleSuggestion) {
+        store.useSettings(of: suggestion)
+        chosen = nil
     }
 }
 
@@ -266,15 +409,44 @@ private struct TitleEditor: View {
 private struct LocationEditor: View {
     var focusedRow: FocusState<InputRow?>.Binding
     @Environment(ScheduleEditorStore.self) private var store
+    /// 場所の文字と地図の地点の対応（出発時刻の計算に使う）。画面写真などで渡されていなければ、確かめる入口は出さない
+    @Environment(DepartureStore.self) private var departures: DepartureStore?
+    @State private var checksPlace = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Spacing.s) {
             TextField("場所", text: Binding(
                 get: { store.content.locationName ?? "" },
-                set: { store.content.locationName = $0.isEmpty ? nil : $0 }))
+                set: { store.setLocationName($0.isEmpty ? nil : $0) }))
                 .textFieldStyle(.roundedBorder)
                 .focused(focusedRow, equals: .location)
                 .submitLabel(.done)
+            // 場所の文字を地図の地点に結びつける（追加仕様書 §23.1「編集画面で場所を触ったとき：候補の選択／検索」。
+            // 2026-10-14 実機の指摘「場所を入れても『場所を確認してください』がずっと出る」。見た目と文言は仮）
+            if let departures, store.content.hasPlace {
+                let text = store.content.locationName ?? ""
+                let confirmed = departures.placeBook.place(for: text) != nil
+                Button {
+                    checksPlace = true
+                } label: {
+                    Label(confirmed ? "地図の地点：確認済み（変える）" : "地図で場所を確かめる",
+                          systemImage: confirmed ? "checkmark.circle" : "mappin.and.ellipse")
+                        .font(EditorMetrics.chipFont)
+                        .foregroundStyle(Theme.Colors.actionText)
+                }
+                .buttonStyle(.plain)
+                .sheet(isPresented: $checksPlace) {
+                    PlaceSearchView(title: "場所を確認", initialQuery: text,
+                                    near: departures.location.location?.coordinate) { candidate in
+                        departures.confirmPlace(candidate.savedPlace(), for: text)
+                    }
+                }
+                if !confirmed {
+                    Text("地図の地点を決めると、出発時刻を計算できます")
+                        .font(EditorMetrics.lockNoticeFont)
+                        .foregroundStyle(Theme.Colors.textSecondary)
+                }
+            }
             let candidates = store.placeCandidates()
             if !candidates.isEmpty {
                 VStack(alignment: .leading, spacing: 4) {
@@ -303,168 +475,33 @@ private struct LocationEditor: View {
                     }
                 }
             }
-            Button("場所なし") { store.choosePlace(nil) }
-                .font(EditorMetrics.chipFont)
-                .buttonStyle(.bordered)
-        }
-    }
-}
-
-/// 到着目標（§49）：5・10・15・20・30 分前・カスタム・未設定
-private struct ArrivalTargetEditor: View {
-    @Environment(ScheduleEditorStore.self) private var store
-    @State private var showsCustom = false
-
-    private enum Choice: Hashable {
-        case minutes(Int)
-        case custom
-        case unset
-    }
-
-    var body: some View {
-        let current = store.content.metadata.arrivalTargetMinutes
-        let isPreset = current.map { ScheduleEditorStore.arrivalTargetChoices.contains($0) } ?? true
-        VStack(alignment: .leading, spacing: Theme.Spacing.s) {
-            ChipRow(options: ScheduleEditorStore.arrivalTargetChoices.map(Choice.minutes) + [Choice.custom, Choice.unset],
-                    label: { choice in
-                        switch choice {
-                        case .minutes(let minutes): "\(minutes)分前"
-                        case .custom: isPreset ? "カスタム" : "\(current ?? 0)分前"
-                        case .unset: "未設定"
-                        }
-                    },
-                    isSelected: { choice in
-                        switch choice {
-                        case .minutes(let minutes): current == minutes && !showsCustom
-                        case .custom: showsCustom || !isPreset
-                        case .unset: current == nil && !showsCustom
-                        }
-                    },
-                    onTap: { choice in
-                        switch choice {
-                        case .minutes(let minutes):
-                            showsCustom = false
-                            store.content.metadata.arrivalTargetMinutes = minutes
-                        case .custom:
-                            showsCustom = true
-                            if current == nil { store.content.metadata.arrivalTargetMinutes = 10 }
-                        case .unset:
-                            showsCustom = false
-                            store.content.metadata.arrivalTargetMinutes = nil
-                        }
-                    })
-            if showsCustom, let minutes = current {
-                Stepper("到着目標 \(minutes)分前",
-                        value: Binding(get: { minutes }, set: { store.content.metadata.arrivalTargetMinutes = $0 }),
-                        in: ScheduleEditorStore.customArrivalRange)
-                    .font(EditorMetrics.chipFont)
-            }
-        }
-    }
-}
-
-/// 通知のカスタム（§17）：出発○分前・予定開始○分前を、好きな分で足す。足したものは押すと外せる
-private struct CustomNotificationEditor: View {
-    @Environment(ScheduleEditorStore.self) private var store
-    @State private var minutes = 15
-    @State private var basedOnStart = false
-
-    var body: some View {
-        let custom = store.content.metadata.notifications.timings
-            .filter { !NotificationTiming.presets.contains($0) }
-            .sorted { $0.label < $1.label }
-        VStack(alignment: .leading, spacing: Theme.Spacing.s) {
-            if !custom.isEmpty {
-                ChipRow(options: custom,
-                        label: { "\($0.fullLabel) ×" },
-                        isSelected: { _ in true },
-                        onTap: { store.content.metadata.notifications.timings.remove($0) })
-            }
-            HStack(spacing: Theme.Spacing.s) {
-                Picker("基準", selection: $basedOnStart) {
-                    Text("出発").tag(false)
-                    Text("予定開始").tag(true)
-                }
-                .pickerStyle(.segmented)
-                .frame(width: 130)
-                Stepper("\(minutes)分前", value: $minutes, in: ScheduleEditorStore.customNotificationRange,
-                        step: ScheduleEditorStore.customMinuteStep)
-                    .font(EditorMetrics.chipFont)
-            }
-            Button("この通知を足す") {
-                let timing: NotificationTiming = basedOnStart ? .beforeStart(minutes: minutes) : .beforeDeparture(minutes: minutes)
-                store.content.metadata.notifications.timings.insert(timing)
+            Button { store.choosePlace(nil) } label: {
+                Text("場所なし").foregroundStyle(Theme.Colors.onAccent)
             }
             .font(EditorMetrics.chipFont)
             .buttonStyle(.bordered)
+            .tint(Theme.Colors.accent)
         }
     }
 }
 
-/// 終了の行の編集（Q24）：未設定・30・60・90・120 分・カスタム。時間画面の下端ハンドルとは同じ値を見る
-private struct EndEditor: View {
-    @Environment(ScheduleEditorStore.self) private var store
-    @State private var showsCustom = false
-
-    private enum Choice: Hashable {
-        case unset
-        case minutes(Int)
-        case custom
-    }
+/// 行の直下に出すドラムロール（到着目標・移動手段・色。2026-10-13 実機の指摘）
+private struct WheelPicker<Option: Hashable, Row: View>: View {
+    let options: [Option]
+    @Binding var selection: Option
+    @ViewBuilder let label: (Option) -> Row
 
     var body: some View {
-        let current = store.displayedDay.flatMap { store.durationMinutes(on: $0) }
-        let isPreset = current.map { ScheduleEditorStore.durationChoices.contains($0) } ?? true
-        let hasStart = store.displayedDay.map { store.startMinutes[$0] != nil } ?? false
-
-        VStack(alignment: .leading, spacing: Theme.Spacing.s) {
-            if !hasStart {
-                Text("先に開始時刻を決めてください")
-                    .font(EditorMetrics.inputLabelFont)
-                    .foregroundStyle(Theme.Colors.textSecondary)
-            }
-            ChipRow(options: [Choice.unset] + ScheduleEditorStore.durationChoices.map(Choice.minutes) + [Choice.custom],
-                    label: { choice in
-                        switch choice {
-                        case .unset: "未設定"
-                        case .minutes(let minutes): "\(minutes)分"
-                        case .custom: isPreset ? "カスタム" : "\(current ?? 0)分"
-                        }
-                    },
-                    isSelected: { choice in
-                        switch choice {
-                        case .unset: current == nil && !showsCustom
-                        case .minutes(let minutes): current == minutes && !showsCustom
-                        case .custom: showsCustom || !isPreset
-                        }
-                    },
-                    onTap: { choice in
-                        switch choice {
-                        case .unset:
-                            showsCustom = false
-                            store.setDuration(nil)
-                        case .minutes(let minutes):
-                            showsCustom = false
-                            store.setDuration(minutes)
-                        case .custom:
-                            showsCustom = true
-                            if current == nil { store.setDuration(60) }
-                        }
-                    })
-            if showsCustom, let minutes = current {
-                Stepper("所要時間 \(minutes)分",
-                        value: Binding(get: { minutes }, set: { store.setDuration($0) }),
-                        in: ScheduleEditorStore.customDurationRange,
-                        step: ScheduleEditorStore.customDurationStep)
-                    .font(EditorMetrics.chipFont)
-            }
-            if store.canApplyDurationToAllDays {
-                // 選んでいる全部の日へ、今の所要時間を入れ直す（Q5）
-                Button("全日に適用") { store.applyDurationToAllDays() }
-                    .font(EditorMetrics.chipFont)
-                    .buttonStyle(.bordered)
+        Picker("", selection: $selection) {
+            ForEach(options, id: \.self) { option in
+                label(option).tag(option)
             }
         }
+        .pickerStyle(.wheel)
+        .labelsHidden()
+        .frame(maxWidth: .infinity)
+        .frame(height: EditorMetrics.wheelPickerHeight)
+        .clipped()
     }
 }
 
@@ -482,127 +519,14 @@ private struct ChipRow<Option: Hashable>: View {
                     let selected = isSelected(option)
                     Text(label(option))
                         .font(EditorMetrics.chipFont)
-                        .foregroundStyle(selected ? Color.white : Theme.Colors.textPrimary)
+                        .foregroundStyle(selected ? Theme.Colors.onAccent : Theme.Colors.textPrimary)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 6)
-                        .background(Capsule().fill(selected ? Theme.Colors.accent : Theme.Colors.background))
+                        .background(Capsule().fill(selected ? Theme.Colors.accentFill : Theme.Colors.background))
                         .overlay { Capsule().strokeBorder(Theme.Colors.separator, lineWidth: selected ? 0 : 1) }
                         .contentShape(Capsule())
                         .onTapGesture { onTap(option) }
                 }
-            }
-        }
-    }
-}
-
-/// 繰り返し（§54・Q37）：なし・毎日・毎週・隔週・毎月・カスタム。カスタムは間隔・単位・曜日（毎週のとき）。どれも終わりの日を決められる。
-/// 本来の繰り返しは Apple カレンダーの繰り返しを正本にするので、連携しているときだけ選べる（2026-10-12 変更。Q48 は仮）
-private struct RepeatEditor: View {
-    @Environment(ScheduleEditorStore.self) private var store
-    @State private var showsCustom = false
-
-    var body: some View {
-        @Bindable var store = store
-        let rule = store.content.repeatRule
-
-        VStack(alignment: .leading, spacing: Theme.Spacing.s) {
-            if !store.canRepeat {
-                // 連携していないときは選べない（Q48）。同じ予定を何日も作るなら下カレンダーの複数日登録
-                Text("カレンダーを連携すると、繰り返しを使えます")
-                    .font(EditorMetrics.inputLabelFont)
-                    .foregroundStyle(Theme.Colors.textSecondary)
-            } else if store.repeatBlockedByMultipleDays {
-                // 複数日登録とは併用しない（Q49）
-                Text("繰り返しは1日の予定で設定できます")
-                    .font(EditorMetrics.inputLabelFont)
-                    .foregroundStyle(Theme.Colors.textSecondary)
-            } else {
-                if store.isEditingRecurringEvent {
-                    Text("繰り返しの変更は、保存するときに「これ以降」か「すべて」を選ぶと当たります")
-                        .font(EditorMetrics.inputLabelFont)
-                        .foregroundStyle(Theme.Colors.textSecondary)
-                }
-                ChipRow(options: RepeatRule.Choice.allCases,
-                        label: \.displayName,
-                        isSelected: { choice in
-                            choice == .custom ? (showsCustom || rule.choice == .custom)
-                                              : (!showsCustom && rule.choice == choice)
-                        },
-                        onTap: { choice in
-                            if choice == .custom {
-                                showsCustom = true
-                                if !rule.isRepeating { store.content.repeatRule = .weekly }
-                            } else {
-                                showsCustom = false
-                                var next = choice.preset
-                                next.endDay = choice == .none ? nil : rule.endDay
-                                store.content.repeatRule = next
-                            }
-                        })
-
-                if showsCustom || rule.choice == .custom {
-                    customEditor
-                }
-                if rule.isRepeating {
-                    endEditor
-                }
-            }
-        }
-    }
-
-    /// カスタム：何日／週／か月／年ごとか、毎週のときはどの曜日か
-    private var customEditor: some View {
-        @Bindable var store = store
-        let rule = store.content.repeatRule
-        let frequency = rule.frequency ?? .weekly
-        return VStack(alignment: .leading, spacing: Theme.Spacing.s) {
-            Stepper(value: $store.content.repeatRule.interval, in: 1...99) {
-                Text("\(rule.interval)\(frequency.unitName)ごと")
-                    .font(EditorMetrics.inputLabelFont)
-                    .foregroundStyle(Theme.Colors.textPrimary)
-            }
-            ChipRow(options: RepeatFrequency.allCases,
-                    label: \.unitName,
-                    isSelected: { $0 == frequency },
-                    onTap: { unit in
-                        store.content.repeatRule.frequency = unit
-                        if unit != .weekly { store.content.repeatRule.weekdays = [] }
-                    })
-            if frequency == .weekly {
-                ChipRow(options: Array(0..<7),
-                        label: { Weekday.symbols[$0] },
-                        isSelected: { rule.weekdays.contains($0) },
-                        onTap: { index in
-                            if store.content.repeatRule.weekdays.contains(index) {
-                                store.content.repeatRule.weekdays.remove(index)
-                            } else {
-                                store.content.repeatRule.weekdays.insert(index)
-                            }
-                        })
-            }
-        }
-    }
-
-    /// 終わりの日（なければ終わりなし）
-    private var endEditor: some View {
-        let rule = store.content.repeatRule
-        let fallback = store.displayedDay ?? CalendarDay(Date())
-        return VStack(alignment: .leading, spacing: Theme.Spacing.s) {
-            Toggle(isOn: Binding(get: { rule.endDay != nil },
-                                 set: { store.content.repeatRule.endDay = $0 ? fallback.adding(days: 30) : nil })) {
-                Text("終わりの日を決める")
-                    .font(EditorMetrics.inputLabelFont)
-                    .foregroundStyle(Theme.Colors.textPrimary)
-            }
-            .tint(Theme.Colors.accent)
-            if let endDay = rule.endDay {
-                DatePicker("終わりの日",
-                           selection: Binding(get: { endDay.date() },
-                                              set: { store.content.repeatRule.endDay = CalendarDay($0) }),
-                           in: fallback.date()...,
-                           displayedComponents: .date)
-                    .font(EditorMetrics.inputLabelFont)
-                    .environment(\.locale, Locale(identifier: "ja_JP"))
             }
         }
     }
@@ -618,8 +542,10 @@ private struct MoveToAppleButton: View {
             Button(action: onMove) {
                 Label("Apple Calendarに保存", systemImage: "calendar.badge.plus")
                     .font(EditorMetrics.chipFont)
+                    .foregroundStyle(Theme.Colors.onAccent)
             }
             .buttonStyle(.bordered)
+            .tint(Theme.Colors.accent)
             Text("この予定は TimyCue の中だけにあります")
                 .font(EditorMetrics.lockNoticeFont)
                 .foregroundStyle(Theme.Colors.textSecondary)
