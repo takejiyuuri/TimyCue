@@ -10,13 +10,16 @@ struct HomeClockView: View {
     let face: HomeClockMath.Face
     /// 数える先の呼び名（「出発」。出発時刻の計算ができるまでは暫定で「開始」）
     let targetWord: String
+    /// 時計の大きさに合わせて、中央の文字・針の太さ・目盛りを縮めるか（2026-10-16 Q85）。今の Home（外径 74％）は false のまま
+    var scalesWithSize = false
 
     var body: some View {
         GeometryReader { geometry in
             let size = min(geometry.size.width, geometry.size.height)
+            let style = scalesWithSize ? HomeClockStyle.scaled(diameter: size) : .standard
             let ringWidth = size * HomeMetrics.ringWidthRatio
             let ringRadius = size / 2 - ringWidth / 2
-            let faceRadius = size / 2 - ringWidth - HomeMetrics.ringFaceGap
+            let faceRadius = size / 2 - ringWidth - style.ringFaceGap
             ZStack {
                 // 60 分を表す淡い背景のリング（もともとどれだけ時間があったかを残す）
                 Circle()
@@ -32,8 +35,8 @@ struct HomeClockView: View {
                 ForEach(0..<4, id: \.self) { quarter in
                     Capsule()
                         .fill(Theme.Colors.textSecondary.opacity(0.55))
-                        .frame(width: HomeMetrics.quarterTickWidth,
-                               height: ringWidth + HomeMetrics.quarterTickOverhang * 2)
+                        .frame(width: style.quarterTickWidth,
+                               height: ringWidth + style.quarterTickOverhang * 2)
                         .offset(y: -ringRadius)
                         .rotationEffect(.degrees(Double(quarter) * 90))
                 }
@@ -44,23 +47,23 @@ struct HomeClockView: View {
                 ForEach(0..<12, id: \.self) { hour in
                     Capsule()
                         .fill(Theme.Colors.textSecondary.opacity(0.6))
-                        .frame(width: HomeMetrics.hourTickWidth, height: HomeMetrics.hourTickLength)
-                        .offset(y: -(faceRadius - HomeMetrics.hourTickInset - HomeMetrics.hourTickLength / 2))
+                        .frame(width: style.hourTickWidth, height: style.hourTickLength)
+                        .offset(y: -(faceRadius - style.hourTickInset - style.hourTickLength / 2))
                         .rotationEffect(.degrees(Double(hour) * 30))
                 }
                 // 針（いまの時刻。時針は分に合わせて少しずつ進む）。長さ・大きさの割合は、どれも時計の外径（size）に対する割合
                 hand(length: size * HomeMetrics.hourHandLengthRatio,
-                     width: HomeMetrics.hourHandWidth,
+                     width: style.hourHandWidth,
                      degrees: face.hourHandDegrees)
                 hand(length: size * HomeMetrics.minuteHandLengthRatio,
-                     width: HomeMetrics.minuteHandWidth,
+                     width: style.minuteHandWidth,
                      degrees: face.minuteHandDegrees)
                 // 針の根元を隠す中央のプレートと、その上の「出発まで／23分」（文字に縁取りはしない）
                 Circle()
                     .fill(Theme.Colors.clockPlate)
                     .overlay { Circle().strokeBorder(Theme.Colors.separator, lineWidth: HomeMetrics.centerPlateBorderWidth) }
                     .frame(width: size * HomeMetrics.centerPlateRatio, height: size * HomeMetrics.centerPlateRatio)
-                centerText
+                centerText(style)
                 markers(size: size, ringRadius: ringRadius, labelRadius: size / 2 + HomeMetrics.markerLabelGap)
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
@@ -90,16 +93,16 @@ struct HomeClockView: View {
     }
 
     /// 中央の「出発まで」と「23分」（プレートの上に載せる）
-    private var centerText: some View {
+    private func centerText(_ style: HomeClockStyle) -> some View {
         VStack(spacing: -4) {
             Text("\(targetWord)まで")
-                .font(HomeMetrics.centerCaptionFont)
+                .font(style.centerCaptionFont)
                 .foregroundStyle(Theme.Colors.textSecondary)
             HStack(alignment: .firstTextBaseline, spacing: 1) {
                 Text("\(face.remainingMinutes)")
-                    .font(HomeMetrics.centerNumberFont)
+                    .font(style.centerNumberFont)
                 Text("分")
-                    .font(HomeMetrics.centerUnitFont)
+                    .font(style.centerUnitFont)
             }
             .foregroundStyle(Theme.Colors.textPrimary)
         }

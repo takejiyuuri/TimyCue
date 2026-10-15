@@ -2,7 +2,7 @@
 import Observation
 import SwiftUI
 
-// H1 の比べる画面（spec §88.10・2026-10-15 決定 Q79・Q80）。検証用のビルド（コンパイルの条件 TIMYCUE_DEV_TOOLS を付けたもの）だけに入り、
+// H1 の比べる画面（spec §88.10・2026-10-15 決定 Q79・Q80、2026-10-16 の変更）。検証用のビルド（コンパイルの条件 TIMYCUE_DEV_TOOLS を付けたもの）だけに入り、
 // App Store の公開版には入らない。H1 で大きさが決まったら、この画面・設定の入口・条件の印を取り除く（キャラクターの部品は H2 以降で使うので残す）
 
 /// 比べる画面で切り替えるもの
@@ -10,6 +10,8 @@ import SwiftUI
 final class CharacterComparisonStore {
     /// 比べる全身の高さ（pt。小物を除いた立った姿。座った姿も同じ縮尺）。約 40pt は Home レイアウト比較画像 A からの推定で、正式な寸法ではない
     static let heights: [CGFloat] = [16, 24, 36, 40]
+    /// 比べる時計の外径（画面の幅に対する割合。2026-10-16 の実機確認：74％は大きすぎた。45％が第一の候補）
+    static let clockWidths: [CGFloat] = [0.40, 0.45, 0.50]
 
     enum Posture: String, CaseIterable {
         case standing
@@ -33,18 +35,25 @@ final class CharacterComparisonStore {
     var height: CGFloat
     var posture: Posture
     var showsClock: Bool
+    var clockWidth: CGFloat
 
-    init(height: CGFloat = 24, posture: Posture = .standing, showsClock: Bool = true) {
+    init(height: CGFloat = 24, posture: Posture = .standing, showsClock: Bool = true, clockWidth: CGFloat = 0.45) {
         self.height = height
         self.posture = posture
         self.showsClock = showsClock
+        self.clockWidth = clockWidth
     }
 
     static func label(for height: CGFloat) -> String {
         height == 40 ? "約40pt" : "\(Int(height))pt"
     }
 
-    /// Codemagic の画面写真用：起動引数 `-TimyCueCharacterHeight 40 -TimyCueCharacterPosture sitting -TimyCueCharacterClock NO`
+    static func clockLabel(for width: CGFloat) -> String {
+        "\(Int((width * 100).rounded()))％"
+    }
+
+    /// Codemagic の画面写真用：起動引数
+    /// `-TimyCueCharacterHeight 40 -TimyCueCharacterPosture sitting -TimyCueCharacterClock NO -TimyCueClockWidth 45`
     static func fromLaunchArguments(_ defaults: UserDefaults = .standard) -> CharacterComparisonStore {
         let store = CharacterComparisonStore()
         let height = CGFloat(defaults.double(forKey: "TimyCueCharacterHeight"))
@@ -54,6 +63,10 @@ final class CharacterComparisonStore {
         }
         if defaults.object(forKey: "TimyCueCharacterClock") != nil {
             store.showsClock = defaults.bool(forKey: "TimyCueCharacterClock")
+        }
+        let percent = CGFloat(defaults.double(forKey: "TimyCueClockWidth"))
+        if let width = clockWidths.first(where: { abs($0 * 100 - percent) < 0.5 }) {
+            store.clockWidth = width
         }
         return store
     }
@@ -75,62 +88,87 @@ struct CharacterComparisonSample {
         }
     }
 
+    /// 今日の時間指定の予定 1 件と、場所ありならその出発の点
+    struct Entry {
+        let event: CalendarEvent
+        let color: EventColor
+        let departure: (minute: MinuteOfDay, transport: String)?
+    }
+
     static let nowMinute: MinuteOfDay = 8 * 60 + 52
     static let sampleTravelMinutes = 15
 
     let dateTitle: String
     let nowText: String
     let allDayTitles: [String]
-    let rows: [Row]
-    /// 時計に描くもの（いま → 最初の場所ありの予定の出発）
+    /// 時刻の順
+    let entries: [Entry]
+    /// 主状態の予定（いちばん強調する 1 件）
+    let mainEventID: UUID?
+    /// 時計に描くもの（いま → 主状態の予定の出発）
     let face: HomeClockMath.Face?
 
     static func make(today: CalendarDay = CalendarDay(Date()), calendar: Calendar = .timyCue) -> CharacterComparisonSample {
         let sample = SampleEvents.make(around: today)
         let todays = sample.events.filter { $0.day == today }
         let timed = todays.filter { !$0.isAllDay }.sorted { $0.startMinute < $1.startMinute }
-        let emphasized = timed.first { $0.startMinute > nowMinute }
-        var rows: [Row] = []
-        for event in timed {
+        let entries = timed.map { event -> Entry in
             let info = sample.metadata[event.id] ?? TimyCueEventMetadata()
-            if let place = event.locationName, !place.isEmpty {
-                rows.append(.departure(id: event.id, minute: event.startMinute - sampleTravelMinutes,
-                                       transport: info.transport.displayName))
-            }
-            rows.append(.event(event, color: info.color, emphasized: event.id == emphasized?.id))
+            let hasPlace = !(event.locationName ?? "").isEmpty
+            return Entry(event: event, color: info.color,
+                         departure: hasPlace ? (minute: event.startMinute - sampleTravelMinutes, transport: info.transport.displayName) : nil)
         }
-        let firstDeparture = timed.first { ($0.locationName ?? "").isEmpty == false && $0.startMinute > nowMinute }
+        let main = entries.first { $0.event.startMinute > nowMinute }
         let now = today.date(atMinute: nowMinute, calendar: calendar)
-        let face = firstDeparture.flatMap {
-            HomeClockMath.face(now: now, target: today.date(atMinute: $0.startMinute - sampleTravelMinutes, calendar: calendar),
-                               calendar: calendar)
+        let face = main?.departure.flatMap {
+            HomeClockMath.face(now: now, target: today.date(atMinute: $0.minute, calendar: calendar), calendar: calendar)
         }
         return CharacterComparisonSample(
             dateTitle: "\(today.month)月\(today.day)日（\(today.weekdaySymbol(calendar: calendar))）",
             nowText: TimeText.hourMinute(nowMinute),
             allDayTitles: todays.filter(\.isAllDay).map(\.displayTitle),
-            rows: rows,
+            entries: entries,
+            mainEventID: main?.event.id,
             face: face)
+    }
+
+    /// 予定を limit 件まで出すときの並び（spec §88.2・2026-10-16 Q84）。主状態の予定とその出発の点はいつも出し、
+    /// ほかは時刻の順に足す。出さなかった予定の数も返す（「ほか○件」。出発の点は別に数えない）
+    func timeline(showingEvents limit: Int) -> (rows: [Row], hiddenEvents: Int) {
+        var shown = Set<UUID>()
+        if let mainEventID { shown.insert(mainEventID) }
+        for entry in entries where shown.count < max(1, limit) {
+            shown.insert(entry.event.id)
+        }
+        var rows: [Row] = []
+        for entry in entries where shown.contains(entry.event.id) {
+            if let departure = entry.departure {
+                rows.append(.departure(id: entry.event.id, minute: departure.minute, transport: departure.transport))
+            }
+            rows.append(.event(entry.event, color: entry.color, emphasized: entry.event.id == mainEventID))
+        }
+        return (rows, entries.count - shown.count)
     }
 }
 
 /// 設定 ＞ 開発用：キャラクターの大きさ。Home に近い配置（日付・演出帯・いま・縦のタイムライン・見本の予定）で、
-/// キャラクターの高さ・姿勢・時計のあり／なしを切り替えて、その場で比べる。今の Home の画面とは別の画面で、Home の動きは変えない
+/// キャラクターの高さ・姿勢・時計のあり／なし・時計の大きさを切り替えて、その場で比べる。
+/// Home の新しい決まりに合わせて、画面は縦にスクロールしない（入りきらない予定は「ほか○件」。§88.2・Q84）。
+/// 今の Home の画面とは別の画面で、Home の動きは変えない
 struct CharacterSizeComparisonView: View {
     @State private var store = CharacterComparisonStore.fromLaunchArguments()
     private let sample = CharacterComparisonSample.make()
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: Theme.Spacing.m) {
+        GeometryReader { proxy in
+            VStack(alignment: .leading, spacing: Theme.Spacing.s) {
                 header
-                stageBand
+                stageBand(screenWidth: proxy.size.width)
                 nowRow
                 timeline
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, Theme.Spacing.l)
-            .padding(.bottom, Theme.Spacing.l)
         }
         .background(Theme.Colors.homeBackground.ignoresSafeArea())
         .safeAreaInset(edge: .bottom) { controls }
@@ -153,19 +191,22 @@ struct CharacterSizeComparisonView: View {
                     .lineLimit(1)
             }
         }
-        .padding(.top, Theme.Spacing.m)
+        .padding(.top, Theme.Spacing.s)
     }
 
-    /// 演出帯：時計ありなら今の時計（外径 74％）と、その左下にキャラクター。時計なしなら低い帯にキャラクターだけ（§88.3）
+    /// 演出帯：時計ありなら時計（画面の幅の 40・45・50％。中の文字・針は大きさに合わせて縮める：Q85）と、その左下にキャラクター。
+    /// 時計なしなら低い帯にキャラクターだけ（§88.3）
     @ViewBuilder
-    private var stageBand: some View {
+    private func stageBand(screenWidth: CGFloat) -> some View {
         let figure = CharacterFigure(height: store.height, pose: store.posture.pose)
         if store.showsClock, let face = sample.face {
+            let diameter = screenWidth * store.clockWidth
             ZStack(alignment: .bottomLeading) {
-                VStack(spacing: Theme.Spacing.s) {
-                    HomeClockView(face: face, targetWord: "出発")
-                        .containerRelativeFrame(.horizontal) { length, _ in length * HomeMetrics.clockWidthRatio }
+                VStack(spacing: Theme.Spacing.xs) {
+                    HomeClockView(face: face, targetWord: "出発", scalesWithSize: true)
+                        .frame(width: diameter, height: diameter)
                         .padding(.vertical, HomeMetrics.clockLabelRoom)
+                    // 時計の下の出発予定の時刻は、文字の大きさを変えない（Q85）
                     Text("\(HomeClockMath.flowText(now: face.now, target: face.target)) 出発予定")
                         .font(HomeMetrics.flowFont)
                         .foregroundStyle(Theme.Colors.textSecondary)
@@ -192,14 +233,33 @@ struct CharacterSizeComparisonView: View {
         .foregroundStyle(Theme.Colors.actionText)
     }
 
-    /// 左の縦のタイムライン：出発の点と予定の開始を時刻の順に（§88.2・Q81）。次に行動が要る予定だけ強調する
+    /// 左の縦のタイムライン（§88.2・Q81・Q84）：入るだけの予定を出し、入らない分は「ほか○件」。
+    /// 多い件数から順に試して、画面に収まる並びを使う（中でスクロールさせない）
     private var timeline: some View {
+        ViewThatFits(in: .vertical) {
+            ForEach(Array(stride(from: sample.entries.count, through: 1, by: -1)), id: \.self) { limit in
+                timelineRows(sample.timeline(showingEvents: limit))
+            }
+        }
+    }
+
+    private func timelineRows(_ timeline: (rows: [CharacterComparisonSample.Row], hiddenEvents: Int)) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            ForEach(sample.rows) { row in
+            ForEach(timeline.rows) { row in
                 HStack(alignment: .top, spacing: Theme.Spacing.s) {
                     marker(for: row)
                         .frame(width: Layout.railWidth, height: Layout.markerRowHeight)
                     content(for: row)
+                }
+                .padding(.vertical, Layout.rowSpacing / 2)
+            }
+            // 入りきらない予定（Home では押すとその日のカレンダーを開く。比べる画面では表示だけ）
+            if timeline.hiddenEvents > 0 {
+                HStack(spacing: Theme.Spacing.s) {
+                    Color.clear.frame(width: Layout.railWidth, height: 1)
+                    Text("ほか\(timeline.hiddenEvents)件")
+                        .font(.subheadline)
+                        .foregroundStyle(Theme.Colors.textSecondary)
                 }
                 .padding(.vertical, Layout.rowSpacing / 2)
             }
@@ -228,6 +288,7 @@ struct CharacterSizeComparisonView: View {
         }
     }
 
+    /// 主状態の予定は 2 行（予定名と場所）で強調し、ほかの予定と出発の点は 1 行（Q84）
     @ViewBuilder
     private func content(for row: CharacterComparisonSample.Row) -> some View {
         switch row {
@@ -238,14 +299,15 @@ struct CharacterSizeComparisonView: View {
             }
             .font(.subheadline)
             .foregroundStyle(Theme.Colors.textSecondary)
+            .lineLimit(1)
         case .event(let event, _, let emphasized):
             HStack(alignment: .firstTextBaseline, spacing: Theme.Spacing.s) {
                 Text(TimeText.hourMinute(event.startMinute)).monospacedDigit()
                 VStack(alignment: .leading, spacing: 2) {
                     Text(event.displayTitle)
-                        .fontWeight(.semibold)
+                        .fontWeight(emphasized ? .semibold : .regular)
                         .lineLimit(1)
-                    if let place = event.locationName, !place.isEmpty {
+                    if emphasized, let place = event.locationName, !place.isEmpty {
                         Text(place)
                             .font(.footnote)
                             .foregroundStyle(Theme.Colors.textSecondary)
@@ -286,6 +348,13 @@ struct CharacterSizeComparisonView: View {
                     .fixedSize()
                     .tint(Theme.Colors.accent)
             }
+            Picker("時計の大きさ", selection: $store.clockWidth) {
+                ForEach(CharacterComparisonStore.clockWidths, id: \.self) { width in
+                    Text("時計 \(CharacterComparisonStore.clockLabel(for: width))").tag(width)
+                }
+            }
+            .pickerStyle(.segmented)
+            .disabled(!store.showsClock)
         }
         .padding(.horizontal, Theme.Spacing.l)
         .padding(.vertical, Theme.Spacing.s)
@@ -301,7 +370,7 @@ struct CharacterSizeComparisonView: View {
         static let eventDot: CGFloat = 10
         static let departureDot: CGFloat = 9
         static let markerRowHeight: CGFloat = 20
-        static let rowSpacing: CGFloat = 14
+        static let rowSpacing: CGFloat = 10
     }
 }
 #endif

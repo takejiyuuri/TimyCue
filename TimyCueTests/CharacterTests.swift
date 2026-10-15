@@ -65,6 +65,36 @@ final class CharacterTests: XCTestCase {
     }
 }
 
+/// 時計を小さくしたときの中の文字・針・目盛り（2026-10-16 Q85）
+final class HomeClockStyleTests: XCTestCase {
+    func testCurrentHomeClockKeepsItsSizes() {
+        let style = HomeClockStyle.standard
+        XCTAssertEqual(style.centerNumberSize, 48, "今の Home の時計（外径 74％）の中央の数字は 48pt のまま")
+        XCTAssertEqual(style.centerCaptionSize, 13)
+        XCTAssertEqual(style.centerUnitSize, 18)
+        XCTAssertEqual(style.hourHandWidth, 6)
+        XCTAssertEqual(style.minuteHandWidth, 3.5)
+        XCTAssertEqual(style.hourTickLength, 7)
+    }
+
+    func testSmallerClockScalesTextAndLinesButKeepsThemReadable() {
+        let diameter: CGFloat = 393 * 0.45
+        let style = HomeClockStyle.scaled(diameter: diameter)
+        XCTAssertEqual(style.centerNumberSize, 30, accuracy: 0.5, "45％のとき数字は約 30pt（仮の基準）")
+        XCTAssertEqual(style.centerCaptionSize, 11, "「出発まで」は 11pt 未満にしない")
+        XCTAssertGreaterThanOrEqual(style.centerUnitSize, 11)
+        XCTAssertLessThan(style.hourHandWidth, HomeClockStyle.standard.hourHandWidth, "針は時計に合わせて細く")
+        XCTAssertGreaterThanOrEqual(style.hourHandWidth, HomeMetrics.minimumHourHandWidth)
+        XCTAssertGreaterThanOrEqual(style.minuteHandWidth, HomeMetrics.minimumMinuteHandWidth)
+        for width in [0.40, 0.45, 0.50] as [CGFloat] {
+            let scaled = HomeClockStyle.scaled(diameter: 393 * width)
+            XCTAssertGreaterThanOrEqual(scaled.centerCaptionSize, HomeMetrics.minimumClockText)
+            XCTAssertLessThan(scaled.centerNumberSize, HomeClockStyle.standard.centerNumberSize)
+        }
+        XCTAssertEqual(HomeClockStyle.scaled(diameter: 1000).centerNumberSize, 48, "大きな時計でも今より大きくはしない")
+    }
+}
+
 #if TIMYCUE_DEV_TOOLS
 /// H1 の比べる画面（2026-10-15 決定 Q80）。検証用のビルドだけ
 final class CharacterComparisonTests: XCTestCase {
@@ -77,9 +107,14 @@ final class CharacterComparisonTests: XCTestCase {
         XCTAssertEqual(store.posture, .standing)
         XCTAssertTrue(store.showsClock)
 
+        XCTAssertEqual(CharacterComparisonStore.clockWidths, [0.40, 0.45, 0.50], "時計は画面の幅の 40・45・50％を比べる（2026-10-16）")
+        XCTAssertEqual(store.clockWidth, 0.45, "45％が第一の候補")
+        XCTAssertEqual(CharacterComparisonStore.clockLabel(for: 0.45), "45％")
+
         store.height = 40
         store.posture = .sitting
         store.showsClock = false
+        store.clockWidth = 0.50
         XCTAssertEqual(store.posture.pose, .sitting)
         XCTAssertEqual(CharacterLayout(height: store.height, pose: store.posture.pose).bodySize.height,
                        40 * CharacterPose.sitting.bounds.height / 100, accuracy: 0.01)
@@ -92,13 +127,18 @@ final class CharacterComparisonTests: XCTestCase {
         defaults.set("40", forKey: "TimyCueCharacterHeight")
         defaults.set("sitting", forKey: "TimyCueCharacterPosture")
         defaults.set("NO", forKey: "TimyCueCharacterClock")
+        defaults.set("50", forKey: "TimyCueClockWidth")
         let store = CharacterComparisonStore.fromLaunchArguments(defaults)
         XCTAssertEqual(store.height, 40)
         XCTAssertEqual(store.posture, .sitting)
         XCTAssertFalse(store.showsClock)
+        XCTAssertEqual(store.clockWidth, 0.50)
 
         defaults.set("30", forKey: "TimyCueCharacterHeight")
-        XCTAssertEqual(CharacterComparisonStore.fromLaunchArguments(defaults).height, 24, "比べる 4 つ以外の高さは使わない")
+        defaults.set("74", forKey: "TimyCueClockWidth")
+        let other = CharacterComparisonStore.fromLaunchArguments(defaults)
+        XCTAssertEqual(other.height, 24, "比べる 4 つ以外の高さは使わない")
+        XCTAssertEqual(other.clockWidth, 0.45, "比べる 3 つ以外の時計の大きさは使わない")
         defaults.removePersistentDomain(forName: "CharacterComparisonTests")
     }
 
@@ -110,16 +150,33 @@ final class CharacterComparisonTests: XCTestCase {
         XCTAssertEqual(sample.allDayTitles, ["見本の終日予定（今日）"], "終日の予定は日付の下に（§88.2）")
         XCTAssertEqual(sample.face?.remainingMinutes, 23, "見本の A社打合せ（9:30）の出発 9:15 まで 23 分の時計")
         // 場所ありの予定は、出発の点と開始の点を別々に並べる（Q81）。場所なしは開始だけ
-        let kinds = sample.rows.map { row -> String in
+        let all = sample.timeline(showingEvents: 5)
+        XCTAssertEqual(Self.kinds(all.rows), [
+            "出発 9:15 車", "9:30 A社打合せ（強調）", "10:00 社内レビュー", "10:15 見本さんへ連絡",
+            "出発 12:45 徒歩", "13:00 歯医者", "18:00 電話：見本さん",
+        ])
+        XCTAssertEqual(all.hiddenEvents, 0)
+    }
+
+    func testTimelineThatDoesNotFitFoldsTheRestIntoACount() {
+        // Home は縦にスクロールしない。入りきらない予定は「ほか○件」（件数は予定の数で、出発の点は数えない。2026-10-16 Q84）
+        let sample = CharacterComparisonSample.make(today: CalendarDay(year: 2026, month: 10, day: 15))
+        let three = sample.timeline(showingEvents: 3)
+        XCTAssertEqual(Self.kinds(three.rows), ["出発 9:15 車", "9:30 A社打合せ（強調）", "10:00 社内レビュー", "10:15 見本さんへ連絡"])
+        XCTAssertEqual(three.hiddenEvents, 2, "歯医者（と、その出発の点）と電話。出発の点は数えない")
+        let one = sample.timeline(showingEvents: 1)
+        XCTAssertEqual(Self.kinds(one.rows), ["出発 9:15 車", "9:30 A社打合せ（強調）"], "主状態の予定とその出発の点はいつも出す")
+        XCTAssertEqual(one.hiddenEvents, 4)
+        XCTAssertEqual(Self.kinds(sample.timeline(showingEvents: 0).rows), Self.kinds(one.rows), "0 件にはしない")
+    }
+
+    private static func kinds(_ rows: [CharacterComparisonSample.Row]) -> [String] {
+        rows.map { row -> String in
             switch row {
             case .departure(_, let minute, let transport): "出発 \(TimeText.hourMinute(minute)) \(transport)"
             case .event(let event, _, let emphasized): "\(TimeText.hourMinute(event.startMinute)) \(event.displayTitle)\(emphasized ? "（強調）" : "")"
             }
         }
-        XCTAssertEqual(kinds, [
-            "出発 9:15 車", "9:30 A社打合せ（強調）", "10:00 社内レビュー", "10:15 見本さんへ連絡",
-            "出発 12:45 徒歩", "13:00 歯医者", "18:00 電話：見本さん",
-        ])
     }
 }
 #endif

@@ -103,14 +103,16 @@ workflows:
           xcrun simctl launch --terminate-running-process "$SIM_UDID" io.github.takejiyuuri.timycue -TimyCueEditorDays "0,7,14"
           sleep "$WAIT"
           xcrun simctl io "$SIM_UDID" screenshot "build/screenshots/editor.png"
-          # H1 の比べる画面（設定 ＞ 開発用：キャラクターの大きさ）。高さ・姿勢・時計のあり／なしの代表の組み合わせ
-          for COMBO in "16 standing YES" "24 standing YES" "36 standing YES" "40 standing YES" "24 sitting YES" "40 sitting YES" "24 standing NO"; do
+          # H1 の比べる画面（設定 ＞ 開発用：キャラクターの大きさ）。2026-10-16：時計の大きさ 40・45・50％×24pt・立つ、45％×24pt・座る、
+          # 時計なし×24pt・立つ の 5 つ。見本の予定と時刻（8:52）は同じで、大きさだけを変える
+          for COMBO in "24 standing YES 40" "24 standing YES 45" "24 standing YES 50" "24 sitting YES 45" "24 standing NO 45"; do
             set -- $COMBO
             xcrun simctl launch --terminate-running-process "$SIM_UDID" io.github.takejiyuuri.timycue -TimyCueTab settings \
-              -TimyCueDevScreen characterSizes -TimyCueCharacterHeight "$1" -TimyCueCharacterPosture "$2" -TimyCueCharacterClock "$3"
+              -TimyCueDevScreen characterSizes -TimyCueCharacterHeight "$1" -TimyCueCharacterPosture "$2" \
+              -TimyCueCharacterClock "$3" -TimyCueClockWidth "$4"
             sleep "$WAIT"
-            CLOCK=$([ "$3" = YES ] && echo clock || echo noclock)
-            xcrun simctl io "$SIM_UDID" screenshot "build/screenshots/character-$1-$2-$CLOCK.png"
+            if [ "$3" = YES ]; then NAME="character-$1-$2-clock$4"; else NAME="character-$1-$2-noclock"; fi
+            xcrun simctl io "$SIM_UDID" screenshot "build/screenshots/$NAME.png"
           done
     artifacts:
       - build/screenshots/*.png

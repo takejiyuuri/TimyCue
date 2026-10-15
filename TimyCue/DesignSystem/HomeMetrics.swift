@@ -37,12 +37,75 @@ enum HomeMetrics {
     static let coincideShiftRatio: CGFloat = 0.018
     /// 時計の上下にあける余白（リングの外に出す「いま」「出発」の文字の分）
     static let clockLabelRoom: CGFloat = 20
-    /// 中央の「出発まで」と「23分」
-    static let centerCaptionFont = Font.system(size: 13, weight: .medium)
-    static let centerNumberFont = Font.system(size: 48, weight: .bold, design: .rounded).monospacedDigit()
-    static let centerUnitFont = Font.system(size: 18, weight: .semibold, design: .rounded)
+    /// 中央の「出発まで」と「23分」の文字の大きさ（pt。外径 74％のときの値。数字の 48pt は 2026-10-14 決定）
+    static let centerCaptionSize: CGFloat = 13
+    static let centerNumberSize: CGFloat = 48
+    static let centerUnitSize: CGFloat = 18
+    /// 時計を小さくするとき（2026-10-16 Q85。仮の値）：393pt 幅で外径 74％のときの外径を基準に、文字・針の太さ・目盛りを比例で縮める
+    static let referenceDiameter: CGFloat = 393 * 0.74
+    /// 小さい時計の中央の数字は外径の 17％（45％で約 30pt が仮の基準）
+    static let scaledNumberRatio: CGFloat = 0.17
+    /// 時計の中の文字の下限（「出発まで」「開始まで」は原則 11pt 未満にしない）
+    static let minimumClockText: CGFloat = 11
+    /// 小さい時計の針の太さの下限（向きを読めるように）
+    static let minimumHourHandWidth: CGFloat = 2
+    static let minimumMinuteHandWidth: CGFloat = 1.5
     /// 時計の下の「16:52 → 17:15 出発予定」
     static let flowFont = Font.system(size: 15, weight: .medium).monospacedDigit()
     /// 1 分たつごとに、弧と針を動かす時間（秒）
     static let minuteAnimation: Double = 0.45
+}
+
+/// 時計の中の文字・線の大きさ（pt）。今の Home の時計（外径 74％）は standard のまま。
+/// 時計を小さくするときは scaled で、外径に合わせて縮める（2026-10-16 Q85）。リングの太さ・中央のプレート・針の長さは
+/// もとから外径に対する割合なので、ここでは持たない
+struct HomeClockStyle: Equatable {
+    var ringFaceGap: CGFloat
+    var quarterTickWidth: CGFloat
+    var quarterTickOverhang: CGFloat
+    var hourTickLength: CGFloat
+    var hourTickWidth: CGFloat
+    var hourTickInset: CGFloat
+    var hourHandWidth: CGFloat
+    var minuteHandWidth: CGFloat
+    var centerCaptionSize: CGFloat
+    var centerNumberSize: CGFloat
+    var centerUnitSize: CGFloat
+
+    /// 今の Home の時計（外径 74％。2026-10-14 決定の値）
+    static let standard = HomeClockStyle(
+        ringFaceGap: HomeMetrics.ringFaceGap,
+        quarterTickWidth: HomeMetrics.quarterTickWidth,
+        quarterTickOverhang: HomeMetrics.quarterTickOverhang,
+        hourTickLength: HomeMetrics.hourTickLength,
+        hourTickWidth: HomeMetrics.hourTickWidth,
+        hourTickInset: HomeMetrics.hourTickInset,
+        hourHandWidth: HomeMetrics.hourHandWidth,
+        minuteHandWidth: HomeMetrics.minuteHandWidth,
+        centerCaptionSize: HomeMetrics.centerCaptionSize,
+        centerNumberSize: HomeMetrics.centerNumberSize,
+        centerUnitSize: HomeMetrics.centerUnitSize)
+
+    /// 外径に合わせて縮めた値。standard を、外径 74％（393pt 幅）からの比で縮める（大きくはしない）。
+    /// 中央の数字だけは外径の 17％（45％で約 30pt）。文字は 11pt、針は読める太さより小さくしない
+    static func scaled(diameter: CGFloat) -> HomeClockStyle {
+        let ratio = min(1, diameter / HomeMetrics.referenceDiameter)
+        let base = standard
+        return HomeClockStyle(
+            ringFaceGap: base.ringFaceGap * ratio,
+            quarterTickWidth: max(1, base.quarterTickWidth * ratio),
+            quarterTickOverhang: base.quarterTickOverhang * ratio,
+            hourTickLength: base.hourTickLength * ratio,
+            hourTickWidth: max(1, base.hourTickWidth * ratio),
+            hourTickInset: base.hourTickInset * ratio,
+            hourHandWidth: max(HomeMetrics.minimumHourHandWidth, base.hourHandWidth * ratio),
+            minuteHandWidth: max(HomeMetrics.minimumMinuteHandWidth, base.minuteHandWidth * ratio),
+            centerCaptionSize: max(HomeMetrics.minimumClockText, base.centerCaptionSize * ratio),
+            centerNumberSize: min(base.centerNumberSize, diameter * HomeMetrics.scaledNumberRatio),
+            centerUnitSize: max(HomeMetrics.minimumClockText, base.centerUnitSize * ratio))
+    }
+
+    var centerCaptionFont: Font { .system(size: centerCaptionSize, weight: .medium) }
+    var centerNumberFont: Font { .system(size: centerNumberSize, weight: .bold, design: .rounded).monospacedDigit() }
+    var centerUnitFont: Font { .system(size: centerUnitSize, weight: .semibold, design: .rounded) }
 }
