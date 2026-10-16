@@ -114,26 +114,45 @@ final class Simple2DesignTests: XCTestCase {
         XCTAssertTrue(design.standing.arms.allSatisfy(\.mergesWithBody), "腕は胴の輪郭とひと続き")
         XCTAssertTrue(design.standing.legs.allSatisfy(\.mergesWithBody))
         XCTAssertEqual(design.standing.details.count, 2, "腕の内側の短い線")
-        XCTAssertTrue(design.standing.frontGroups.isEmpty, "リュックなどの小物はない")
+        XCTAssertTrue(design.standing.frontGroups.isEmpty && design.sitting.frontGroups.isEmpty, "リュックなどの小物はない")
         // 脚のあいだの小さな切れ込み：2 本の脚が離れている
-        let legs = design.standing.legs.map { CharacterPose.roundedRectBounds($0.part, cornerRadius: $0.width / 2) }
+        let legs = design.standing.legs.map { CharacterPose.roundedRectBounds($0.part, cornerRadius: $0.resolvedCornerRadius) }
         XCTAssertLessThan(legs[0].maxX, legs[1].minX)
-        // 足元の影や床はない：いちばん下は脚
+        // 足の裏は平ら（角だけ丸い）。足元の影や床はない：いちばん下は脚
+        XCTAssertTrue(design.standing.legs.allSatisfy { $0.resolvedCornerRadius < $0.width / 2 })
         XCTAssertEqual(design.standing.bounds.maxY, legs.map(\.maxY).max()!, accuracy: 0.01)
     }
 
-    func testSittingFacesForwardWithLegsAndAHandInFrontAtTheSameScale() {
+    func testSittingShowsTheHeadInFrontAndRoundLegsBelowItAtTheSameScale() {
         let design = CharacterDesign.simple2
-        XCTAssertEqual(design.sitting.frontGroups.count, 2, "前に出した脚と、手")
-        XCTAssertEqual(design.sitting.head.size.width, design.standing.head.size.width, accuracy: 0.5, "頭は立った姿と同じ大きさ（同じ縮尺）")
+        let pose = design.sitting
+        XCTAssertFalse(pose.headMergesWithBody, "座った姿は頭が手前（頭の下の線が見え、脚はその下からのぞく）")
+        XCTAssertEqual(pose.legs.count, 2, "前に出した脚の丸いふくらみ 2 つ")
+        XCTAssertTrue((pose.legs + pose.arms).allSatisfy(\.mergesWithBody), "胴・脚・腕はひと続き（頭の後ろ）")
+        let head = CharacterPose.ellipseBounds(pose.head)
+        let legs = pose.legs.map { CharacterPose.roundedRectBounds($0.part, cornerRadius: $0.resolvedCornerRadius) }
+        XCTAssertTrue(legs.allSatisfy { $0.maxY > head.maxY }, "脚は頭の下に見える")
+        XCTAssertEqual(pose.bounds.maxY, legs.map(\.maxY).max()!, accuracy: 0.01, "いちばん下は脚のふくらみ（床・影なし）")
+        XCTAssertTrue(legs.allSatisfy { $0.minX >= head.minX && $0.maxX <= head.maxX }, "脚を横に伸ばさない（頭の幅の中）")
+        XCTAssertEqual(pose.details.count, 3, "脚のあいだの Y の形の線（2 本）と、右の腕の折れ目から手の線")
+        XCTAssertEqual(pose.head.size, design.standing.head.size, "頭は立った姿と同じ大きさ・形（同じ縮尺）")
+        XCTAssertEqual(pose.eyes.map(\.size), design.standing.eyes.map(\.size), "目も立った姿と同じ")
         let standing = CharacterLayout(height: 36, design: design, posture: .standing)
         let sitting = CharacterLayout(height: 36, design: design, posture: .sitting)
         XCTAssertEqual(standing.bodySize.height, 36, accuracy: 0.01, "立った姿の全身の高さが 36pt")
         XCTAssertEqual(sitting.scale, standing.scale, accuracy: 0.0001, "座っても同じ縮尺")
-        XCTAssertLessThan(sitting.bodySize.height, standing.bodySize.height)
-        XCTAssertGreaterThan(sitting.bodySize.height, 29, "座った姿は約 30〜33pt")
-        XCTAssertLessThan(sitting.bodySize.width, standing.bodySize.width * 1.1, "脚を横に伸ばさない")
+        XCTAssertTrue((30...33).contains(sitting.bodySize.height), "座った姿は約 32pt（頭を立った姿にそろえた同じ縮尺）")
+        XCTAssertLessThan(sitting.bodySize.width, standing.bodySize.width * 1.05, "脚を横に伸ばさない")
         XCTAssertEqual(standing.outlineWidth, 1, "36pt の輪郭は下限の 1pt")
+    }
+
+    func testLimbCornerRadiusDefaultsToARoundEndAndStaysInsideTheLimb() {
+        let round = CharacterPose.Limb(joint: .zero, length: 30, width: 20, angle: 0)
+        XCTAssertEqual(round.resolvedCornerRadius, 10, "決めなければ先の丸い棒（太さの半分）")
+        let flat = CharacterPose.Limb(joint: .zero, length: 30, width: 20, angle: 0, cornerRadius: 4)
+        XCTAssertEqual(flat.resolvedCornerRadius, 4, "足の裏の平らな脚")
+        let short = CharacterPose.Limb(joint: .zero, length: 12, width: 40, angle: 0, cornerRadius: 18)
+        XCTAssertEqual(short.resolvedCornerRadius, 6, "幅・長さの短い方の半分まで")
     }
 }
 

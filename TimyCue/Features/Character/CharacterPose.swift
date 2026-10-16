@@ -22,6 +22,13 @@ struct CharacterPose: Equatable {
         var angle: Double
         /// true なら胴とひと続きの形にして、外側の輪郭だけを出す（立った姿の脚）。false なら手前に自分の輪郭で描く
         var mergesWithBody = false
+        /// 角の丸み。nil なら先の丸い棒（太さの半分）。足の裏が平らな脚などで小さくする（2 シンプル）
+        var cornerRadius: CGFloat? = nil
+
+        /// 描くときの角の丸み（幅・長さの短い方の半分まで）
+        var resolvedCornerRadius: CGFloat {
+            min(cornerRadius ?? width / 2, min(width, length) / 2)
+        }
 
         /// 棒の真ん中（付け根から、角度の向きへ長さの半分）
         var center: CGPoint {
@@ -73,7 +80,7 @@ struct CharacterPose: Equatable {
     var bounds: CGRect {
         var rect = Self.ellipseBounds(head).union(Self.roundedRectBounds(body, cornerRadius: bodyCornerRadius))
         for limb in legs + arms {
-            rect = rect.union(Self.roundedRectBounds(limb.part, cornerRadius: limb.width / 2))
+            rect = rect.union(Self.roundedRectBounds(limb.part, cornerRadius: limb.resolvedCornerRadius))
         }
         for shape in frontGroups.joined() {
             switch shape {

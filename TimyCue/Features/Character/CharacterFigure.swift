@@ -113,7 +113,8 @@ struct CharacterLayout: Equatable {
 
     func path(for limb: CharacterPose.Limb) -> Path {
         let part = limb.part
-        return Path(roundedRect: rect(part), cornerRadius: limb.width / 2 * scale, style: .circular).applying(rotation(part))
+        return Path(roundedRect: rect(part), cornerRadius: limb.resolvedCornerRadius * scale, style: .circular)
+            .applying(rotation(part))
     }
 
     func path(for shape: CharacterPose.Shape) -> Path {
