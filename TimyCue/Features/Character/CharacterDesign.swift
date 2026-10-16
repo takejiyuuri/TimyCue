@@ -12,6 +12,8 @@ struct CharacterStyle: Equatable {
     var outlineRatio: CGFloat
     /// ほっぺの濃さ（0 なら描かない）
     var cheekOpacity: Double
+    /// 体・輪郭・目の色（H1 の案は今までの色。正式キャラクター 3 モードは原画の色）
+    var palette: CharacterPalette = .h1
 
     /// H1 で作った形（現行案）
     static let current = CharacterStyle(outlineRatio: CharacterMetrics.outlineRatio, cheekOpacity: 0.85)

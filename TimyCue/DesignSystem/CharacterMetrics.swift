@@ -19,4 +19,35 @@ enum CharacterMetrics {
     static func outlineWidth(forHeight height: CGFloat, ratio: CGFloat = outlineRatio) -> CGFloat {
         min(max(height * ratio, outlineMin), outlineMax)
     }
+
+    /// 甲羅の模様の線・フードの顔まわりの線の太さ（輪郭の太さに対する割合。原画を測った値）
+    static let shellPatternRatio: CGFloat = 0.55
+    static let hoodLineRatio: CGFloat = 0.7
+}
+
+/// キャラクターの体の色（案ごと。2026-10-16 正式キャラクター 3 モードから、案ごとに持つ）
+struct CharacterPalette: Equatable {
+    var fill: Color
+    var outline: Color
+    var eye: Color
+
+    /// H1 の試作と「2 シンプル」（履歴）の色
+    static let h1 = CharacterPalette(fill: CharacterMetrics.bodyFill, outline: CharacterMetrics.outline, eye: CharacterMetrics.eye)
+    /// 正式キャラクター 3 モード（2026-10-16 正式採用の原画。原画の切り出しの画素を測った値）：
+    /// 体は温かみのある白（#FEFAF2）、輪郭と目は濃いこげ茶（#36190A）
+    static let official = CharacterPalette(fill: Color(hex: 0xFEFAF2), outline: Color(hex: 0x36190A), eye: Color(hex: 0x36190A))
+}
+
+/// 装備の色（正式キャラクター 3 モードの原画を測った値。spec §88.4）
+struct CharacterGearPalette: Equatable {
+    /// 甲羅：やわらかい黄緑と、甲板の境目の少し濃い緑
+    var shellFill: Color
+    var shellLine: Color
+    /// うさぎの耳の内側のピンク
+    var earInner: Color
+    /// フードの顔まわりの線（輪郭より淡いブラウン）
+    var hoodLine: Color
+
+    static let official = CharacterGearPalette(shellFill: Color(hex: 0xBABE85), shellLine: Color(hex: 0x969B60),
+                                               earInner: Color(hex: 0xF8BCB0), hoodLine: Color(hex: 0xDCAF96))
 }

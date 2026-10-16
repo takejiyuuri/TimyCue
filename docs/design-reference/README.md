@@ -38,6 +38,18 @@
 | Home 画面イメージの予定の行（「自宅を出発（車で移動 26分）」など）・「いま」の札・時計の中の文字 | Home の配置とタイムラインは spec §88.2・§88.3（H2 の配置の最新版）のとおり |
 | 亀モードで甲羅を背負っている | リュックは常に背負わせない決まりのまま。甲羅はリュックではなく、亀モードの装備 |
 
+### SwiftUI の再現と原画の比較（reproduction/。2026-10-16 H2 の前提作業 1）
+
+| ファイル（characters/official-3modes/reproduction/） | 中身 |
+|---|---|
+| stand-turtle.png・stand-human.png・stand-rabbit.png | 原画の「主なポーズ・動作例」の「立つ」の切り出し（原画の画素のまま。再現の基準） |
+| comparison.png | 3 モードの、原画の「立つ」・再現（アプリと同じ部品と順で描いたもの）・重ね合わせ（赤＝再現の線） |
+| reproduction-36pt.png | 再現の 3 モードを本体 36pt（画面の 3 倍の画素）で並べたもの |
+
+- 作り直し：`python tools/character_3modes/make_comparison.py docs/design-reference/characters/official-3modes`（本体の値の当てはめは `fit_body.py`）。値は `TimyCue/Features/Character/CharacterPose+Official.swift` と同じ。
+- 実機（アプリ）での見え方は、検証用のビルドの「設定 ＞ 開発用：キャラクター 3 モード」と、Codemagic の画面写真（modes-*.png）で確かめる。原画はアプリに入れない。
+- 残る差異は docs/design-notes.md（2026-10-16「原画と違うところ」）。
+
 ## H2 の画面見本（ワイヤーフレーム。2026-10-16）
 
 H2 の実装の前に、spec §88 の文章と画面がそろっているかを確かめるための見本（h2-wireframes/）。6 つの状態を、同じ仮のデータで並べた。人型は正式原画の切り出しの背景を抜いて縮めたもの（本体 36pt）。
