@@ -121,16 +121,13 @@ workflows:
           capture event-detail -TimyCueTab calendar -TimyCueDetailOfFirstEventToday YES
           # 3 分割の予定編集（新規。今日・1 週後・2 週後を選んだ状態）
           capture editor -TimyCueEditorDays "0,7,14"
-          # H1 の正式キャラクター「2 シンプル」（設定 ＞ 開発用：キャラクターの案。2026-10-16）：時計 45％（右寄せ）＋36pt・立つ、
-          # 時計 45％＋36pt の縮尺で座る、時計なし＋36pt・立つ。見比べ用に旧試作（現行）も同じ 3 つ。見本の予定と時刻（8:52）は同じ
-          for DESIGN in simple2 current; do
-            for COMBO in "standing YES" "sitting YES" "standing NO"; do
-              set -- $COMBO
-              if [ "$2" = YES ]; then NAME="design-$DESIGN-$1-clock45"; else NAME="design-$DESIGN-$1-noclock"; fi
-              capture "$NAME" -TimyCueTab settings -TimyCueDevScreen characterDesigns -TimyCueCharacterDesign "$DESIGN" \
-                -TimyCueCharacterPosture "$1" -TimyCueCharacterClock "$2"
-            done
+          # 正式キャラクター「キャラクター 3 モード」（設定 ＞ 開発用：キャラクターの案。2026-10-16 H2 の前提作業）：時計 40％（右寄せ）＋36pt の
+          # 亀・人型・うさぎ（立つ）と、時計なし＋人型。見比べ用に旧正式「2 シンプル」の立つ姿も 1 枚。見本の予定と時刻（8:52）は同じ
+          for MODE in turtle human rabbit; do
+            capture "design-official3-$MODE-clock40" -TimyCueTab settings -TimyCueDevScreen characterDesigns -TimyCueCharacterDesign official3 -TimyCueCharacterMode "$MODE" -TimyCueCharacterClock YES
           done
+          capture design-official3-human-noclock -TimyCueTab settings -TimyCueDevScreen characterDesigns -TimyCueCharacterDesign official3 -TimyCueCharacterMode human -TimyCueCharacterClock NO
+          capture design-simple2-standing-clock40 -TimyCueTab settings -TimyCueDevScreen characterDesigns -TimyCueCharacterDesign simple2 -TimyCueCharacterPosture standing -TimyCueCharacterClock YES
           ls -l build/screenshots
     artifacts:
       - build/screenshots/*.png

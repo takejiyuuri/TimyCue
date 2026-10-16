@@ -83,14 +83,19 @@ struct CharacterPose: Equatable {
             rect = rect.union(Self.roundedRectBounds(limb.part, cornerRadius: limb.resolvedCornerRadius))
         }
         for shape in frontGroups.joined() {
-            switch shape {
-            case .ellipse(let part):
-                rect = rect.union(Self.ellipseBounds(part))
-            case .roundedRect(let part, let cornerRatio):
-                rect = rect.union(Self.roundedRectBounds(part, cornerRadius: Self.cornerRadius(part, ratio: cornerRatio)))
-            }
+            rect = rect.union(Self.bounds(of: shape))
         }
         return rect
+    }
+
+    /// 手前に重ねる形・装備の形の外の枠（輪郭の線の太さは含めない）
+    static func bounds(of shape: Shape) -> CGRect {
+        switch shape {
+        case .ellipse(let part):
+            ellipseBounds(part)
+        case .roundedRect(let part, let cornerRatio):
+            roundedRectBounds(part, cornerRadius: cornerRadius(part, ratio: cornerRatio))
+        }
     }
 
     /// 角の丸み（幅に対する割合。幅・高さの短い方の半分まで）

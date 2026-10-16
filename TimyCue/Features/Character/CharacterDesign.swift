@@ -12,6 +12,8 @@ struct CharacterStyle: Equatable {
     var outlineRatio: CGFloat
     /// ほっぺの濃さ（0 なら描かない）
     var cheekOpacity: Double
+    /// 色
+    var palette: CharacterPalette = .app
 
     /// H1 で作った形（現行案）
     static let current = CharacterStyle(outlineRatio: CharacterMetrics.outlineRatio, cheekOpacity: 0.85)
@@ -23,8 +25,10 @@ struct CharacterDesign: Equatable {
     var standing: CharacterPose
     var sitting: CharacterPose
     var style: CharacterStyle
+    /// モードごとの装備（正式の 3 モードだけ。旧試作にはない）。本体とは別の部品
+    var equipmentByMode: [CharacterMode: CharacterEquipment] = [:]
 
-    /// 立った姿の全身の高さ（100 の単位）。○pt はこの高さに合わせ、座った姿も同じ縮尺で描く
+    /// 立った姿の全身の高さ（100 の単位）。○pt はこの高さに合わせ、座った姿も同じ縮尺で描く。装備（甲羅・耳）は含めない
     var referenceHeight: CGFloat { standing.bounds.height }
 
     func pose(_ posture: CharacterPosture) -> CharacterPose {
@@ -32,6 +36,11 @@ struct CharacterDesign: Equatable {
         case .standing: standing
         case .sitting: sitting
         }
+    }
+
+    /// モードの装備（決めていないモードは装備なし）
+    func equipment(_ mode: CharacterMode) -> CharacterEquipment {
+        equipmentByMode[mode] ?? .none
     }
 
     /// 部品の大きさ・位置を変えた案を作る（立つ・座るに同じ変え方をする）
@@ -46,6 +55,14 @@ struct CharacterDesign: Equatable {
     /// ほっぺ・口・リュック・影はない。輪郭の太さは原画と同じ割合（全身の高さの約 2.8％。36pt では下限の 1pt）
     static let simple2 = CharacterDesign(standing: .simple2Standing, sitting: .simple2Sitting,
                                          style: CharacterStyle(outlineRatio: 0.0276, cheekOpacity: 0))
+
+    /// 正式のデザイン「キャラクター 3 モード（うさぎは被り物バージョン）」（2026-10-16 正式採用。原画を正本に描き直したもの。spec §88.4）。
+    /// 亀・人型・うさぎで本体は同じで、装備（甲羅・うさぎの耳のフード）だけを替える。ほっぺ・口はない。
+    /// 輪郭の太さは原画と同じ割合（全身の高さの約 3％。36pt で約 1pt）。色は原画から測った値。
+    /// 座った姿はまだ原画から作っていない（H2 の前提作業は立つ姿だけ。2026-10-16 Q93）ので、今は立った姿と同じ
+    static let official3 = CharacterDesign(standing: .official3Standing, sitting: .official3Standing,
+                                           style: CharacterStyle(outlineRatio: 0.0297, cheekOpacity: 0, palette: .official3),
+                                           equipmentByMode: [.turtle: .turtleShell, .rabbit: .rabbitHood])
 }
 
 extension CharacterPose {

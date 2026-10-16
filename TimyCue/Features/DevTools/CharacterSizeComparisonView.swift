@@ -10,20 +10,19 @@ import SwiftUI
 final class CharacterComparisonStore {
     /// 比べる全身の高さ（pt。小物を除いた立った姿。座った姿も同じ縮尺）。約 40pt は Home レイアウト比較画像 A からの推定で、正式な寸法ではない
     static let heights: [CGFloat] = [16, 24, 36, 40]
-    /// 比べる時計の外径（画面の幅に対する割合。2026-10-16 の実機確認：74％は大きすぎた。45％が第一の候補）
+    /// 比べる時計の外径（画面の幅に対する割合。2026-10-16 の実機確認：74％は大きすぎた。最新の第一の候補は 40％）
     static let clockWidths: [CGFloat] = [0.40, 0.45, 0.50]
 
-    typealias Posture = CharacterPosture
-
     var height: CGFloat
-    var posture: Posture
+    /// 正式の 3 モード（2026-10-16）。座った姿はまだ原画から作っていないので、姿勢の代わりにモードを切り替える
+    var mode: CharacterMode
     var showsClock: Bool
     var clockWidth: CGFloat
 
-    /// 初めは第一の候補（2026-10-16 の 2 回目の実機確認：人型 36pt・時計 45％）
-    init(height: CGFloat = 36, posture: Posture = .standing, showsClock: Bool = true, clockWidth: CGFloat = 0.45) {
+    /// 初めは第一の候補（人型 36pt・時計 40％。2026-10-16）
+    init(height: CGFloat = 36, mode: CharacterMode = .human, showsClock: Bool = true, clockWidth: CGFloat = 0.40) {
         self.height = height
-        self.posture = posture
+        self.mode = mode
         self.showsClock = showsClock
         self.clockWidth = clockWidth
     }
@@ -37,13 +36,13 @@ final class CharacterComparisonStore {
     }
 
     /// Codemagic の画面写真用：起動引数
-    /// `-TimyCueCharacterHeight 40 -TimyCueCharacterPosture sitting -TimyCueCharacterClock NO -TimyCueClockWidth 45`
+    /// `-TimyCueCharacterHeight 40 -TimyCueCharacterMode rabbit -TimyCueCharacterClock NO -TimyCueClockWidth 45`
     static func fromLaunchArguments(_ defaults: UserDefaults = .standard) -> CharacterComparisonStore {
         let store = CharacterComparisonStore()
         let height = CGFloat(defaults.double(forKey: "TimyCueCharacterHeight"))
         if heights.contains(height) { store.height = height }
-        if let raw = defaults.string(forKey: "TimyCueCharacterPosture"), let posture = Posture(rawValue: raw) {
-            store.posture = posture
+        if let raw = defaults.string(forKey: "TimyCueCharacterMode"), let mode = CharacterMode(rawValue: raw) {
+            store.mode = mode
         }
         if defaults.object(forKey: "TimyCueCharacterClock") != nil {
             store.showsClock = defaults.bool(forKey: "TimyCueCharacterClock")
@@ -147,6 +146,16 @@ extension CharacterPosture {
     var pose: CharacterPose { CharacterDesign.current.pose(self) }
 }
 
+extension CharacterMode {
+    var title: String {
+        switch self {
+        case .turtle: "亀"
+        case .human: "人型"
+        case .rabbit: "うさぎ"
+        }
+    }
+}
+
 /// 比べる画面の Home に近い配置（日付・演出帯・いま・縦のタイムライン・見本の予定）。
 /// Home の新しい決まりに合わせて、画面は縦にスクロールしない（入りきらない予定は「ほか○件」。§88.2・Q84）。今の Home の画面とは別
 struct DevHomePreview: View {
@@ -184,7 +193,7 @@ struct DevHomePreview: View {
         .padding(.top, Theme.Spacing.s)
     }
 
-    /// 上の帯（2026-10-16 の H1 の配置）：左上に今日の日付、その下に小さな人型。時計ありなら右に時計（画面の幅の 45％・右寄せ。
+    /// 上の帯（2026-10-16 の H1 の配置）：左上に今日の日付、その下に小さな人型。時計ありなら右に時計（画面の幅の 40〜50％・右寄せ。
     /// 中の文字・針は大きさに合わせて縮める：Q85）。外周の「いま」「出発」の文字が画面の外へ出ないよう、右に余白をとる
     @ViewBuilder
     private func stage(screenWidth: CGFloat) -> some View {
@@ -362,13 +371,13 @@ private struct DevControlsPanel<Content: View>: View {
     }
 }
 
-/// 設定 ＞ 開発用：キャラクターの大きさ。キャラクターの高さ・姿勢・時計のあり／なし・時計の大きさを切り替えて、その場で比べる
+/// 設定 ＞ 開発用：キャラクターの大きさ。正式の 3 モードで、高さ・モード・時計のあり／なし・時計の大きさを切り替えて、その場で比べる
 struct CharacterSizeComparisonView: View {
     @State private var store = CharacterComparisonStore.fromLaunchArguments()
     private let sample = CharacterComparisonSample.make()
 
     var body: some View {
-        DevHomePreview(figure: CharacterFigure(height: store.height, design: .simple2, posture: store.posture),
+        DevHomePreview(figure: CharacterFigure(height: store.height, design: .official3, posture: .standing, mode: store.mode),
                        clockWidth: store.showsClock ? store.clockWidth : nil,
                        sample: sample)
             .safeAreaInset(edge: .bottom) { controls }
@@ -385,9 +394,9 @@ struct CharacterSizeComparisonView: View {
             }
             .pickerStyle(.segmented)
             HStack(spacing: Theme.Spacing.m) {
-                Picker("姿勢", selection: $store.posture) {
-                    ForEach(CharacterPosture.allCases, id: \.self) { posture in
-                        Text(posture.title).tag(posture)
+                Picker("モード", selection: $store.mode) {
+                    ForEach(CharacterMode.allCases, id: \.self) { mode in
+                        Text(mode.title).tag(mode)
                     }
                 }
                 .pickerStyle(.segmented)
@@ -426,11 +435,12 @@ extension CharacterDesign {
         style: CharacterStyle(outlineRatio: 0.04, cheekOpacity: 0.45))
 }
 
-/// 案の比べる画面で切り替えるもの。大きさは第一の候補に固定（人型 36pt・時計 45％。2026-10-16）
+/// 案の比べる画面で切り替えるもの。大きさは第一の候補に固定（人型 36pt・時計 40％。2026-10-16）
 @Observable
 final class CharacterDesignComparisonStore {
-    /// 正式「2 シンプル」（原画を正本に描き直した形）と、H1 の旧試作（参考。正式のデザインではない）
+    /// 正式「キャラクター 3 モード」（2026-10-16 正式採用。原画を正本に描き直した形）と、旧正式「2 シンプル」・H1 の旧試作（参考）
     enum Candidate: String, CaseIterable {
+        case official3
         case simple2
         case current
         case simple
@@ -439,7 +449,8 @@ final class CharacterDesignComparisonStore {
 
         var title: String {
             switch self {
-            case .simple2: "正式"
+            case .official3: "正式（3 モード）"
+            case .simple2: "旧 2 シンプル"
             case .current: "旧現行"
             case .simple: "旧シンプル"
             case .calm: "旧控えめ"
@@ -447,10 +458,11 @@ final class CharacterDesignComparisonStore {
             }
         }
 
-        var isOfficial: Bool { self == .simple2 }
+        var isOfficial: Bool { self == .official3 }
 
         var design: CharacterDesign {
             switch self {
+            case .official3: .official3
             case .simple2: .simple2
             case .current: .current
             case .simple: .simple
@@ -461,13 +473,20 @@ final class CharacterDesignComparisonStore {
     }
 
     static let height: CGFloat = 36
-    static let clockWidth: CGFloat = 0.45
+    static let clockWidth: CGFloat = 0.40
 
-    var candidate: Candidate = .simple2
+    var candidate: Candidate = .official3
+    /// 旧試作の姿勢（正式の 3 モードは立つ姿だけ。座った姿はまだ原画から作っていない）
     var posture: CharacterPosture = .standing
+    /// 正式の 3 モードの見た目
+    var mode: CharacterMode = .human
     var showsClock = true
 
-    /// Codemagic の画面写真用：起動引数 `-TimyCueCharacterDesign simple -TimyCueCharacterPosture sitting -TimyCueCharacterClock NO`
+    /// 正式なら立つ姿、旧試作なら選んだ姿勢で描く
+    var figurePosture: CharacterPosture { candidate.isOfficial ? .standing : posture }
+
+    /// Codemagic の画面写真用：起動引数
+    /// `-TimyCueCharacterDesign official3 -TimyCueCharacterMode rabbit -TimyCueCharacterPosture sitting -TimyCueCharacterClock NO`
     static func fromLaunchArguments(_ defaults: UserDefaults = .standard) -> CharacterDesignComparisonStore {
         let store = CharacterDesignComparisonStore()
         if let raw = defaults.string(forKey: "TimyCueCharacterDesign"), let candidate = Candidate(rawValue: raw) {
@@ -476,6 +495,9 @@ final class CharacterDesignComparisonStore {
         if let raw = defaults.string(forKey: "TimyCueCharacterPosture"), let posture = CharacterPosture(rawValue: raw) {
             store.posture = posture
         }
+        if let raw = defaults.string(forKey: "TimyCueCharacterMode"), let mode = CharacterMode(rawValue: raw) {
+            store.mode = mode
+        }
         if defaults.object(forKey: "TimyCueCharacterClock") != nil {
             store.showsClock = defaults.bool(forKey: "TimyCueCharacterClock")
         }
@@ -483,19 +505,19 @@ final class CharacterDesignComparisonStore {
     }
 }
 
-/// 設定 ＞ 開発用：キャラクターの案。案（現行・シンプル寄り・かわいさ控えめ・中間）・姿勢・時計のあり／なしを切り替えて比べる。
-/// 人型は 36pt、時計は 45％に固定（2026-10-16 の第一の候補）
+/// 設定 ＞ 開発用：キャラクターの案。案（正式の 3 モード・旧 2 シンプル・旧試作）と、正式ならモード（亀・人型・うさぎ）、
+/// 旧試作なら姿勢、時計のあり／なしを切り替えて比べる。人型は 36pt、時計は 40％に固定（2026-10-16 の第一の候補）
 struct CharacterDesignComparisonView: View {
     @State private var store = CharacterDesignComparisonStore.fromLaunchArguments()
     private let sample = CharacterComparisonSample.make()
 
     var body: some View {
         DevHomePreview(figure: CharacterFigure(height: CharacterDesignComparisonStore.height,
-                                               design: store.candidate.design, posture: store.posture),
+                                               design: store.candidate.design, posture: store.figurePosture, mode: store.mode),
                        clockWidth: store.showsClock ? CharacterDesignComparisonStore.clockWidth : nil,
                        sample: sample)
             .safeAreaInset(edge: .bottom) { controls }
-            .navigationTitle(store.candidate.isOfficial ? "キャラクター（正式：2 シンプル）" : "キャラクター（旧試作）")
+            .navigationTitle(store.candidate.isOfficial ? "キャラクター（正式：3 モード）" : "キャラクター（旧試作）")
             .navigationBarTitleDisplayMode(.inline)
     }
 
@@ -508,12 +530,21 @@ struct CharacterDesignComparisonView: View {
             }
             .pickerStyle(.segmented)
             HStack(spacing: Theme.Spacing.m) {
-                Picker("姿勢", selection: $store.posture) {
-                    ForEach(CharacterPosture.allCases, id: \.self) { posture in
-                        Text(posture.title).tag(posture)
+                if store.candidate.isOfficial {
+                    Picker("モード", selection: $store.mode) {
+                        ForEach(CharacterMode.allCases, id: \.self) { mode in
+                            Text(mode.title).tag(mode)
+                        }
                     }
+                    .pickerStyle(.segmented)
+                } else {
+                    Picker("姿勢", selection: $store.posture) {
+                        ForEach(CharacterPosture.allCases, id: \.self) { posture in
+                            Text(posture.title).tag(posture)
+                        }
+                    }
+                    .pickerStyle(.segmented)
                 }
-                .pickerStyle(.segmented)
                 Toggle("時計", isOn: $store.showsClock)
                     .fixedSize()
                     .tint(Theme.Colors.accent)

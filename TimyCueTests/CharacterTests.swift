@@ -156,6 +156,86 @@ final class Simple2DesignTests: XCTestCase {
     }
 }
 
+/// 正式のデザイン「キャラクター 3 モード」（2026-10-16。spec §88.4・Q93）。形が原画どおりかは、画面写真を原画と見比べて確かめる
+final class OfficialCharacterTests: XCTestCase {
+    private let design = CharacterDesign.official3
+
+    func testTheBodyIsTheSameInEveryModeAndOnlyTheEquipmentChanges() {
+        let human = CharacterLayout(height: 36, design: design, posture: .standing, mode: .human)
+        for mode in CharacterMode.allCases {
+            let layout = CharacterLayout(height: 36, design: design, posture: .standing, mode: mode)
+            XCTAssertEqual(layout.pose, human.pose, "\(mode)：本体は 3 モードで同じ")
+            XCTAssertEqual(layout.bodySize.height, 36, accuracy: 0.01, "\(mode)：36pt は装備を除いた体の全身の高さ")
+            XCTAssertEqual(layout.bodySize.width, human.bodySize.width, accuracy: 0.01)
+            XCTAssertEqual(layout.scale, human.scale, accuracy: 0.0001, "\(mode)：同じ縮尺")
+        }
+    }
+
+    func testHumanHasNoEquipmentTurtleCarriesTheShellAndRabbitAlwaysWearsTheHoodWithEars() {
+        XCTAssertTrue(design.equipment(.human).isEmpty, "人型：装備なし")
+
+        let turtle = design.equipment(.turtle)
+        XCTAssertEqual(turtle.behind.count, 1, "亀：甲羅（体の後ろ）だけ")
+        XCTAssertEqual(turtle.behind.first?.paint, .shellPlate)
+        XCTAssertFalse(turtle.behind.first?.pattern.isEmpty ?? true, "甲羅の板の境目の線")
+        XCTAssertTrue(turtle.mergedWithBody.isEmpty && turtle.front.isEmpty && turtle.arcs.isEmpty)
+
+        let rabbit = design.equipment(.rabbit)
+        XCTAssertEqual(rabbit.mergedWithBody.count, 3, "うさぎ：フードの外形と耳 2 つ（ひと続き）")
+        XCTAssertEqual(rabbit.front.map(\.paint), [.earInner, .earInner], "耳の内側")
+        XCTAssertEqual(rabbit.arcs.map(\.paint), [.hoodRing, .hoodBand], "顔まわりの縁取りと、右の耳の付け根の帯")
+        XCTAssertTrue(rabbit.behind.isEmpty)
+        // 耳はフード（頭）より上に出る：うさぎモードの間はいつも付ける（2026-10-16）
+        let head = CharacterPose.ellipseBounds(design.standing.head)
+        let ears = rabbit.mergedWithBody.dropFirst().map(CharacterPose.bounds(of:))
+        XCTAssertEqual(ears.count, 2)
+        XCTAssertTrue(ears.allSatisfy { $0.minY < head.minY - 20 }, "耳は頭の上に長く出る")
+        XCTAssertLessThan(ears[0].midX, head.midX)
+        XCTAssertGreaterThan(ears[1].midX, head.midX)
+    }
+
+    func testEquipmentWidensOrRaisesTheDrawingFrameButNotTheBodySize() {
+        let human = CharacterLayout(height: 36, design: design, posture: .standing, mode: .human)
+        let turtle = CharacterLayout(height: 36, design: design, posture: .standing, mode: .turtle)
+        let rabbit = CharacterLayout(height: 36, design: design, posture: .standing, mode: .rabbit)
+        XCTAssertEqual(human.size.height, 36 + human.outlineWidth * 2, accuracy: 0.01, "人型：枠は体と輪郭の線だけ")
+        XCTAssertGreaterThan(turtle.size.width, human.size.width, "亀：甲羅の分だけ枠が横に広い")
+        XCTAssertEqual(turtle.size.height, human.size.height, accuracy: 0.5, "甲羅は体の高さの中")
+        XCTAssertGreaterThan(rabbit.size.height, human.size.height + 5, "うさぎ：耳の分だけ枠が高い")
+        // 甲羅は見る人から見て左のわきに出る（原画の主な絵と同じ側）
+        let shell = CharacterPose.bounds(of: design.equipment(.turtle).behind[0].shape)
+        XCTAssertLessThan(shell.minX, design.standing.bounds.minX)
+        XCTAssertLessThan(shell.midX, CharacterPose.ellipseBounds(design.standing.head).midX)
+    }
+
+    func testNoCheeksNoMouthTwoSmallDotEyesAndNoProps() {
+        XCTAssertEqual(design.style.cheekOpacity, 0, "ほっぺなし")
+        XCTAssertTrue(design.standing.cheeks.isEmpty)
+        XCTAssertEqual(design.standing.eyes.count, 2, "小さな点の目が 2 つ（口なし）")
+        XCTAssertTrue(design.standing.eyes.allSatisfy { $0.size.width < design.standing.head.size.width * 0.1 })
+        XCTAssertTrue(design.standing.headMergesWithBody, "頭と胴はひと続き（あごの線なし）")
+        XCTAssertTrue((design.standing.arms + design.standing.legs).allSatisfy(\.mergesWithBody))
+        XCTAssertEqual(design.standing.details.count, 2, "腕の内側の短い線")
+        XCTAssertTrue(design.standing.frontGroups.isEmpty, "コーヒーのカップ・スマホ・バッグなどの小物は入れない（H3 で別に足す）")
+        // 腕・脚は付け根・長さ・角度で持つ（あとで動かせる）
+        XCTAssertEqual(design.standing.arms.count, 2)
+        XCTAssertEqual(design.standing.legs.count, 2)
+    }
+
+    func testColorsComeFromTheOriginalArtAndTheOutlineIsAboutOnePointAtThirtySix() {
+        let palette = design.style.palette
+        XCTAssertEqual(palette, .official3)
+        XCTAssertEqual(palette.outline, 0x3E2312, "原画のこげ茶の輪郭")
+        XCTAssertEqual(palette.bodyFill, 0xFEFAF1)
+        XCTAssertEqual(palette.shellPlate, 0xC3C691, "甲羅の明るい黄緑の板")
+        XCTAssertEqual(palette.shellLine, 0xA8AD73, "板の境目の少し暗い線")
+        XCTAssertEqual(palette.earInner, 0xFAB7AB, "耳の内側のピンク")
+        let layout = CharacterLayout(height: 36, design: design, posture: .standing)
+        XCTAssertEqual(layout.outlineWidth, 36 * 0.0297, accuracy: 0.001, "原画と同じ割合の輪郭（36pt で約 1pt）")
+        XCTAssertTrue((1...2).contains(layout.outlineWidth))
+    }
+}
+
 /// 時計を小さくしたときの中の文字・針・目盛り（2026-10-16 Q85）
 final class HomeClockStyleTests: XCTestCase {
     func testCurrentHomeClockKeepsItsSizes() {
@@ -189,47 +269,47 @@ final class HomeClockStyleTests: XCTestCase {
 #if TIMYCUE_DEV_TOOLS
 /// H1 の比べる画面（2026-10-15 決定 Q80）。検証用のビルドだけ
 final class CharacterComparisonTests: XCTestCase {
-    func testComparisonOffersFourHeightsBothPosturesAndTheClock() {
+    func testComparisonOffersFourHeightsTheThreeModesAndTheClock() {
         XCTAssertEqual(CharacterComparisonStore.heights, [16, 24, 36, 40])
         XCTAssertEqual(CharacterComparisonStore.label(for: 40), "約40pt", "約 40pt は画像からの推定")
         XCTAssertEqual(CharacterComparisonStore.label(for: 24), "24pt")
         let store = CharacterComparisonStore()
         XCTAssertEqual(store.height, 36, "初めは第一の候補の 36pt（2026-10-16）")
-        XCTAssertEqual(store.posture, .standing)
+        XCTAssertEqual(store.mode, .human, "正式の 3 モード。初めは人型")
         XCTAssertTrue(store.showsClock)
 
         XCTAssertEqual(CharacterComparisonStore.clockWidths, [0.40, 0.45, 0.50], "時計は画面の幅の 40・45・50％を比べる（2026-10-16）")
-        XCTAssertEqual(store.clockWidth, 0.45, "45％が第一の候補")
-        XCTAssertEqual(CharacterComparisonStore.clockLabel(for: 0.45), "45％")
+        XCTAssertEqual(store.clockWidth, 0.40, "最新の第一の候補は 40％")
+        XCTAssertEqual(CharacterComparisonStore.clockLabel(for: 0.40), "40％")
+        XCTAssertEqual(CharacterMode.allCases.map(\.title), ["亀", "人型", "うさぎ"])
 
         store.height = 40
-        store.posture = .sitting
-        store.showsClock = false
-        store.clockWidth = 0.50
-        XCTAssertEqual(store.posture.pose, .sitting)
-        XCTAssertEqual(CharacterLayout(height: store.height, pose: store.posture.pose).bodySize.height,
-                       40 * CharacterPose.sitting.bounds.height / 100, accuracy: 0.01)
-        XCTAssertEqual(CharacterComparisonStore.Posture.standing.pose, .standing)
+        store.mode = .rabbit
+        let layout = CharacterLayout(height: store.height, design: .official3, posture: .standing, mode: store.mode)
+        XCTAssertEqual(layout.bodySize.height, 40, accuracy: 0.01, "○pt は装備を除いた体の高さ")
+        XCTAssertEqual(CharacterPosture.standing.pose, .standing, "旧試作の姿勢")
     }
 
     func testLaunchArgumentsChooseTheScreenshotState() {
         let defaults = UserDefaults(suiteName: "CharacterComparisonTests")!
         defaults.removePersistentDomain(forName: "CharacterComparisonTests")
         defaults.set("40", forKey: "TimyCueCharacterHeight")
-        defaults.set("sitting", forKey: "TimyCueCharacterPosture")
+        defaults.set("turtle", forKey: "TimyCueCharacterMode")
         defaults.set("NO", forKey: "TimyCueCharacterClock")
         defaults.set("50", forKey: "TimyCueClockWidth")
         let store = CharacterComparisonStore.fromLaunchArguments(defaults)
         XCTAssertEqual(store.height, 40)
-        XCTAssertEqual(store.posture, .sitting)
+        XCTAssertEqual(store.mode, .turtle)
         XCTAssertFalse(store.showsClock)
         XCTAssertEqual(store.clockWidth, 0.50)
 
         defaults.set("30", forKey: "TimyCueCharacterHeight")
         defaults.set("74", forKey: "TimyCueClockWidth")
+        defaults.set("cat", forKey: "TimyCueCharacterMode")
         let other = CharacterComparisonStore.fromLaunchArguments(defaults)
         XCTAssertEqual(other.height, 36, "比べる 4 つ以外の高さは使わない")
-        XCTAssertEqual(other.clockWidth, 0.45, "比べる 3 つ以外の時計の大きさは使わない")
+        XCTAssertEqual(other.clockWidth, 0.40, "比べる 3 つ以外の時計の大きさは使わない")
+        XCTAssertEqual(other.mode, .human, "3 つ以外のモードは使わない")
         defaults.removePersistentDomain(forName: "CharacterComparisonTests")
     }
 
@@ -262,8 +342,9 @@ final class CharacterComparisonTests: XCTestCase {
     }
 
     func testDesignCandidatesDifferInTheIntendedWays() {
-        // 1 現行・2 シンプル寄り・3 かわいさ控えめ・4 中間（2026-10-16 H1 の続き）
-        XCTAssertEqual(CharacterDesignComparisonStore.Candidate.allCases.map(\.title), ["正式", "旧現行", "旧シンプル", "旧控えめ", "旧中間"])
+        // 正式の 3 モード・旧 2 シンプル・旧試作（1 現行・2 シンプル寄り・3 かわいさ控えめ・4 中間。2026-10-16 H1 の続き）
+        XCTAssertEqual(CharacterDesignComparisonStore.Candidate.allCases.map(\.title),
+                       ["正式（3 モード）", "旧 2 シンプル", "旧現行", "旧シンプル", "旧控えめ", "旧中間"])
         let current = CharacterDesign.current
         let simple = CharacterDesign.simple
         let calm = CharacterDesign.calm
@@ -284,7 +365,10 @@ final class CharacterComparisonTests: XCTestCase {
             let design = candidate.design
             let standing = CharacterLayout(height: 36, design: design, posture: .standing)
             XCTAssertEqual(standing.bodySize.height, 36, accuracy: 0.01, "\(candidate.title)：36pt は立った姿の全身の高さ")
-            XCTAssertLessThan(CharacterLayout(height: 36, design: design, posture: .sitting).bodySize.height, 36, "座ると低くなる")
+            if !candidate.isOfficial {
+                // 正式の 3 モードの座った姿は、まだ原画から作っていない（H2 の前提作業は立つ姿だけ）
+                XCTAssertLessThan(CharacterLayout(height: 36, design: design, posture: .sitting).bodySize.height, 36, "座ると低くなる")
+            }
             XCTAssertTrue((1...2).contains(standing.outlineWidth), "輪郭は 1〜2pt")
             for posture in CharacterPosture.allCases {
                 let pose = design.pose(posture)
@@ -297,32 +381,45 @@ final class CharacterComparisonTests: XCTestCase {
 
     func testDesignComparisonUsesTheFirstCandidateSizesAndLaunchArguments() {
         XCTAssertEqual(CharacterDesignComparisonStore.height, 36, "人型 36pt に固定（2026-10-16 の第一の候補）")
-        XCTAssertEqual(CharacterDesignComparisonStore.clockWidth, 0.45, "時計 45％に固定")
+        XCTAssertEqual(CharacterDesignComparisonStore.clockWidth, 0.40, "時計 40％に固定（最新の第一の候補）")
         let store = CharacterDesignComparisonStore()
-        XCTAssertEqual(store.candidate, .simple2, "初めは正式の 2 シンプル（2026-10-16）")
+        XCTAssertEqual(store.candidate, .official3, "初めは正式の 3 モード（2026-10-16）")
         XCTAssertTrue(store.candidate.isOfficial)
+        XCTAssertFalse(CharacterDesignComparisonStore.Candidate.simple2.isOfficial, "旧正式の 2 シンプルは旧試作と同じ扱い")
         XCTAssertFalse(CharacterDesignComparisonStore.Candidate.current.isOfficial, "旧試作は正式と分ける")
+        XCTAssertEqual(store.mode, .human)
         XCTAssertEqual(store.posture, .standing)
         XCTAssertTrue(store.showsClock)
+        store.posture = .sitting
+        XCTAssertEqual(store.figurePosture, .standing, "正式は立つ姿だけ（座った姿はまだ作っていない）")
+        store.candidate = .simple2
+        XCTAssertEqual(store.figurePosture, .sitting, "旧試作は選んだ姿勢")
         let defaults = UserDefaults(suiteName: "CharacterDesignComparisonTests")!
         defaults.removePersistentDomain(forName: "CharacterDesignComparisonTests")
         defaults.set("calm", forKey: "TimyCueCharacterDesign")
         defaults.set("sitting", forKey: "TimyCueCharacterPosture")
         defaults.set("NO", forKey: "TimyCueCharacterClock")
+        defaults.set("rabbit", forKey: "TimyCueCharacterMode")
         let launched = CharacterDesignComparisonStore.fromLaunchArguments(defaults)
         XCTAssertEqual(launched.candidate, .calm)
         XCTAssertEqual(launched.posture, .sitting)
+        XCTAssertEqual(launched.mode, .rabbit)
         XCTAssertFalse(launched.showsClock)
         defaults.removePersistentDomain(forName: "CharacterDesignComparisonTests")
     }
 
     func testClockOnTheRightAndTheFigureDoNotOverlapEvenOnSmallScreens() {
-        // 時計 45％・右寄せ、人型は左上（2026-10-16 の H1 の配置）。iPhone SE（375pt）から Pro Max（440pt）まで
-        let figure = CharacterLayout(height: 36, design: .simple2, posture: .standing).size.width
-        for width in [375, 393, 402, 440] as [CGFloat] {
-            XCTAssertLessThan(DevStageLayout.figureRightEdge(figureWidth: figure),
-                              DevStageLayout.clockLeftEdge(screenWidth: width, clockWidth: 0.45),
-                              "\(Int(width))pt：時計（外周の文字まで）と人型が重ならない")
+        // 時計 40〜50％・右寄せ、人型は左上（2026-10-16 の H1 の配置）。iPhone SE（375pt）から Pro Max（440pt）まで。
+        // 正式の 3 モードは、甲羅・耳の分も含めた枠で確かめる
+        for mode in CharacterMode.allCases {
+            let figure = CharacterLayout(height: 36, design: .official3, posture: .standing, mode: mode).size.width
+            for width in [375, 393, 402, 440] as [CGFloat] {
+                for clockWidth in CharacterComparisonStore.clockWidths {
+                    XCTAssertLessThan(DevStageLayout.figureRightEdge(figureWidth: figure),
+                                      DevStageLayout.clockLeftEdge(screenWidth: width, clockWidth: clockWidth),
+                                      "\(mode)・\(Int(width))pt・時計 \(Int(clockWidth * 100))％：時計（外周の文字まで）と人型が重ならない")
+                }
+            }
         }
         XCTAssertGreaterThanOrEqual(Theme.Spacing.l + DevStageLayout.clockTrailingInset, DevStageLayout.labelReach,
                                     "右寄せでも「いま」「出発」の文字が画面の外へ出ない")
