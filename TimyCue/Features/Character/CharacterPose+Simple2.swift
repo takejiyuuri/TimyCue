@@ -15,8 +15,8 @@ extension CharacterPose {
             Limb(joint: CGPoint(x: 139, y: 234.5), length: 26, width: 22, angle: 0, mergesWithBody: true),
         ],
         arms: [
-            Limb(joint: CGPoint(x: 63, y: 176), length: 40, width: 20, angle: 10, mergesWithBody: true),
-            Limb(joint: CGPoint(x: 167.5, y: 176), length: 40, width: 20, angle: -10, mergesWithBody: true),
+            Limb(joint: CGPoint(x: 63.5, y: 181), length: 35, width: 20, angle: 10, mergesWithBody: true),
+            Limb(joint: CGPoint(x: 167, y: 181), length: 35, width: 20, angle: -10, mergesWithBody: true),
         ],
         eyes: [
             Part(center: CGPoint(x: 78.5, y: 117), size: CGSize(width: 13.5, height: 14)),
@@ -30,8 +30,8 @@ extension CharacterPose {
             Curve(start: CGPoint(x: 161, y: 199), control: CGPoint(x: 161.5, y: 209), end: CGPoint(x: 167, y: 214)),
         ])
 
-    /// 座った姿：正面を向く。頭と胴はひと続きで、その手前に前へ出した脚（上が平らで、下に膝が 2 つ丸く出る）と、
-    /// 右の膝の上の手を、それぞれの輪郭で重ねる。脚のあいだに短い境目の線
+    /// 座った姿：正面を向く。頭と胴はひと続きで、その手前に前へ出した脚（丸い膝が 2 つ）と、
+    /// 右の膝の上の手を、それぞれの輪郭で重ねる。膝のあいだに短い境目の線（2026-10-16 ビルド確認 #46 の画面写真を原画と見比べて直した）
     static let simple2Sitting = CharacterPose(
         head: Part(center: CGPoint(x: 120, y: 102.2), size: CGSize(width: 200, height: 190.1)),
         body: Part(center: CGPoint(x: 131, y: 192.3), size: CGSize(width: 109.9, height: 44)),
@@ -46,15 +46,14 @@ extension CharacterPose {
         headMergesWithBody: true,
         frontGroups: [
             [
-                .roundedRect(Part(center: CGPoint(x: 128.2, y: 206.6), size: CGSize(width: 102.2, height: 37.4)), cornerRatio: 0.16),
-                .ellipse(Part(center: CGPoint(x: 102.4, y: 220.9), size: CGSize(width: 50.6, height: 26.4))),
-                .ellipse(Part(center: CGPoint(x: 150.8, y: 223.1), size: CGSize(width: 52.8, height: 26.4))),
+                .roundedRect(Part(center: CGPoint(x: 99.1, y: 214.3), size: CGSize(width: 57.2, height: 52.8)), cornerRatio: 0.48),
+                .roundedRect(Part(center: CGPoint(x: 153, y: 215.4), size: CGSize(width: 59.4, height: 52.8)), cornerRatio: 0.48),
             ],
             [
-                .ellipse(Part(center: CGPoint(x: 179.3, y: 215.4), size: CGSize(width: 26.4, height: 33))),
+                .ellipse(Part(center: CGPoint(x: 173.9, y: 209.9), size: CGSize(width: 26.4, height: 30.8))),
             ],
         ],
         details: [
-            Curve(start: CGPoint(x: 127.7, y: 202.2), control: CGPoint(x: 123.3, y: 219.8), end: CGPoint(x: 124.9, y: 235.2)),
+            Curve(start: CGPoint(x: 126, y: 204.4), control: CGPoint(x: 124.4, y: 222), end: CGPoint(x: 125.5, y: 237.4)),
         ])
 }
