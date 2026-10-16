@@ -132,12 +132,15 @@ workflows:
             done
           done
           # H2 の前提作業 1（2026-10-16）：正式キャラクター 3 モードの立ち姿（設定 ＞ 開発用：キャラクター 3 モード）。
-          # 上に 3 モードを本体 36pt で並べ、下に選んだモードを 108pt で。最後の 1 枚は 36pt のうさぎで、本体と耳を含めた枠を点線で出す
+          # 上に 3 モードを本体 36pt で並べ、下に選んだモードを 108pt で。続けて 36pt のうさぎで、本体と耳を含めた枠を点線で出す
           for MODE in turtle human rabbit; do
             capture "modes-$MODE" -TimyCueTab settings -TimyCueDevScreen characterModes -TimyCueCharacterMode "$MODE" \
               -TimyCueCharacterModeHeight 108
           done
           capture modes-area-36 -TimyCueTab settings -TimyCueDevScreen characterModes -TimyCueCharacterMode rabbit \
+            -TimyCueCharacterModeHeight 36 -TimyCueCharacterModeArea YES
+          # 甲羅は見る人から見て左（2026-10-17）。36pt の亀で、本体の枠と、左へはみ出す甲羅を含めた枠を点線で出す
+          capture modes-area-36-turtle -TimyCueTab settings -TimyCueDevScreen characterModes -TimyCueCharacterMode turtle \
             -TimyCueCharacterModeHeight 36 -TimyCueCharacterModeArea YES
           # H2 の前提作業 2（2026-10-16）：時計の確かめ（設定 ＞ 開発用：時計の確かめ。時計 40％）。数える先からの分は m＝前・p＝後
           for SHOT in "withPlace m61" "withPlace m60" "withPlace m23" "withPlace m1" "withPlace 0" "withPlace p3" \

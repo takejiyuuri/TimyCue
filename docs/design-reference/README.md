@@ -44,13 +44,13 @@
 | ファイル（characters/official-3modes/reproduction/） | 中身 |
 |---|---|
 | stand-turtle.png・stand-human.png・stand-rabbit.png | 原画の「主なポーズ・動作例」の「立つ」の切り出し（原画の画素のまま。再現の基準） |
-| comparison.png | 3 モードの、原画の「立つ」・再現（アプリと同じ部品と順で描いたもの）・重ね合わせ（赤＝再現の線） |
+| comparison.png | 3 モードの、原画の「立つ」（亀は左右反転）・再現（アプリと同じ部品と順で描いたもの）・重ね合わせ（赤＝再現の線） |
 | reproduction-36pt.png | 再現の 3 モードを本体 36pt（画面の 3 倍の画素）で並べたもの |
 
 - 作り直し：`python tools/character_3modes/make_comparison.py docs/design-reference/characters/official-3modes`（本体の値の当てはめは `fit_body.py`）。値は `TimyCue/Features/Character/CharacterPose+Official.swift` と同じ。
 - 実機（アプリ）での見え方は、検証用のビルドの「設定 ＞ 開発用：キャラクター 3 モード」と、Codemagic の画面写真（modes-*.png）で確かめる。原画はアプリに入れない。
 - 残る差異は docs/design-notes.md（2026-10-16「原画と違うところ」）。
-- comparison.png・reproduction-36pt.png の亀モードは、甲羅を「立つ」に合わせて右に置いている（TestFlight 1.0 (24) と同じ）。2026-10-16 の決定で正式は左なので、修正の対象（コードの修正のときに作り直す）。stand-turtle.png は甲羅の大きさ・高さの基準にはなるが、側の基準にはしない（側は主な絵・モード切り替えの絵・Home の絵）。
+- 甲羅は正式に見る人から見て左（2026-10-16 決定・2026-10-17 確認）。2026-10-17 に再現を左へ直し、comparison.png・reproduction-36pt.png を作り直した。comparison.png の亀の原画の列は、甲羅の側をそろえるために「立つ」を左右反転して並べている（原画の顔の向きも反転して見える）。TestFlight 1.0 (24) までの再現は右だった。stand-turtle.png は甲羅の大きさ・高さの基準にはなるが、側の基準にはしない（側は主な絵・モード切り替えの絵・Home の絵）。
 
 ## H2 の画面見本（ワイヤーフレーム。2026-10-16）
 

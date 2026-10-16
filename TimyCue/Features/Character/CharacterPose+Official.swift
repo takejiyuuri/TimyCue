@@ -35,11 +35,13 @@ extension CharacterPose {
 }
 
 extension CharacterGearSet {
-    /// 正式キャラクター 3 モードの装備。原画の亀「立つ」・うさぎ（3 モードの見出しの絵と「立つ」）を測り、本体の頭に合わせて置いた値
+    /// 正式キャラクター 3 モードの装備。原画の亀「立つ」・うさぎ（3 モードの見出しの絵と「立つ」）を測り、本体の頭に合わせて置いた値。
+    /// 甲羅の形・大きさ・傾きの大きさは「立つ」を測った値のまま。側だけは、主な絵・モード切り替えの絵・Home の絵に合わせて
+    /// 見る人から見て左（「立つ」は右に描かれているので、本体の中心 x = 45.25 で左右を入れ替えた。2026-10-17。spec §88.4）
     static let official = CharacterGearSet(
-        // 甲羅：本体の後ろの右側。上が少し右へ傾いた楕円（左の部分は本体に隠れる）
+        // 甲羅：背中に背負い、見る人から見て左の脇からはみ出す。上が少し外（左）へ傾いた楕円（右の部分は本体に隠れる）
         shell: ShellGear(
-            shape: CharacterPose.Part(center: CGPoint(x: 74.0, y: 67.5), size: CGSize(width: 23.5, height: 38), rotation: 10),
+            shape: CharacterPose.Part(center: CGPoint(x: 16.5, y: 67.5), size: CGSize(width: 23.5, height: 38), rotation: -10),
             pattern: [
                 // 真ん中の甲板（六角形）
                 [CGPoint(x: -0.18, y: -0.30), CGPoint(x: 0.18, y: -0.30), CGPoint(x: 0.26, y: -0.08), CGPoint(x: 0.18, y: 0.16),

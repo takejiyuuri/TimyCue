@@ -10,7 +10,8 @@ enum CharacterGear: String, CaseIterable, Hashable {
     case rabbitHood
 }
 
-/// 亀の甲羅：本体の後ろの右側に背負う、少し傾いた楕円と甲板の模様
+/// 亀の甲羅：背中に背負う、少し傾いた楕円と甲板の模様。正面向きでは、見る人から見て左の脇から一部がはみ出して見える
+/// （2026-10-16 決定・2026-10-17 確認。spec §88.4。どの姿勢でも同じ基準。横向き・後ろ向きは体の向きに合わせる）
 struct ShellGear: Equatable {
     var shape: CharacterPose.Part
     /// 甲板の模様の折れ線。甲羅の中の座標（横 -0.5〜0.5・縦 -0.5〜0.5）で持ち、甲羅の大きさと向きに合わせる

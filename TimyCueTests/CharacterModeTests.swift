@@ -26,9 +26,13 @@ final class CharacterModeTests: XCTestCase {
         let rabbit = CharacterLayout(height: 36, mode: .rabbit)
         XCTAssertEqual(human.size.height, 36 + human.outlineWidth * 2, accuracy: 0.01, "装備なしは本体と輪郭の線の分だけ")
         XCTAssertEqual(human.bodyFrame.minX, human.outlineWidth, accuracy: 0.01)
-        XCTAssertGreaterThan(turtle.size.width, human.size.width, "甲羅の分だけ右へ広げる")
+        XCTAssertGreaterThan(turtle.size.width, human.size.width, "甲羅の分だけ左へ広げる")
         XCTAssertEqual(turtle.size.height, human.size.height, accuracy: 0.01, "甲羅は本体の高さの中に収まる")
-        XCTAssertEqual(turtle.bodyFrame.minX, human.bodyFrame.minX, accuracy: 0.01, "甲羅は右側なので、本体の位置は左のまま")
+        // 甲羅は見る人から見て左（2026-10-16 決定・2026-10-17 確認）。本体の右側の余白は人型と同じで、本体は甲羅の分だけ右にある
+        XCTAssertEqual(turtle.size.width - turtle.bodyFrame.maxX, human.size.width - human.bodyFrame.maxX, accuracy: 0.01,
+                       "甲羅は右へははみ出さない")
+        XCTAssertGreaterThan(turtle.bodyFrame.minX, human.bodyFrame.minX + 3, "甲羅は左へはみ出す")
+        XCTAssertEqual(rabbit.bodyFrame.minX, human.bodyFrame.minX, accuracy: 0.01, "うさぎモードに甲羅の領域はない")
         XCTAssertGreaterThan(rabbit.size.height, human.size.height + 5, "耳の分だけ上へ広げる")
         XCTAssertGreaterThan(rabbit.bodyFrame.minY, human.bodyFrame.minY, "本体は耳の下")
         // 足元は枠の下の端（並べたとき足元がそろう）
@@ -58,11 +62,20 @@ final class CharacterModeTests: XCTestCase {
         XCTAssertEqual(pose.arms[0].angle, -pose.arms[1].angle, accuracy: 0.001)
     }
 
-    func testShellSitsBehindTheRightSideOfTheBody() {
+    func testShellSitsBehindTheLeftSideOfTheBody() {
+        // 甲羅は背中に背負い、正面向きでは見る人から見て左の脇から一部がはみ出して見える（spec §88.4。2026-10-16 決定・
+        // 2026-10-17 確認。原画の「立つ」は右に描かれているが例外で、主な絵・モード切り替えの絵・Home の絵の左にそろえる）
         let pose = CharacterPose.officialStanding
         let shell = OfficialCharacter.gear.shell
         let shellBounds = CharacterPose.ellipseBounds(shell.shape)
-        XCTAssertGreaterThan(shell.shape.center.x, pose.head.center.x, "甲羅は右側（原画の亀「立つ」）")
+        XCTAssertLessThan(shell.shape.center.x, pose.head.center.x, "甲羅は見る人から見て左")
+        XCTAssertLessThan(shellBounds.minX, pose.bounds.minX, "甲羅は本体の左の外へはみ出す")
+        XCTAssertLessThan(shellBounds.maxX, pose.head.center.x, "甲羅は本体の右へは出ない")
+        XCTAssertLessThan(shell.shape.rotation, 0, "上が少し外（左）へ傾く")
+        // 形・大きさ・傾きの大きさは原画の「立つ」を測った値のまま（側だけを、本体の中心で左右に入れ替えた）
+        XCTAssertEqual(shell.shape.size, CGSize(width: 23.5, height: 38))
+        XCTAssertEqual(abs(shell.shape.rotation), 10, accuracy: 0.001)
+        XCTAssertEqual(shell.shape.center.x + 74.0, pose.head.center.x * 2, accuracy: 0.001, "「立つ」の位置（x = 74.0）の左右反転")
         XCTAssertGreaterThan(shellBounds.minY, pose.bounds.minY, "甲羅は頭のてっぺんより下")
         XCTAssertLessThanOrEqual(shellBounds.maxY, pose.bounds.maxY, "甲羅は足元より下へ出ない")
         // 模様の線は甲羅の中（甲羅の外へは描かない。描くときも甲羅の形で切る）
@@ -72,6 +85,19 @@ final class CharacterModeTests: XCTestCase {
                 XCTAssertTrue(shellBounds.insetBy(dx: -slack, dy: -slack).contains(point))
             }
         }
+    }
+
+    func testShellIsDrawnOnlyInTurtleModeAndReadableAt36pt() {
+        for mode in CharacterMode.allCases {
+            XCTAssertEqual(mode.gear.contains(.shell), mode == .turtle, "甲羅は亀モードだけ（\(mode.title)）")
+        }
+        XCTAssertTrue(OfficialCharacter.gear.bounds(for: CharacterMode.human.gear).isNull, "人型モードは装備の領域なし")
+        // 36pt（Home の第一の候補）でも甲羅の形が分かる大きさ（はみ出す幅 約 3.9pt・甲羅の高さ 約 16pt。目安は仮）
+        let pose = CharacterPose.officialStanding
+        let scale = 36 / OfficialCharacter.referenceHeight
+        let shellBounds = CharacterPose.ellipseBounds(OfficialCharacter.gear.shell.shape)
+        XCTAssertGreaterThanOrEqual((pose.bounds.minX - shellBounds.minX) * scale, 3, "本体の外へはみ出す幅")
+        XCTAssertGreaterThanOrEqual(OfficialCharacter.gear.shell.shape.size.height * scale, 15, "甲羅の高さ")
     }
 
     func testRabbitHoodEarsStandAboveTheHead() {
