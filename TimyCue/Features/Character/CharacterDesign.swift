@@ -39,8 +39,13 @@ struct CharacterDesign: Equatable {
         CharacterDesign(standing: standing.adjusted(adjustment), sitting: sitting.adjusted(adjustment), style: style)
     }
 
-    /// H1 で作った形（現行案。2026-10-15）
+    /// H1 で最初に作った形（A' をもとにした旧試作。2026-10-15）
     static let current = CharacterDesign(standing: .standing, sitting: .sitting, style: .current)
+
+    /// 正式のデザイン「2 シンプル」（2026-10-16 正式採用。原画を正本に描き直したもの。spec §88.4）。
+    /// ほっぺ・口・リュック・影はない。輪郭の太さは原画と同じ割合（全身の高さの約 2.8％。36pt では下限の 1pt）
+    static let simple2 = CharacterDesign(standing: .simple2Standing, sitting: .simple2Sitting,
+                                         style: CharacterStyle(outlineRatio: 0.0276, cheekOpacity: 0))
 }
 
 extension CharacterPose {

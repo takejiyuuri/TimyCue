@@ -45,6 +45,25 @@ struct CharacterPose: Equatable {
     var arms: [Limb]
     var eyes: [Part]
     var cheeks: [Part]
+    /// 頭も胴とひと続きの形にするか（あごの線を出さない。2 シンプル）。false なら頭を手前に自分の輪郭で描く
+    var headMergesWithBody = false
+    /// 手前に重ねるまとまり（座った姿の脚・手など）。まとまりごとに、外側の輪郭だけを出す
+    var frontGroups: [[Shape]] = []
+    /// 細部の線（腕の内側・脚の境目など）。輪郭と同じ色・太さ
+    var details: [Curve] = []
+
+    /// 手前に重ねる形
+    enum Shape: Equatable {
+        case ellipse(Part)
+        case roundedRect(Part, cornerRatio: CGFloat)
+    }
+
+    /// 細部の線（2 次の曲線）
+    struct Curve: Equatable {
+        var start: CGPoint
+        var control: CGPoint
+        var end: CGPoint
+    }
 
     var bodyCornerRadius: CGFloat {
         min(body.size.width * bodyCornerRatio, min(body.size.width, body.size.height) / 2)
@@ -56,7 +75,20 @@ struct CharacterPose: Equatable {
         for limb in legs + arms {
             rect = rect.union(Self.roundedRectBounds(limb.part, cornerRadius: limb.width / 2))
         }
+        for shape in frontGroups.joined() {
+            switch shape {
+            case .ellipse(let part):
+                rect = rect.union(Self.ellipseBounds(part))
+            case .roundedRect(let part, let cornerRatio):
+                rect = rect.union(Self.roundedRectBounds(part, cornerRadius: Self.cornerRadius(part, ratio: cornerRatio)))
+            }
+        }
         return rect
+    }
+
+    /// 角の丸み（幅に対する割合。幅・高さの短い方の半分まで）
+    static func cornerRadius(_ part: Part, ratio: CGFloat) -> CGFloat {
+        min(part.size.width * ratio, min(part.size.width, part.size.height) / 2)
     }
 
     /// 回した楕円の外の枠

@@ -158,8 +158,7 @@ struct DevHomePreview: View {
     var body: some View {
         GeometryReader { proxy in
             VStack(alignment: .leading, spacing: Theme.Spacing.s) {
-                header
-                stageBand(screenWidth: proxy.size.width)
+                stage(screenWidth: proxy.size.width)
                 nowRow
                 timeline
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -185,13 +184,18 @@ struct DevHomePreview: View {
         .padding(.top, Theme.Spacing.s)
     }
 
-    /// 演出帯：時計ありなら時計（中の文字・針は大きさに合わせて縮める：Q85）と、その左下にキャラクター。
-    /// 時計なしなら低い帯にキャラクターだけ（§88.3）
+    /// 上の帯（2026-10-16 の H1 の配置）：左上に今日の日付、その下に小さな人型。時計ありなら右に時計（画面の幅の 45％・右寄せ。
+    /// 中の文字・針は大きさに合わせて縮める：Q85）。外周の「いま」「出発」の文字が画面の外へ出ないよう、右に余白をとる
     @ViewBuilder
-    private func stageBand(screenWidth: CGFloat) -> some View {
-        if let clockWidth, let face = sample.face {
-            let diameter = screenWidth * clockWidth
-            ZStack(alignment: .bottomLeading) {
+    private func stage(screenWidth: CGFloat) -> some View {
+        HStack(alignment: .top, spacing: Theme.Spacing.s) {
+            VStack(alignment: .leading, spacing: Theme.Spacing.m) {
+                header
+                figure
+            }
+            Spacer(minLength: 0)
+            if let clockWidth, let face = sample.face {
+                let diameter = screenWidth * clockWidth
                 VStack(spacing: Theme.Spacing.xs) {
                     HomeClockView(face: face, targetWord: "出発", scalesWithSize: true)
                         .frame(width: diameter, height: diameter)
@@ -200,13 +204,10 @@ struct DevHomePreview: View {
                     Text("\(HomeClockMath.flowText(now: face.now, target: face.target)) 出発予定")
                         .font(HomeMetrics.flowFont)
                         .foregroundStyle(Theme.Colors.textSecondary)
+                        .fixedSize()
                 }
-                .frame(maxWidth: .infinity)
-                figure
+                .padding(.trailing, DevStageLayout.clockTrailingInset)
             }
-        } else {
-            figure
-                .frame(maxWidth: .infinity, minHeight: Layout.bandHeightWithoutClock, alignment: .bottomLeading)
         }
     }
 
@@ -319,7 +320,6 @@ struct DevHomePreview: View {
 
     /// この画面だけの寸法（開発用なので、ここに置く）
     private enum Layout {
-        static let bandHeightWithoutClock: CGFloat = 56
         static let railWidth: CGFloat = 20
         static let railLine: CGFloat = 2
         static let nowDot: CGFloat = 14
@@ -327,6 +327,24 @@ struct DevHomePreview: View {
         static let departureDot: CGFloat = 9
         static let markerRowHeight: CGFloat = 20
         static let rowSpacing: CGFloat = 10
+    }
+}
+
+/// 比べる画面の上の帯の配置の計算（2026-10-16 の H1 の配置。テストで、時計と人型が重ならないことを確かめる）
+enum DevStageLayout {
+    /// 時計の右の余白。画面の左右の余白（16pt）と合わせて、外周の「いま」「出発」の文字が画面の外へ出ない幅にする
+    static let clockTrailingInset: CGFloat = 14
+    /// 時計の外周から、「いま」「出発」の文字の外側の端までの長さ（文字の中心までの間隔＋文字の幅の半分）
+    static let labelReach: CGFloat = HomeMetrics.markerLabelGap + 14
+
+    /// 時計の外周の文字まで含めた左端（画面の左からの位置）
+    static func clockLeftEdge(screenWidth: CGFloat, clockWidth: CGFloat) -> CGFloat {
+        screenWidth - Theme.Spacing.l - clockTrailingInset - screenWidth * clockWidth - labelReach
+    }
+
+    /// 人型（左上、日付の下）の右端
+    static func figureRightEdge(figureWidth: CGFloat) -> CGFloat {
+        Theme.Spacing.l + figureWidth
     }
 }
 
@@ -350,7 +368,7 @@ struct CharacterSizeComparisonView: View {
     private let sample = CharacterComparisonSample.make()
 
     var body: some View {
-        DevHomePreview(figure: CharacterFigure(height: store.height, design: .current, posture: store.posture),
+        DevHomePreview(figure: CharacterFigure(height: store.height, design: .simple2, posture: store.posture),
                        clockWidth: store.showsClock ? store.clockWidth : nil,
                        sample: sample)
             .safeAreaInset(edge: .bottom) { controls }
@@ -411,7 +429,9 @@ extension CharacterDesign {
 /// 案の比べる画面で切り替えるもの。大きさは第一の候補に固定（人型 36pt・時計 45％。2026-10-16）
 @Observable
 final class CharacterDesignComparisonStore {
+    /// 正式「2 シンプル」（原画を正本に描き直した形）と、H1 の旧試作（参考。正式のデザインではない）
     enum Candidate: String, CaseIterable {
+        case simple2
         case current
         case simple
         case calm
@@ -419,15 +439,19 @@ final class CharacterDesignComparisonStore {
 
         var title: String {
             switch self {
-            case .current: "現行"
-            case .simple: "シンプル"
-            case .calm: "控えめ"
-            case .middle: "中間"
+            case .simple2: "正式"
+            case .current: "旧現行"
+            case .simple: "旧シンプル"
+            case .calm: "旧控えめ"
+            case .middle: "旧中間"
             }
         }
 
+        var isOfficial: Bool { self == .simple2 }
+
         var design: CharacterDesign {
             switch self {
+            case .simple2: .simple2
             case .current: .current
             case .simple: .simple
             case .calm: .calm
@@ -439,7 +463,7 @@ final class CharacterDesignComparisonStore {
     static let height: CGFloat = 36
     static let clockWidth: CGFloat = 0.45
 
-    var candidate: Candidate = .current
+    var candidate: Candidate = .simple2
     var posture: CharacterPosture = .standing
     var showsClock = true
 
@@ -471,7 +495,7 @@ struct CharacterDesignComparisonView: View {
                        clockWidth: store.showsClock ? CharacterDesignComparisonStore.clockWidth : nil,
                        sample: sample)
             .safeAreaInset(edge: .bottom) { controls }
-            .navigationTitle("キャラクターの案")
+            .navigationTitle(store.candidate.isOfficial ? "キャラクター（正式：2 シンプル）" : "キャラクター（旧試作）")
             .navigationBarTitleDisplayMode(.inline)
     }
 

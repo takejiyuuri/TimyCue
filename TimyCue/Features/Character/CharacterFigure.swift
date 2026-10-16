@@ -42,11 +42,16 @@ struct CharacterFigure: View {
             for path in paths { context.fill(path, with: .color(CharacterMetrics.bodyFill)) }
         }
         let limbs = pose.legs + pose.arms
-        outlineAndFill(limbs.filter(\.mergesWithBody).map(layout.path(for:)) + [layout.bodyPath])
+        var silhouette = limbs.filter(\.mergesWithBody).map { layout.path(for: $0) } + [layout.bodyPath]
+        if pose.headMergesWithBody { silhouette.append(layout.ellipsePath(pose.head)) }
+        outlineAndFill(silhouette)
         for limb in limbs where !limb.mergesWithBody {
             outlineAndFill([layout.path(for: limb)])
         }
-        outlineAndFill([layout.ellipsePath(pose.head)])
+        if !pose.headMergesWithBody { outlineAndFill([layout.ellipsePath(pose.head)]) }
+        for group in pose.frontGroups {
+            outlineAndFill(group.map { layout.path(for: $0) })
+        }
         if layout.style.cheekOpacity > 0 {
             for cheek in pose.cheeks {
                 context.fill(layout.ellipsePath(cheek), with: .color(CharacterMetrics.cheek.opacity(layout.style.cheekOpacity)))
@@ -54,6 +59,10 @@ struct CharacterFigure: View {
         }
         for eye in pose.eyes {
             context.fill(layout.ellipsePath(eye), with: .color(CharacterMetrics.eye))
+        }
+        let detail = StrokeStyle(lineWidth: layout.outlineWidth, lineCap: .round, lineJoin: .round)
+        for curve in pose.details {
+            context.stroke(layout.path(for: curve), with: .color(CharacterMetrics.outline), style: detail)
         }
     }
 }
@@ -105,6 +114,24 @@ struct CharacterLayout: Equatable {
     func path(for limb: CharacterPose.Limb) -> Path {
         let part = limb.part
         return Path(roundedRect: rect(part), cornerRadius: limb.width / 2 * scale, style: .circular).applying(rotation(part))
+    }
+
+    func path(for shape: CharacterPose.Shape) -> Path {
+        switch shape {
+        case .ellipse(let part):
+            return ellipsePath(part)
+        case .roundedRect(let part, let cornerRatio):
+            return Path(roundedRect: rect(part), cornerRadius: CharacterPose.cornerRadius(part, ratio: cornerRatio) * scale,
+                        style: .circular)
+                .applying(rotation(part))
+        }
+    }
+
+    func path(for curve: CharacterPose.Curve) -> Path {
+        var path = Path()
+        path.move(to: point(curve.start))
+        path.addQuadCurve(to: point(curve.end), control: point(curve.control))
+        return path
     }
 
     private func rect(_ part: CharacterPose.Part) -> CGRect {

@@ -102,6 +102,41 @@ final class CharacterDesignTests: XCTestCase {
     }
 }
 
+/// 正式のデザイン「2 シンプル」（2026-10-16。原画を正本に描き直した形）。形が原画どおりかは、画面写真を原画と見比べて確かめる
+final class Simple2DesignTests: XCTestCase {
+    func testSimple2HasNoCheeksNoMouthNoBackpackAndOneOutline() {
+        let design = CharacterDesign.simple2
+        XCTAssertEqual(design.style.cheekOpacity, 0, "ほっぺなし")
+        XCTAssertTrue(design.standing.cheeks.isEmpty && design.sitting.cheeks.isEmpty)
+        XCTAssertEqual(design.standing.eyes.count, 2, "小さな点の目が 2 つ（口なし）")
+        XCTAssertTrue(design.standing.eyes.allSatisfy { $0.size.width < design.standing.head.size.width * 0.1 }, "目は小さな点")
+        XCTAssertTrue(design.standing.headMergesWithBody, "頭と胴はひと続き（あごの線なし）")
+        XCTAssertTrue(design.standing.arms.allSatisfy(\.mergesWithBody), "腕は胴の輪郭とひと続き")
+        XCTAssertTrue(design.standing.legs.allSatisfy(\.mergesWithBody))
+        XCTAssertEqual(design.standing.details.count, 2, "腕の内側の短い線")
+        XCTAssertTrue(design.standing.frontGroups.isEmpty, "リュックなどの小物はない")
+        // 脚のあいだの小さな切れ込み：2 本の脚が離れている
+        let legs = design.standing.legs.map { CharacterPose.roundedRectBounds($0.part, cornerRadius: $0.width / 2) }
+        XCTAssertLessThan(legs[0].maxX, legs[1].minX)
+        // 足元の影や床はない：いちばん下は脚
+        XCTAssertEqual(design.standing.bounds.maxY, legs.map(\.maxY).max()!, accuracy: 0.01)
+    }
+
+    func testSittingFacesForwardWithLegsAndAHandInFrontAtTheSameScale() {
+        let design = CharacterDesign.simple2
+        XCTAssertEqual(design.sitting.frontGroups.count, 2, "前に出した脚と、手")
+        XCTAssertEqual(design.sitting.head.size.width, design.standing.head.size.width, accuracy: 0.5, "頭は立った姿と同じ大きさ（同じ縮尺）")
+        let standing = CharacterLayout(height: 36, design: design, posture: .standing)
+        let sitting = CharacterLayout(height: 36, design: design, posture: .sitting)
+        XCTAssertEqual(standing.bodySize.height, 36, accuracy: 0.01, "立った姿の全身の高さが 36pt")
+        XCTAssertEqual(sitting.scale, standing.scale, accuracy: 0.0001, "座っても同じ縮尺")
+        XCTAssertLessThan(sitting.bodySize.height, standing.bodySize.height)
+        XCTAssertGreaterThan(sitting.bodySize.height, 29, "座った姿は約 30〜33pt")
+        XCTAssertLessThan(sitting.bodySize.width, standing.bodySize.width * 1.1, "脚を横に伸ばさない")
+        XCTAssertEqual(standing.outlineWidth, 1, "36pt の輪郭は下限の 1pt")
+    }
+}
+
 /// 時計を小さくしたときの中の文字・針・目盛り（2026-10-16 Q85）
 final class HomeClockStyleTests: XCTestCase {
     func testCurrentHomeClockKeepsItsSizes() {
@@ -209,7 +244,7 @@ final class CharacterComparisonTests: XCTestCase {
 
     func testDesignCandidatesDifferInTheIntendedWays() {
         // 1 現行・2 シンプル寄り・3 かわいさ控えめ・4 中間（2026-10-16 H1 の続き）
-        XCTAssertEqual(CharacterDesignComparisonStore.Candidate.allCases.map(\.title), ["現行", "シンプル", "控えめ", "中間"])
+        XCTAssertEqual(CharacterDesignComparisonStore.Candidate.allCases.map(\.title), ["正式", "旧現行", "旧シンプル", "旧控えめ", "旧中間"])
         let current = CharacterDesign.current
         let simple = CharacterDesign.simple
         let calm = CharacterDesign.calm
@@ -245,7 +280,9 @@ final class CharacterComparisonTests: XCTestCase {
         XCTAssertEqual(CharacterDesignComparisonStore.height, 36, "人型 36pt に固定（2026-10-16 の第一の候補）")
         XCTAssertEqual(CharacterDesignComparisonStore.clockWidth, 0.45, "時計 45％に固定")
         let store = CharacterDesignComparisonStore()
-        XCTAssertEqual(store.candidate, .current)
+        XCTAssertEqual(store.candidate, .simple2, "初めは正式の 2 シンプル（2026-10-16）")
+        XCTAssertTrue(store.candidate.isOfficial)
+        XCTAssertFalse(CharacterDesignComparisonStore.Candidate.current.isOfficial, "旧試作は正式と分ける")
         XCTAssertEqual(store.posture, .standing)
         XCTAssertTrue(store.showsClock)
         let defaults = UserDefaults(suiteName: "CharacterDesignComparisonTests")!
@@ -258,6 +295,18 @@ final class CharacterComparisonTests: XCTestCase {
         XCTAssertEqual(launched.posture, .sitting)
         XCTAssertFalse(launched.showsClock)
         defaults.removePersistentDomain(forName: "CharacterDesignComparisonTests")
+    }
+
+    func testClockOnTheRightAndTheFigureDoNotOverlapEvenOnSmallScreens() {
+        // 時計 45％・右寄せ、人型は左上（2026-10-16 の H1 の配置）。iPhone SE（375pt）から Pro Max（440pt）まで
+        let figure = CharacterLayout(height: 36, design: .simple2, posture: .standing).size.width
+        for width in [375, 393, 402, 440] as [CGFloat] {
+            XCTAssertLessThan(DevStageLayout.figureRightEdge(figureWidth: figure),
+                              DevStageLayout.clockLeftEdge(screenWidth: width, clockWidth: 0.45),
+                              "\(Int(width))pt：時計（外周の文字まで）と人型が重ならない")
+        }
+        XCTAssertGreaterThanOrEqual(Theme.Spacing.l + DevStageLayout.clockTrailingInset, DevStageLayout.labelReach,
+                                    "右寄せでも「いま」「出発」の文字が画面の外へ出ない")
     }
 
     private static func kinds(_ rows: [CharacterComparisonSample.Row]) -> [String] {
