@@ -39,7 +39,7 @@ final class CharacterModeComparisonStore {
         return store
     }
 
-    /// 「本体 36pt・甲羅を含めた領域 幅34×高さ39pt（輪郭の線を含む）」の文
+    /// 「本体 36pt・甲羅を含めた領域 幅37×高さ39pt（輪郭の線を含む）」の文
     static func areaText(height: CGFloat, mode: CharacterMode) -> String {
         let layout = CharacterLayout(height: height, mode: mode)
         let width = Int(layout.size.width.rounded())

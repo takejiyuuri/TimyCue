@@ -74,9 +74,10 @@ EYES = [(35.0, 46.1), (56.8, 46.1)]
 EYE_SIZE = (4.9, 5.1)
 ARM_LINES = [((26.8, 78.0), (26.1, 81.0), (25.0, 84.0)), ((63.2, 78.0), (63.9, 81.0), (65.0, 84.0))]
 OUTLINE_RATIO = 0.0385       # 本体の全身の高さに対する輪郭の太さ
-# 甲羅は見る人から見て左（2026-10-16 決定・2026-10-17 確認。spec §88.4）。形・大きさは原画の亀「立つ」を測った値で、
-# 「立つ」は右に描かれているので、本体の中心 x = 45.25 で左右を入れ替えた（「立つ」の位置は cx=74.0・rot=10）
-SHELL = dict(cx=16.5, cy=67.5, w=23.5, h=38, rot=-10)
+# 甲羅は見る人から見て左（2026-10-16 決定・2026-10-17 確認。spec §88.4）。大きさは「甲羅大きめ＋模様強調」（2026-10-17 正式決定）：
+# 原画の亀「立つ」を測った形（23.5×38・傾き 10°。「立つ」では右の cx=74.0）の縦横比と傾きを保って約 1.18 倍にし、左へ広げた
+SHELL = dict(cx=13.0, cy=66.8, w=27.6, h=44.7, rot=-10)
+SHELL_PATTERN_RATIO = 0.85   # 模様の線の太さ（輪郭に対する割合。原画は 0.55。模様強調で太くした）
 SHELL_PATTERN = [
     [(-0.18, -0.30), (0.18, -0.30), (0.26, -0.08), (0.18, 0.16), (-0.18, 0.16), (-0.26, -0.08), (-0.18, -0.30)],
     [(-0.18, 0.16), (-0.12, 0.36), (0.12, 0.36), (0.18, 0.16)],
@@ -91,7 +92,7 @@ FACE_OPENING = dict(cx=45.25, cy=46.2, w=57.2, h=51.8)
 OUTLINE = (0x36, 0x19, 0x0A)
 FILL = (0xFE, 0xFA, 0xF2)
 SHELL_FILL = (0xBA, 0xBE, 0x85)
-SHELL_LINE = (0x96, 0x9B, 0x60)
+SHELL_LINE = (0x86, 0x8C, 0x4F)   # 模様強調で原画の #969B60 より濃くした
 EAR_INNER = (0xF8, 0xBC, 0xB0)
 HOOD_LINE = (0xDC, 0xAF, 0x96)
 MODE_GEAR = {"turtle": {"shell"}, "human": set(), "rabbit": {"hood"}}
@@ -149,7 +150,7 @@ def render(mode, box=(0, -22, 95, 100), px_per_unit=2.0, S=8):
         sm = ellipse(X, Y, SHELL["cx"], SHELL["cy"], SHELL["w"], SHELL["h"], SHELL["rot"])
         outlined(sm, SHELL_FILL)
         for line in _shell_lines():
-            paint(_segments(X, Y, line, ow * 0.55) & sm, SHELL_LINE)
+            paint(_segments(X, Y, line, ow * SHELL_PATTERN_RATIO) & sm, SHELL_LINE)
     if "hood" in gear:
         for e, i in zip(EARS, EAR_INNERS):
             outlined(ellipse(X, Y, e["cx"], e["cy"], e["w"], e["h"], e["rot"]))

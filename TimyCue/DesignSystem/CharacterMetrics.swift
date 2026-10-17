@@ -20,8 +20,9 @@ enum CharacterMetrics {
         min(max(height * ratio, outlineMin), outlineMax)
     }
 
-    /// 甲羅の模様の線・フードの顔まわりの線の太さ（輪郭の太さに対する割合。原画を測った値）
-    static let shellPatternRatio: CGFloat = 0.55
+    /// 甲羅の模様の線・フードの顔まわりの線の太さ（輪郭の太さに対する割合。フードは原画を測った値）。
+    /// 甲羅の模様は「甲羅大きめ＋模様強調」（2026-10-17 正式決定）で、原画の 0.55 から太くした（36pt で約 1.2pt。仮の値）
+    static let shellPatternRatio: CGFloat = 0.85
     static let hoodLineRatio: CGFloat = 0.7
 }
 
@@ -40,7 +41,7 @@ struct CharacterPalette: Equatable {
 
 /// 装備の色（正式キャラクター 3 モードの原画を測った値。spec §88.4）
 struct CharacterGearPalette: Equatable {
-    /// 甲羅：やわらかい黄緑と、甲板の境目の少し濃い緑
+    /// 甲羅：やわらかい黄緑と、甲板の境目の濃い緑（境目は「模様強調」で原画の #969B60 より濃くした。2026-10-17。仮の値）
     var shellFill: Color
     var shellLine: Color
     /// うさぎの耳の内側のピンク
@@ -48,6 +49,6 @@ struct CharacterGearPalette: Equatable {
     /// フードの顔まわりの線（輪郭より淡いブラウン）
     var hoodLine: Color
 
-    static let official = CharacterGearPalette(shellFill: Color(hex: 0xBABE85), shellLine: Color(hex: 0x969B60),
+    static let official = CharacterGearPalette(shellFill: Color(hex: 0xBABE85), shellLine: Color(hex: 0x868C4F),
                                                earInner: Color(hex: 0xF8BCB0), hoodLine: Color(hex: 0xDCAF96))
 }

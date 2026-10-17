@@ -36,12 +36,14 @@ extension CharacterPose {
 
 extension CharacterGearSet {
     /// 正式キャラクター 3 モードの装備。原画の亀「立つ」・うさぎ（3 モードの見出しの絵と「立つ」）を測り、本体の頭に合わせて置いた値。
-    /// 甲羅の形・大きさ・傾きの大きさは「立つ」を測った値のまま。側だけは、主な絵・モード切り替えの絵・Home の絵に合わせて
-    /// 見る人から見て左（「立つ」は右に描かれているので、本体の中心 x = 45.25 で左右を入れ替えた。2026-10-17。spec §88.4）
+    /// 甲羅の側は、主な絵・モード切り替えの絵・Home の絵に合わせて見る人から見て左（「立つ」は右に描かれている。2026-10-17。spec §88.4）。
+    /// 大きさは「甲羅大きめ＋模様強調」（2026-10-17 正式決定。docs/design-reference/characters/official-3modes/shell-comparison-2026-10-17.webp）：
+    /// 「立つ」を測った形（23.5×38・傾き 10°）の縦横比と傾きを保って約 1.18 倍にし、比較画像の「現状」→「大きめ＋模様強調」と
+    /// 同じだけ、左へ（約 6 単位）・上へ（約 4 単位）・下へ（約 2.6 単位）広げた。本体の後ろにつながったまま
     static let official = CharacterGearSet(
         // 甲羅：背中に背負い、見る人から見て左の脇からはみ出す。上が少し外（左）へ傾いた楕円（右の部分は本体に隠れる）
         shell: ShellGear(
-            shape: CharacterPose.Part(center: CGPoint(x: 16.5, y: 67.5), size: CGSize(width: 23.5, height: 38), rotation: -10),
+            shape: CharacterPose.Part(center: CGPoint(x: 13.0, y: 66.8), size: CGSize(width: 27.6, height: 44.7), rotation: -10),
             pattern: [
                 // 真ん中の甲板（六角形）
                 [CGPoint(x: -0.18, y: -0.30), CGPoint(x: 0.18, y: -0.30), CGPoint(x: 0.26, y: -0.08), CGPoint(x: 0.18, y: 0.16),

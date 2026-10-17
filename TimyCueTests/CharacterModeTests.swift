@@ -72,10 +72,13 @@ final class CharacterModeTests: XCTestCase {
         XCTAssertLessThan(shellBounds.minX, pose.bounds.minX, "甲羅は本体の左の外へはみ出す")
         XCTAssertLessThan(shellBounds.maxX, pose.head.center.x, "甲羅は本体の右へは出ない")
         XCTAssertLessThan(shell.shape.rotation, 0, "上が少し外（左）へ傾く")
-        // 形・大きさ・傾きの大きさは原画の「立つ」を測った値のまま（側だけを、本体の中心で左右に入れ替えた）
-        XCTAssertEqual(shell.shape.size, CGSize(width: 23.5, height: 38))
-        XCTAssertEqual(abs(shell.shape.rotation), 10, accuracy: 0.001)
-        XCTAssertEqual(shell.shape.center.x + 74.0, pose.head.center.x * 2, accuracy: 0.001, "「立つ」の位置（x = 74.0）の左右反転")
+        // 「甲羅大きめ＋模様強調」（2026-10-17 正式決定）：原画の「立つ」を測った形（23.5×38・傾き 10°）の縦横比と傾きを保って大きくする
+        let measured = CGSize(width: 23.5, height: 38)
+        XCTAssertEqual(shell.shape.size.width / shell.shape.size.height, measured.width / measured.height, accuracy: 0.01,
+                       "甲羅の形（縦横比）は原画のまま")
+        XCTAssertEqual(abs(shell.shape.rotation), 10, accuracy: 0.001, "傾きの大きさは原画のまま")
+        XCTAssertGreaterThan(shell.shape.size.height, measured.height * 1.1, "原画の「立つ」より大きめ")
+        XCTAssertGreaterThan(CharacterMetrics.shellPatternRatio, 0.55, "模様の線は原画より太い（模様強調）")
         XCTAssertGreaterThan(shellBounds.minY, pose.bounds.minY, "甲羅は頭のてっぺんより下")
         XCTAssertLessThanOrEqual(shellBounds.maxY, pose.bounds.maxY, "甲羅は足元より下へ出ない")
         // 模様の線は甲羅の中（甲羅の外へは描かない。描くときも甲羅の形で切る）
@@ -92,12 +95,14 @@ final class CharacterModeTests: XCTestCase {
             XCTAssertEqual(mode.gear.contains(.shell), mode == .turtle, "甲羅は亀モードだけ（\(mode.title)）")
         }
         XCTAssertTrue(OfficialCharacter.gear.bounds(for: CharacterMode.human.gear).isNull, "人型モードは装備の領域なし")
-        // 36pt（Home の第一の候補）でも甲羅の形が分かる大きさ（はみ出す幅 約 3.9pt・甲羅の高さ 約 16pt。目安は仮）
+        // 36pt（Home の第一の候補）でも亀に見える大きさ（「甲羅大きめ＋模様強調」。はみ出す幅 約 6.3pt・甲羅の高さ 約 19pt。目安は仮）
         let pose = CharacterPose.officialStanding
         let scale = 36 / OfficialCharacter.referenceHeight
         let shellBounds = CharacterPose.ellipseBounds(OfficialCharacter.gear.shell.shape)
-        XCTAssertGreaterThanOrEqual((pose.bounds.minX - shellBounds.minX) * scale, 3, "本体の外へはみ出す幅")
-        XCTAssertGreaterThanOrEqual(OfficialCharacter.gear.shell.shape.size.height * scale, 15, "甲羅の高さ")
+        XCTAssertGreaterThanOrEqual((pose.bounds.minX - shellBounds.minX) * scale, 5, "本体の外へはみ出す幅")
+        XCTAssertGreaterThanOrEqual(OfficialCharacter.gear.shell.shape.size.height * scale, 18, "甲羅の高さ")
+        XCTAssertGreaterThanOrEqual(CharacterLayout(height: 36, mode: .turtle).outlineWidth * CharacterMetrics.shellPatternRatio, 1,
+                                    "模様の線は 36pt でも 1pt 以上")
     }
 
     func testRabbitHoodEarsStandAboveTheHead() {
