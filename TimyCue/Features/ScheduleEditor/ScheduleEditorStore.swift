@@ -318,6 +318,15 @@ final class ScheduleEditorStore {
         return events.first { $0.id == id }?.day
     }
 
+    /// 下カレンダーの 1 日の印。today はカレンダーの「今日」を渡す。日付が変わったら（0 時をまたいだとき・前面に戻したとき）、
+    /// 選んだ日・左上の日・入力はそのままで、今日の淡い丸だけが新しい今日へ動く（2026-10-17 決定 Q96）
+    func calendarMarks(on day: CalendarDay, today: CalendarDay) -> EditorDayMarks {
+        EditorDayMarks(isSelected: selectedDays.contains(day),
+                       isDisplayed: displayedDay == day,
+                       isCopySource: day == copySourceDay,
+                       isToday: day == today)
+    }
+
     /// コピー中に下のカレンダーの日付を押したとき：選んでいなければコピー先に足し、選んであれば外す。
     /// 「同じ内容で追加」を開かなくてよい（あの行は一括／個別の時刻の切り替えに使う）。コピー元の日は選べない（2026-10-14 ユーザー決定）。
     /// 足した日を左上に出す（最後に選んだコピー先。2026-10-14 決定 G1）

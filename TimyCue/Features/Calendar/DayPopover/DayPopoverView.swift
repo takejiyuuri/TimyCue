@@ -118,11 +118,16 @@ struct DayPopoverView: View {
         .popoverBubble()
     }
 
+    /// 吹き出しの見出し。「今日」とは書かず、いつも「10月17日（土）」のように日付で出す（日付が変わったあとも、どの日か分かる。Q96）
+    static func title(for day: CalendarDay) -> String {
+        "\(day.month)月\(day.day)日（\(day.weekdaySymbol())）"
+    }
+
     private var list: some View {
         VStack(alignment: .leading, spacing: 6) {
             Button(action: onOpenTimeline) {
                 HStack(spacing: 4) {
-                    Text("\(day.month)月\(day.day)日（\(day.weekdaySymbol())）")
+                    Text(Self.title(for: day))
                         .font(CalendarMetrics.popoverTitleFont)
                         .foregroundStyle(Theme.Colors.textPrimary)
                     Image(systemName: "chevron.right")

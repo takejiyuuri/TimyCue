@@ -24,6 +24,14 @@ enum EditorMode: Equatable {
     }
 }
 
+/// 下カレンダーの 1 日の印：選んだ日の塗り・時間画面に出している日の枠・コピー元のリング・今日の淡い丸
+struct EditorDayMarks: Equatable {
+    var isSelected: Bool
+    var isDisplayed: Bool
+    var isCopySource: Bool
+    var isToday: Bool
+}
+
 /// 右上の入力の行（仕様 §44 の並び）
 enum InputRow: CaseIterable, Equatable {
     case title
