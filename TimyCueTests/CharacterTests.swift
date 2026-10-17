@@ -189,39 +189,36 @@ final class HomeClockStyleTests: XCTestCase {
 #if TIMYCUE_DEV_TOOLS
 /// H1 の比べる画面（2026-10-15 決定 Q80）。検証用のビルドだけ
 final class CharacterComparisonTests: XCTestCase {
-    func testComparisonOffersFourHeightsBothPosturesAndTheClock() {
+    func testComparisonOffersFourHeightsTheThreeModesAndTheClock() {
         XCTAssertEqual(CharacterComparisonStore.heights, [16, 24, 36, 40])
         XCTAssertEqual(CharacterComparisonStore.label(for: 40), "約40pt", "約 40pt は画像からの推定")
         XCTAssertEqual(CharacterComparisonStore.label(for: 24), "24pt")
         let store = CharacterComparisonStore()
         XCTAssertEqual(store.height, 36, "初めは第一の候補の 36pt（2026-10-16）")
-        XCTAssertEqual(store.posture, .standing)
+        XCTAssertEqual(store.mode, .human, "正式キャラクター 3 モード（2026-10-17 から。旧 2 シンプルは使わない）")
         XCTAssertTrue(store.showsClock)
 
         XCTAssertEqual(CharacterComparisonStore.clockWidths, [0.40, 0.45, 0.50], "時計は画面の幅の 40・45・50％を比べる（2026-10-16）")
-        XCTAssertEqual(store.clockWidth, 0.45, "45％が第一の候補")
+        XCTAssertEqual(store.clockWidth, 0.40, "40％が H2 の第一の候補")
         XCTAssertEqual(CharacterComparisonStore.clockLabel(for: 0.45), "45％")
 
         store.height = 40
-        store.posture = .sitting
-        store.showsClock = false
-        store.clockWidth = 0.50
-        XCTAssertEqual(store.posture.pose, .sitting)
-        XCTAssertEqual(CharacterLayout(height: store.height, pose: store.posture.pose).bodySize.height,
-                       40 * CharacterPose.sitting.bounds.height / 100, accuracy: 0.01)
-        XCTAssertEqual(CharacterComparisonStore.Posture.standing.pose, .standing)
+        store.mode = .turtle
+        XCTAssertEqual(CharacterFigure(height: store.height, mode: store.mode).layout.bodySize.height, 40, accuracy: 0.01,
+                       "高さは本体（甲羅を含めない）")
+        XCTAssertEqual(CharacterPosture.standing.pose, .standing)
     }
 
     func testLaunchArgumentsChooseTheScreenshotState() {
         let defaults = UserDefaults(suiteName: "CharacterComparisonTests")!
         defaults.removePersistentDomain(forName: "CharacterComparisonTests")
         defaults.set("40", forKey: "TimyCueCharacterHeight")
-        defaults.set("sitting", forKey: "TimyCueCharacterPosture")
+        defaults.set("turtle", forKey: "TimyCueCharacterMode")
         defaults.set("NO", forKey: "TimyCueCharacterClock")
         defaults.set("50", forKey: "TimyCueClockWidth")
         let store = CharacterComparisonStore.fromLaunchArguments(defaults)
         XCTAssertEqual(store.height, 40)
-        XCTAssertEqual(store.posture, .sitting)
+        XCTAssertEqual(store.mode, .turtle)
         XCTAssertFalse(store.showsClock)
         XCTAssertEqual(store.clockWidth, 0.50)
 
@@ -229,7 +226,7 @@ final class CharacterComparisonTests: XCTestCase {
         defaults.set("74", forKey: "TimyCueClockWidth")
         let other = CharacterComparisonStore.fromLaunchArguments(defaults)
         XCTAssertEqual(other.height, 36, "比べる 4 つ以外の高さは使わない")
-        XCTAssertEqual(other.clockWidth, 0.45, "比べる 3 つ以外の時計の大きさは使わない")
+        XCTAssertEqual(other.clockWidth, 0.40, "比べる 3 つ以外の時計の大きさは使わない")
         defaults.removePersistentDomain(forName: "CharacterComparisonTests")
     }
 
@@ -263,7 +260,9 @@ final class CharacterComparisonTests: XCTestCase {
 
     func testDesignCandidatesDifferInTheIntendedWays() {
         // 1 現行・2 シンプル寄り・3 かわいさ控えめ・4 中間（2026-10-16 H1 の続き）
-        XCTAssertEqual(CharacterDesignComparisonStore.Candidate.allCases.map(\.title), ["正式", "旧現行", "旧シンプル", "旧控えめ", "旧中間"])
+        XCTAssertEqual(CharacterDesignComparisonStore.Candidate.allCases.map(\.title),
+                       ["正式（3 モード）", "旧 2 シンプル", "旧現行", "旧シンプル", "旧控えめ", "旧中間"])
+        XCTAssertNil(CharacterDesignComparisonStore.Candidate.official3.design, "正式は装備つきの 3 モード（旧の案の形とは別）")
         let current = CharacterDesign.current
         let simple = CharacterDesign.simple
         let calm = CharacterDesign.calm
@@ -281,7 +280,7 @@ final class CharacterComparisonTests: XCTestCase {
         XCTAssertTrue((simple.style.cheekOpacity...current.style.cheekOpacity).contains(middle.style.cheekOpacity))
         XCTAssertTrue((simple.style.outlineRatio...current.style.outlineRatio).contains(middle.style.outlineRatio))
         for candidate in CharacterDesignComparisonStore.Candidate.allCases {
-            let design = candidate.design
+            guard let design = candidate.design else { continue }
             let standing = CharacterLayout(height: 36, design: design, posture: .standing)
             XCTAssertEqual(standing.bodySize.height, 36, accuracy: 0.01, "\(candidate.title)：36pt は立った姿の全身の高さ")
             XCTAssertLessThan(CharacterLayout(height: 36, design: design, posture: .sitting).bodySize.height, 36, "座ると低くなる")
@@ -297,13 +296,18 @@ final class CharacterComparisonTests: XCTestCase {
 
     func testDesignComparisonUsesTheFirstCandidateSizesAndLaunchArguments() {
         XCTAssertEqual(CharacterDesignComparisonStore.height, 36, "人型 36pt に固定（2026-10-16 の第一の候補）")
-        XCTAssertEqual(CharacterDesignComparisonStore.clockWidth, 0.45, "時計 45％に固定")
+        XCTAssertEqual(CharacterDesignComparisonStore.clockWidth, 0.40, "時計 40％に固定（H2 の第一の候補）")
         let store = CharacterDesignComparisonStore()
-        XCTAssertEqual(store.candidate, .simple2, "初めは正式の 2 シンプル（2026-10-16）")
+        XCTAssertEqual(store.candidate, .official3, "初めは正式の 3 モード（2026-10-16 正式採用。旧 2 シンプルと混同しない）")
         XCTAssertTrue(store.candidate.isOfficial)
+        XCTAssertFalse(CharacterDesignComparisonStore.Candidate.simple2.isOfficial, "旧 2 シンプルは履歴")
         XCTAssertFalse(CharacterDesignComparisonStore.Candidate.current.isOfficial, "旧試作は正式と分ける")
+        XCTAssertEqual(store.mode, .human)
+        XCTAssertEqual(store.figure.layout, CharacterLayout(height: 36, mode: .human), "正式は 3 モードの人型を描く")
         XCTAssertEqual(store.posture, .standing)
         XCTAssertTrue(store.showsClock)
+        XCTAssertEqual(store.scenario, .beforeDeparture)
+        XCTAssertEqual(store.amount, .usual)
         let defaults = UserDefaults(suiteName: "CharacterDesignComparisonTests")!
         defaults.removePersistentDomain(forName: "CharacterDesignComparisonTests")
         defaults.set("calm", forKey: "TimyCueCharacterDesign")
@@ -313,19 +317,81 @@ final class CharacterComparisonTests: XCTestCase {
         XCTAssertEqual(launched.candidate, .calm)
         XCTAssertEqual(launched.posture, .sitting)
         XCTAssertFalse(launched.showsClock)
+        defaults.set("official3", forKey: "TimyCueCharacterDesign")
+        defaults.set("rabbit", forKey: "TimyCueCharacterMode")
+        defaults.set("overdue", forKey: "TimyCueDevScenario")
+        defaults.set("many", forKey: "TimyCueDevEvents")
+        let official = CharacterDesignComparisonStore.fromLaunchArguments(defaults)
+        XCTAssertEqual(official.candidate, .official3)
+        XCTAssertEqual(official.mode, .rabbit)
+        XCTAssertEqual(official.scenario, .overdue)
+        XCTAssertEqual(official.amount, .many)
+        XCTAssertEqual(official.figure.layout, CharacterLayout(height: 36, mode: .rabbit))
         defaults.removePersistentDomain(forName: "CharacterDesignComparisonTests")
     }
 
     func testClockOnTheRightAndTheFigureDoNotOverlapEvenOnSmallScreens() {
-        // 時計 45％・右寄せ、人型は左上（2026-10-16 の H1 の配置）。iPhone SE（375pt）から Pro Max（440pt）まで
-        let figure = CharacterLayout(height: 36, design: .simple2, posture: .standing).size.width
-        for width in [375, 393, 402, 440] as [CGFloat] {
-            XCTAssertLessThan(DevStageLayout.figureRightEdge(figureWidth: figure),
-                              DevStageLayout.clockLeftEdge(screenWidth: width, clockWidth: 0.45),
-                              "\(Int(width))pt：時計（外周の文字まで）と人型が重ならない")
+        // 時計 40〜50％・右寄せ、人型は左（「いま」の直上。時計の左下）。iPhone SE（375pt）から Pro Max（440pt）まで
+        let figures = CharacterMode.allCases.map { CharacterLayout(height: 36, mode: $0) }
+            + [CharacterLayout(height: 40, mode: .turtle), CharacterLayout(height: 36, design: .simple2, posture: .standing)]
+        for figure in figures {
+            for width in [375, 393, 402, 440] as [CGFloat] {
+                for clockWidth in CharacterComparisonStore.clockWidths {
+                    XCTAssertLessThan(DevStageLayout.figureRightEdge(figure),
+                                      DevStageLayout.clockLeftEdge(screenWidth: width, clockWidth: clockWidth),
+                                      "\(Int(width))pt・時計 \(Int(clockWidth * 100))％：時計（外周の文字まで）と人型が重ならない")
+                }
+            }
+            XCTAssertGreaterThanOrEqual(DevStageLayout.figureLeftEdge(figure), 0, "甲羅を含めて画面の外へ出ない")
         }
+        // 本体の左の端をそろえる：モードを切り替えても本体は動かず、亀の甲羅だけが左へはみ出す
+        let human = CharacterLayout(height: 36, mode: .human)
+        let turtle = CharacterLayout(height: 36, mode: .turtle)
+        XCTAssertEqual(DevStageLayout.figureLeadingShift(human), 0, accuracy: 0.01)
+        XCTAssertEqual(DevStageLayout.figureRightEdge(turtle), DevStageLayout.figureRightEdge(human), accuracy: 0.01)
+        XCTAssertLessThan(DevStageLayout.figureLeftEdge(turtle), DevStageLayout.figureLeftEdge(human) - 5)
         XCTAssertGreaterThanOrEqual(Theme.Spacing.l + DevStageLayout.clockTrailingInset, DevStageLayout.labelReach,
                                     "右寄せでも「いま」「出発」の文字が画面の外へ出ない")
+    }
+
+    func testCharacterStandsDirectlyAboveNowAndThePassedDepartureFollowsQ87() {
+        // 人型は「いま」の直上（§88.3・Q88）。過ぎた出発の点があるときは 人型 → 過ぎた出発（最大 1 件）→ いま（Q83・Q87）
+        XCTAssertEqual(DevStageLayout.columnItems(hasPastDeparture: false), [.figure, .now])
+        XCTAssertEqual(DevStageLayout.columnItems(hasPastDeparture: true), [.figure, .pastDeparture, .now])
+        let today = CalendarDay(year: 2026, month: 10, day: 15)
+
+        let before = CharacterComparisonSample.make(today: today, scenario: .beforeDeparture)
+        XCTAssertNil(before.pastDeparture)
+        XCTAssertNil(before.notice)
+        XCTAssertEqual(before.face?.remainingMinutes, 23, "8:52：出発 9:15 まで 23 分の時計")
+
+        let overdue = CharacterComparisonSample.make(today: today, scenario: .overdue)
+        XCTAssertEqual(overdue.nowText, "9:18")
+        XCTAssertNil(overdue.face, "出発時刻で時計は終わる")
+        XCTAssertEqual(overdue.notice, "出発時刻を3分過ぎています", "時計がないので、知らせは日付の下（Q92）")
+        XCTAssertEqual(overdue.pastDeparture?.minute, 9 * 60 + 15)
+        XCTAssertEqual(overdue.pastDeparture?.transport, "車")
+        let overdueRows = Self.kinds(overdue.timeline(showingEvents: 5).rows)
+        XCTAssertEqual(overdueRows.first, "9:30 A社打合せ（強調）", "過ぎた出発の点は「いま」の上に出し、これからの予定には並べない")
+        XCTAssertFalse(overdueRows.contains("出発 9:15 車"))
+    }
+
+    func testEventAmountsChangeOnlyTheTimeline() {
+        // 予定が少ない・多いときも、人型は「いま」の直上のまま（並びは予定の数で変わらない）
+        let today = CalendarDay(year: 2026, month: 10, day: 15)
+        let few = CharacterComparisonSample.make(today: today, amount: .few)
+        let usual = CharacterComparisonSample.make(today: today, amount: .usual)
+        let many = CharacterComparisonSample.make(today: today, amount: .many)
+        XCTAssertEqual(few.entries.map(\.event.displayTitle), ["A社打合せ", "社内レビュー"])
+        XCTAssertEqual(usual.entries.count, 5)
+        XCTAssertEqual(many.entries.count, 9)
+        XCTAssertEqual(many.entries.map(\.event.startMinute), many.entries.map(\.event.startMinute).sorted(), "時刻の順")
+        for sample in [few, usual, many] {
+            XCTAssertEqual(sample.entries.first?.event.displayTitle, "A社打合せ", "主状態の予定は同じ")
+            XCTAssertEqual(sample.face?.remainingMinutes, 23)
+            XCTAssertEqual(DevStageLayout.columnItems(hasPastDeparture: sample.pastDeparture != nil), [.figure, .now])
+        }
+        XCTAssertEqual(many.timeline(showingEvents: 3).hiddenEvents, 6, "入りきらない予定は「ほか○件」")
     }
 
     private static func kinds(_ rows: [CharacterComparisonSample.Row]) -> [String] {

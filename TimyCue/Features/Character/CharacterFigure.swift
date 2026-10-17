@@ -34,9 +34,14 @@ struct CharacterFigure: View {
         self.gearSet = gearSet
     }
 
+    /// 大きさと置き方（描く枠・本体の位置）。並べる側が本体の位置をそろえるときにも使う
+    var layout: CharacterLayout {
+        CharacterLayout(height: height, pose: pose, style: style, referenceHeight: referenceHeight,
+                        gearBounds: gearSet?.bounds(for: gear) ?? .null)
+    }
+
     var body: some View {
-        let layout = CharacterLayout(height: height, pose: pose, style: style, referenceHeight: referenceHeight,
-                                     gearBounds: gearSet?.bounds(for: gear) ?? .null)
+        let layout = self.layout
         Canvas { context, _ in
             Self.draw(layout, gear: gear, gearSet: gearSet, in: context)
         }

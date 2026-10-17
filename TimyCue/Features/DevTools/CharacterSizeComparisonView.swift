@@ -10,20 +10,19 @@ import SwiftUI
 final class CharacterComparisonStore {
     /// 比べる全身の高さ（pt。小物を除いた立った姿。座った姿も同じ縮尺）。約 40pt は Home レイアウト比較画像 A からの推定で、正式な寸法ではない
     static let heights: [CGFloat] = [16, 24, 36, 40]
-    /// 比べる時計の外径（画面の幅に対する割合。2026-10-16 の実機確認：74％は大きすぎた。45％が第一の候補）
+    /// 比べる時計の外径（画面の幅に対する割合。2026-10-16 の実機確認：74％は大きすぎた。最新の第一の候補は 40％）
     static let clockWidths: [CGFloat] = [0.40, 0.45, 0.50]
 
-    typealias Posture = CharacterPosture
-
     var height: CGFloat
-    var posture: Posture
+    /// 正式キャラクター 3 モード（2026-10-16 正式採用）の見た目。座った姿はまだ原画から作っていないので、姿勢の代わりにモードを切り替える
+    var mode: CharacterMode
     var showsClock: Bool
     var clockWidth: CGFloat
 
-    /// 初めは第一の候補（2026-10-16 の 2 回目の実機確認：人型 36pt・時計 45％）
-    init(height: CGFloat = 36, posture: Posture = .standing, showsClock: Bool = true, clockWidth: CGFloat = 0.45) {
+    /// 初めは H2 の第一の候補（人型 36pt・時計 40％。2026-10-16）
+    init(height: CGFloat = 36, mode: CharacterMode = .human, showsClock: Bool = true, clockWidth: CGFloat = 0.40) {
         self.height = height
-        self.posture = posture
+        self.mode = mode
         self.showsClock = showsClock
         self.clockWidth = clockWidth
     }
@@ -37,13 +36,13 @@ final class CharacterComparisonStore {
     }
 
     /// Codemagic の画面写真用：起動引数
-    /// `-TimyCueCharacterHeight 40 -TimyCueCharacterPosture sitting -TimyCueCharacterClock NO -TimyCueClockWidth 45`
+    /// `-TimyCueCharacterHeight 40 -TimyCueCharacterMode turtle -TimyCueCharacterClock NO -TimyCueClockWidth 45`
     static func fromLaunchArguments(_ defaults: UserDefaults = .standard) -> CharacterComparisonStore {
         let store = CharacterComparisonStore()
         let height = CGFloat(defaults.double(forKey: "TimyCueCharacterHeight"))
         if heights.contains(height) { store.height = height }
-        if let raw = defaults.string(forKey: "TimyCueCharacterPosture"), let posture = Posture(rawValue: raw) {
-            store.posture = posture
+        if let raw = defaults.string(forKey: "TimyCueCharacterMode"), let mode = CharacterMode(rawValue: raw) {
+            store.mode = mode
         }
         if defaults.object(forKey: "TimyCueCharacterClock") != nil {
             store.showsClock = defaults.bool(forKey: "TimyCueCharacterClock")
@@ -57,8 +56,57 @@ final class CharacterComparisonStore {
 }
 
 /// 比べる画面に出す見本。見本の予定（SampleEvents）から作るだけで、カレンダー・通知・出発時刻の計算には渡さない。
-/// 時刻は今日の 8:52 に決めて、最初の場所ありの予定の出発（見本では開始の 15 分前）まで 23 分の時計を出す
+/// 時刻はふだん今日の 8:52 に決めて、最初の場所ありの予定の出発（見本では開始の 15 分前）まで 23 分の時計を出す
 struct CharacterComparisonSample {
+    /// 見本の時刻（2026-10-17：人型の定位置と、過ぎた出発の点の並び（Q87）を確かめる）
+    enum Scenario: String, CaseIterable {
+        /// 8:52。A社打合せの出発 9:15 まで 23 分（時計あり）
+        case beforeDeparture = "before"
+        /// 9:18。出発 9:15 を 3 分過ぎた。時計は終わり、知らせを日付の下に出し（Q92）、
+        /// 過ぎた出発の点を人型と「いま」のあいだに 1 行だけ残す（Q83・Q87）
+        case overdue
+
+        var title: String {
+            switch self {
+            case .beforeDeparture: "8:52 出発前"
+            case .overdue: "9:18 出発を過ぎた"
+            }
+        }
+
+        var nowMinute: MinuteOfDay {
+            switch self {
+            case .beforeDeparture: 8 * 60 + 52
+            case .overdue: 9 * 60 + 18
+            }
+        }
+    }
+
+    /// 予定の数（2026-10-17：予定が少ない・多いときも、人型が「いま」の直上にあることを確かめる）
+    enum Amount: String, CaseIterable {
+        /// 見本の今日の予定のうち最初の 2 件
+        case few
+        /// 見本の今日の予定（5 件）
+        case usual
+        /// 見本の今日の予定に、見本の予定 4 件を足す（入りきらない分は「ほか○件」）
+        case many
+
+        var title: String {
+            switch self {
+            case .few: "少ない"
+            case .usual: "ふつう"
+            case .many: "多い"
+            }
+        }
+    }
+
+    /// 「多い」で足す見本の予定（時刻・予定名・色。場所なし）
+    private static let extraEvents: [(minute: MinuteOfDay, title: String, color: EventColor)] = [
+        (11 * 60, "資料の確認（見本）", .green),
+        (11 * 60 + 30, "見本の打合せ", .yellow),
+        (14 * 60, "見本の作業", .mint),
+        (15 * 60 + 30, "見本の電話", .lavender),
+    ]
+
     enum Row: Identifiable {
         /// 出発の点（見本の時刻と移動手段）
         case departure(id: UUID, minute: MinuteOfDay, transport: String)
@@ -79,33 +127,62 @@ struct CharacterComparisonSample {
         let departure: (minute: MinuteOfDay, transport: String)?
     }
 
-    static let nowMinute: MinuteOfDay = 8 * 60 + 52
+    /// ふだんの見本の時刻（8:52）
+    static let nowMinute: MinuteOfDay = Scenario.beforeDeparture.nowMinute
     static let sampleTravelMinutes = 15
 
     let dateTitle: String
     let nowText: String
     let allDayTitles: [String]
-    /// 時刻の順
+    /// 「いま」より後の予定（時刻の順）
     let entries: [Entry]
     /// 主状態の予定（いちばん強調する 1 件）
     let mainEventID: UUID?
-    /// 時計に描くもの（いま → 主状態の予定の出発）
+    /// 時計に描くもの（いま → 主状態の予定の出発）。出発時刻を過ぎたら時計は終わる（nil）
     let face: HomeClockMath.Face?
+    /// 主状態の予定の、過ぎた出発の点（人型と「いま」のあいだに 1 行。最大 1 件。Q83・Q87）
+    let pastDeparture: (minute: MinuteOfDay, transport: String)?
+    /// 主状態の大きな知らせ（時計がないときは日付の下に出す。Q92）
+    let notice: String?
 
-    static func make(today: CalendarDay = CalendarDay(Date()), calendar: Calendar = .timyCue) -> CharacterComparisonSample {
+    static func make(today: CalendarDay = CalendarDay(Date()), scenario: Scenario = .beforeDeparture, amount: Amount = .usual,
+                     calendar: Calendar = .timyCue) -> CharacterComparisonSample {
         let sample = SampleEvents.make(around: today)
+        var metadata = sample.metadata
         let todays = sample.events.filter { $0.day == today }
-        let timed = todays.filter { !$0.isAllDay }.sorted { $0.startMinute < $1.startMinute }
-        let entries = timed.map { event -> Entry in
-            let info = sample.metadata[event.id] ?? TimyCueEventMetadata()
+        var timed = todays.filter { !$0.isAllDay }.sorted { $0.startMinute < $1.startMinute }
+        switch amount {
+        case .few:
+            timed = Array(timed.prefix(2))
+        case .usual:
+            break
+        case .many:
+            for extra in extraEvents {
+                let event = CalendarEvent(day: today, startMinute: extra.minute, title: extra.title)
+                var info = TimyCueEventMetadata()
+                info.color = extra.color
+                metadata[event.id] = info
+                timed.append(event)
+            }
+            timed.sort { $0.startMinute < $1.startMinute }
+        }
+        let nowMinute = scenario.nowMinute
+        let entries = timed.filter { $0.startMinute > nowMinute }.map { event -> Entry in
+            let info = metadata[event.id] ?? TimyCueEventMetadata()
             let hasPlace = !(event.locationName ?? "").isEmpty
             return Entry(event: event, color: info.color,
                          departure: hasPlace ? (minute: event.startMinute - sampleTravelMinutes, transport: info.transport.displayName) : nil)
         }
-        let main = entries.first { $0.event.startMinute > nowMinute }
+        let main = entries.first
         let now = today.date(atMinute: nowMinute, calendar: calendar)
-        let face = main?.departure.flatMap {
+        // 出発時刻を過ぎたら、時計は終わり、出発の点を「いま」の上に残す（Q83）。知らせは 3 分まで「出発してください」、そのあと「○分過ぎています」
+        let passed = main?.departure.flatMap { $0.minute <= nowMinute ? $0 : nil }
+        let face = passed == nil ? main?.departure.flatMap {
             HomeClockMath.face(now: now, target: today.date(atMinute: $0.minute, calendar: calendar), calendar: calendar)
+        } : nil
+        let notice = passed.map { departure -> String in
+            let over = nowMinute - departure.minute
+            return over >= 3 ? "出発時刻を\(over)分過ぎています" : "出発してください"
         }
         return CharacterComparisonSample(
             dateTitle: "\(today.month)月\(today.day)日（\(today.weekdaySymbol(calendar: calendar))）",
@@ -113,11 +190,14 @@ struct CharacterComparisonSample {
             allDayTitles: todays.filter(\.isAllDay).map(\.displayTitle),
             entries: entries,
             mainEventID: main?.event.id,
-            face: face)
+            face: face,
+            pastDeparture: passed,
+            notice: notice)
     }
 
     /// 予定を limit 件まで出すときの並び（spec §88.2・2026-10-16 Q84）。主状態の予定とその出発の点はいつも出し、
-    /// ほかは時刻の順に足す。出さなかった予定の数も返す（「ほか○件」。出発の点は別に数えない）
+    /// ほかは時刻の順に足す。出さなかった予定の数も返す（「ほか○件」。出発の点は別に数えない）。
+    /// 過ぎた出発の点は「いま」の上に出すので、ここには入れない（Q87）
     func timeline(showingEvents limit: Int) -> (rows: [Row], hiddenEvents: Int) {
         var shown = Set<UUID>()
         if let mainEventID { shown.insert(mainEventID) }
@@ -126,7 +206,8 @@ struct CharacterComparisonSample {
         }
         var rows: [Row] = []
         for entry in entries where shown.contains(entry.event.id) {
-            if let departure = entry.departure {
+            let departureHasPassed = entry.event.id == mainEventID && pastDeparture != nil
+            if let departure = entry.departure, !departureHasPassed {
                 rows.append(.departure(id: entry.event.id, minute: departure.minute, transport: departure.transport))
             }
             rows.append(.event(entry.event, color: entry.color, emphasized: entry.event.id == mainEventID))
@@ -147,8 +228,10 @@ extension CharacterPosture {
     var pose: CharacterPose { CharacterDesign.current.pose(self) }
 }
 
-/// 比べる画面の Home に近い配置（日付・演出帯・いま・縦のタイムライン・見本の予定）。
-/// Home の新しい決まりに合わせて、画面は縦にスクロールしない（入りきらない予定は「ほか○件」。§88.2・Q84）。今の Home の画面とは別
+/// 比べる画面の Home に近い配置（日付・演出帯・人型・いま・縦のタイムライン・見本の予定）。
+/// Home の新しい決まりに合わせて、画面は縦にスクロールしない（入りきらない予定は「ほか○件」。§88.2・Q84）。今の Home の画面とは別。
+/// 人型は「いま」の直上の定位置（§88.3・Q87・Q88。2026-10-17 に日付の下から移した）：上から 日付・終日 → 人型 →（過ぎた出発の点）→ いま → これからの予定。
+/// 時計があるときは、時計の左下（足元は時計の下の「出発予定」の行の下の端の高さ）に人型が来る
 struct DevHomePreview: View {
     let figure: CharacterFigure
     /// 時計の外径（画面の幅に対する割合）。nil なら時計なし
@@ -157,10 +240,21 @@ struct DevHomePreview: View {
 
     var body: some View {
         GeometryReader { proxy in
-            VStack(alignment: .leading, spacing: Theme.Spacing.s) {
+            VStack(alignment: .leading, spacing: 0) {
                 stage(screenWidth: proxy.size.width)
-                nowRow
+                ForEach(DevStageLayout.columnItems(hasPastDeparture: sample.pastDeparture != nil), id: \.self) { item in
+                    switch item {
+                    case .figure:
+                        // 人型は上の帯の左の列の下に置く（時計と横に並べるため）。ここでは描かない。実際の置き場所は画面写真（layout-*）で確かめる
+                        EmptyView()
+                    case .pastDeparture:
+                        pastDepartureRow
+                    case .now:
+                        nowRow
+                    }
+                }
                 timeline
+                    .padding(.top, Theme.Spacing.s)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
             .padding(.horizontal, Theme.Spacing.l)
@@ -184,16 +278,25 @@ struct DevHomePreview: View {
         .padding(.top, Theme.Spacing.s)
     }
 
-    /// 上の帯（2026-10-16 の H1 の配置）：左上に今日の日付、その下に小さな人型。時計ありなら右に時計（画面の幅の 45％・右寄せ。
-    /// 中の文字・針は大きさに合わせて縮める：Q85）。外周の「いま」「出発」の文字が画面の外へ出ないよう、右に余白をとる
+    /// 上の帯（2026-10-17）：左上に今日の日付と終日の予定、その下に知らせ（時計がないとき。Q92）。
+    /// 左の列のいちばん下（「いま」の直上）に人型。時計ありなら右に時計（画面の幅の 40〜50％・右寄せ。中の文字・針は大きさに合わせて縮める：Q85）。
+    /// 左の列は時計の列（時計と下の「出発予定」の行）の高さまでのび、人型の足元はその下の端にそろう。時計がないときは日付・知らせのすぐ下に人型が来て、大きな空白を作らない。
+    /// 外周の「いま」「出発」の文字が画面の外へ出ないよう、右に余白をとる
     @ViewBuilder
     private func stage(screenWidth: CGFloat) -> some View {
         HStack(alignment: .top, spacing: Theme.Spacing.s) {
-            VStack(alignment: .leading, spacing: Theme.Spacing.m) {
+            VStack(alignment: .leading, spacing: 0) {
                 header
-                figure
+                if let notice = sample.notice {
+                    Text(notice)
+                        .font(.title3.weight(.bold))
+                        .foregroundStyle(Theme.Colors.actionText)
+                        .padding(.top, Theme.Spacing.s)
+                }
+                Spacer(minLength: DevStageLayout.figureTopGap)
+                placedFigure
             }
-            Spacer(minLength: 0)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             if let clockWidth, let face = sample.face {
                 let diameter = screenWidth * clockWidth
                 VStack(spacing: Theme.Spacing.xs) {
@@ -208,6 +311,34 @@ struct DevHomePreview: View {
                 }
                 .padding(.trailing, DevStageLayout.clockTrailingInset)
             }
+        }
+        // 左の列を時計の列と同じ高さにのばす（人型を時計の下の端の高さへ）
+        .fixedSize(horizontal: false, vertical: true)
+        .padding(.bottom, DevStageLayout.figureBottomGap)
+    }
+
+    /// 人型は本体（甲羅・耳を除く）の左の端をそろえて置く。モードを切り替えても本体は動かず、甲羅は左の余白へはみ出す
+    private var placedFigure: some View {
+        figure.offset(x: -DevStageLayout.figureLeadingShift(figure.layout))
+    }
+
+    /// 過ぎた出発の点（Q83・Q87）：人型と「いま」のあいだに、控えめな 1 行で
+    @ViewBuilder
+    private var pastDepartureRow: some View {
+        if let departure = sample.pastDeparture {
+            HStack(spacing: Theme.Spacing.s) {
+                Circle()
+                    .strokeBorder(Theme.Colors.textSecondary, lineWidth: 1.5)
+                    .background(Circle().fill(Theme.Colors.homeBackground))
+                    .frame(width: Layout.departureDot, height: Layout.departureDot)
+                    .frame(width: Layout.railWidth)
+                Text(TimeText.hourMinute(departure.minute)).monospacedDigit()
+                Text("出発・\(departure.transport)（過ぎた出発）")
+            }
+            .font(.footnote)
+            .foregroundStyle(Theme.Colors.textSecondary)
+            .lineLimit(1)
+            .padding(.bottom, Theme.Spacing.xs)
         }
     }
 
@@ -330,21 +461,46 @@ struct DevHomePreview: View {
     }
 }
 
-/// 比べる画面の上の帯の配置の計算（2026-10-16 の H1 の配置。テストで、時計と人型が重ならないことを確かめる）
+/// 比べる画面の上の帯の配置の計算（2026-10-16 の H1 の配置、2026-10-17 に人型を「いま」の直上へ。
+/// テストで、時計と人型が重ならないこと・人型と「いま」の並びを確かめる）
 enum DevStageLayout {
     /// 時計の右の余白。画面の左右の余白（16pt）と合わせて、外周の「いま」「出発」の文字が画面の外へ出ない幅にする
     static let clockTrailingInset: CGFloat = 14
     /// 時計の外周から、「いま」「出発」の文字の外側の端までの長さ（文字の中心までの間隔＋文字の幅の半分）
     static let labelReach: CGFloat = HomeMetrics.markerLabelGap + 14
+    /// 日付・知らせと人型のあいだの最小の間（時計がないとき）。人型の足元と「いま」の行のあいだ（小さく。仮の値）
+    static let figureTopGap: CGFloat = Theme.Spacing.s
+    static let figureBottomGap: CGFloat = Theme.Spacing.s
+
+    /// 左の列の並び（上から）。人型 →（過ぎた出発の点。最大 1 件）→ いま（§88.3・Q83・Q87）。その下にこれからの予定
+    enum ColumnItem: Hashable {
+        case figure
+        case pastDeparture
+        case now
+    }
+
+    static func columnItems(hasPastDeparture: Bool) -> [ColumnItem] {
+        hasPastDeparture ? [.figure, .pastDeparture, .now] : [.figure, .now]
+    }
 
     /// 時計の外周の文字まで含めた左端（画面の左からの位置）
     static func clockLeftEdge(screenWidth: CGFloat, clockWidth: CGFloat) -> CGFloat {
         screenWidth - Theme.Spacing.l - clockTrailingInset - screenWidth * clockWidth - labelReach
     }
 
-    /// 人型（左上、日付の下）の右端
-    static func figureRightEdge(figureWidth: CGFloat) -> CGFloat {
-        Theme.Spacing.l + figureWidth
+    /// 人型を左へずらす量：本体の輪郭の左の端を、画面の左の余白（16pt）にそろえる（甲羅は左の余白へはみ出す）
+    static func figureLeadingShift(_ layout: CharacterLayout) -> CGFloat {
+        layout.bodyFrame.minX - layout.outlineWidth
+    }
+
+    /// 人型（左、「いま」の直上）の右端（画面の左からの位置）
+    static func figureRightEdge(_ layout: CharacterLayout) -> CGFloat {
+        Theme.Spacing.l + layout.size.width - figureLeadingShift(layout)
+    }
+
+    /// 人型（甲羅を含む）の左端。画面の外へ出ない
+    static func figureLeftEdge(_ layout: CharacterLayout) -> CGFloat {
+        Theme.Spacing.l - figureLeadingShift(layout)
     }
 }
 
@@ -362,13 +518,13 @@ private struct DevControlsPanel<Content: View>: View {
     }
 }
 
-/// 設定 ＞ 開発用：キャラクターの大きさ。キャラクターの高さ・姿勢・時計のあり／なし・時計の大きさを切り替えて、その場で比べる
+/// 設定 ＞ 開発用：キャラクターの大きさ。正式キャラクター 3 モードの高さ・モード・時計のあり／なし・時計の大きさを切り替えて、その場で比べる
 struct CharacterSizeComparisonView: View {
     @State private var store = CharacterComparisonStore.fromLaunchArguments()
     private let sample = CharacterComparisonSample.make()
 
     var body: some View {
-        DevHomePreview(figure: CharacterFigure(height: store.height, design: .simple2, posture: store.posture),
+        DevHomePreview(figure: CharacterFigure(height: store.height, mode: store.mode),
                        clockWidth: store.showsClock ? store.clockWidth : nil,
                        sample: sample)
             .safeAreaInset(edge: .bottom) { controls }
@@ -385,9 +541,9 @@ struct CharacterSizeComparisonView: View {
             }
             .pickerStyle(.segmented)
             HStack(spacing: Theme.Spacing.m) {
-                Picker("姿勢", selection: $store.posture) {
-                    ForEach(CharacterPosture.allCases, id: \.self) { posture in
-                        Text(posture.title).tag(posture)
+                Picker("モード", selection: $store.mode) {
+                    ForEach(CharacterMode.allCases, id: \.self) { mode in
+                        Text(mode.title).tag(mode)
                     }
                 }
                 .pickerStyle(.segmented)
@@ -426,11 +582,12 @@ extension CharacterDesign {
         style: CharacterStyle(outlineRatio: 0.04, cheekOpacity: 0.45))
 }
 
-/// 案の比べる画面で切り替えるもの。大きさは第一の候補に固定（人型 36pt・時計 45％。2026-10-16）
+/// 案の比べる画面で切り替えるもの。大きさは H2 の第一の候補に固定（人型 36pt・時計 40％。2026-10-16）
 @Observable
 final class CharacterDesignComparisonStore {
-    /// 正式「2 シンプル」（原画を正本に描き直した形）と、H1 の旧試作（参考。正式のデザインではない）
+    /// 正式「キャラクター 3 モード」（2026-10-16 正式採用）と、旧正式「2 シンプル」・H1 の旧試作（参考。正式のデザインではない）
     enum Candidate: String, CaseIterable {
+        case official3
         case simple2
         case current
         case simple
@@ -439,7 +596,8 @@ final class CharacterDesignComparisonStore {
 
         var title: String {
             switch self {
-            case .simple2: "正式"
+            case .official3: "正式（3 モード）"
+            case .simple2: "旧 2 シンプル"
             case .current: "旧現行"
             case .simple: "旧シンプル"
             case .calm: "旧控えめ"
@@ -447,10 +605,12 @@ final class CharacterDesignComparisonStore {
             }
         }
 
-        var isOfficial: Bool { self == .simple2 }
+        var isOfficial: Bool { self == .official3 }
 
-        var design: CharacterDesign {
+        /// 旧の案の形（正式の 3 モードは装備つきの別の作りなので nil）
+        var design: CharacterDesign? {
             switch self {
+            case .official3: nil
             case .simple2: .simple2
             case .current: .current
             case .simple: .simple
@@ -461,17 +621,36 @@ final class CharacterDesignComparisonStore {
     }
 
     static let height: CGFloat = 36
-    static let clockWidth: CGFloat = 0.45
+    static let clockWidth: CGFloat = 0.40
 
-    var candidate: Candidate = .simple2
+    var candidate: Candidate = .official3
+    /// 正式の 3 モードの見た目
+    var mode: CharacterMode = .human
+    /// 旧の案の姿勢（正式の 3 モードは立つ姿だけ）
     var posture: CharacterPosture = .standing
     var showsClock = true
+    /// 見本の時刻（出発前／出発を過ぎた。Q87 の並び）と予定の数
+    var scenario: CharacterComparisonSample.Scenario = .beforeDeparture
+    var amount: CharacterComparisonSample.Amount = .usual
 
-    /// Codemagic の画面写真用：起動引数 `-TimyCueCharacterDesign simple -TimyCueCharacterPosture sitting -TimyCueCharacterClock NO`
+    /// 選んだ案の人型（36pt）
+    var figure: CharacterFigure {
+        if let design = candidate.design {
+            return CharacterFigure(height: Self.height, design: design, posture: posture)
+        }
+        return CharacterFigure(height: Self.height, mode: mode)
+    }
+
+    /// Codemagic の画面写真用：起動引数
+    /// `-TimyCueCharacterDesign official3 -TimyCueCharacterMode rabbit -TimyCueCharacterPosture sitting -TimyCueCharacterClock NO`
+    /// `-TimyCueDevScenario overdue -TimyCueDevEvents many`
     static func fromLaunchArguments(_ defaults: UserDefaults = .standard) -> CharacterDesignComparisonStore {
         let store = CharacterDesignComparisonStore()
         if let raw = defaults.string(forKey: "TimyCueCharacterDesign"), let candidate = Candidate(rawValue: raw) {
             store.candidate = candidate
+        }
+        if let raw = defaults.string(forKey: "TimyCueCharacterMode"), let mode = CharacterMode(rawValue: raw) {
+            store.mode = mode
         }
         if let raw = defaults.string(forKey: "TimyCueCharacterPosture"), let posture = CharacterPosture(rawValue: raw) {
             store.posture = posture
@@ -479,38 +658,61 @@ final class CharacterDesignComparisonStore {
         if defaults.object(forKey: "TimyCueCharacterClock") != nil {
             store.showsClock = defaults.bool(forKey: "TimyCueCharacterClock")
         }
+        if let raw = defaults.string(forKey: "TimyCueDevScenario"), let scenario = CharacterComparisonSample.Scenario(rawValue: raw) {
+            store.scenario = scenario
+        }
+        if let raw = defaults.string(forKey: "TimyCueDevEvents"), let amount = CharacterComparisonSample.Amount(rawValue: raw) {
+            store.amount = amount
+        }
         return store
     }
 }
 
-/// 設定 ＞ 開発用：キャラクターの案。案（現行・シンプル寄り・かわいさ控えめ・中間）・姿勢・時計のあり／なしを切り替えて比べる。
-/// 人型は 36pt、時計は 45％に固定（2026-10-16 の第一の候補）
+/// 設定 ＞ 開発用：キャラクターの案。案（正式の 3 モード・旧 2 シンプル・旧試作）と、正式ならモード（亀・人型・うさぎ）、
+/// 旧の案なら姿勢、時計のあり／なし、見本の時刻（出発前／出発を過ぎた）、予定の数を切り替えて、人型の定位置（「いま」の直上）を確かめる。
+/// 人型は 36pt、時計は 40％に固定（H2 の第一の候補）
 struct CharacterDesignComparisonView: View {
     @State private var store = CharacterDesignComparisonStore.fromLaunchArguments()
-    private let sample = CharacterComparisonSample.make()
 
     var body: some View {
-        DevHomePreview(figure: CharacterFigure(height: CharacterDesignComparisonStore.height,
-                                               design: store.candidate.design, posture: store.posture),
+        DevHomePreview(figure: store.figure,
                        clockWidth: store.showsClock ? CharacterDesignComparisonStore.clockWidth : nil,
-                       sample: sample)
+                       sample: CharacterComparisonSample.make(scenario: store.scenario, amount: store.amount))
             .safeAreaInset(edge: .bottom) { controls }
-            .navigationTitle(store.candidate.isOfficial ? "キャラクター（正式：2 シンプル）" : "キャラクター（旧試作）")
+            .navigationTitle(store.candidate.isOfficial ? "キャラクター（正式：3 モード）" : "キャラクター（旧試作）")
             .navigationBarTitleDisplayMode(.inline)
     }
 
     private var controls: some View {
         DevControlsPanel {
-            Picker("案", selection: $store.candidate) {
-                ForEach(CharacterDesignComparisonStore.Candidate.allCases, id: \.self) { candidate in
-                    Text(candidate.title).tag(candidate)
+            HStack(spacing: Theme.Spacing.m) {
+                Picker("案", selection: $store.candidate) {
+                    ForEach(CharacterDesignComparisonStore.Candidate.allCases, id: \.self) { candidate in
+                        Text(candidate.title).tag(candidate)
+                    }
+                }
+                .pickerStyle(.menu)
+                .fixedSize()
+                if store.candidate.isOfficial {
+                    Picker("モード", selection: $store.mode) {
+                        ForEach(CharacterMode.allCases, id: \.self) { mode in
+                            Text(mode.title).tag(mode)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                } else {
+                    Picker("姿勢", selection: $store.posture) {
+                        ForEach(CharacterPosture.allCases, id: \.self) { posture in
+                            Text(posture.title).tag(posture)
+                        }
+                    }
+                    .pickerStyle(.segmented)
                 }
             }
-            .pickerStyle(.segmented)
             HStack(spacing: Theme.Spacing.m) {
-                Picker("姿勢", selection: $store.posture) {
-                    ForEach(CharacterPosture.allCases, id: \.self) { posture in
-                        Text(posture.title).tag(posture)
+                Picker("見本の時刻", selection: $store.scenario) {
+                    ForEach(CharacterComparisonSample.Scenario.allCases, id: \.self) { scenario in
+                        Text(scenario.title).tag(scenario)
                     }
                 }
                 .pickerStyle(.segmented)
@@ -518,6 +720,12 @@ struct CharacterDesignComparisonView: View {
                     .fixedSize()
                     .tint(Theme.Colors.accent)
             }
+            Picker("予定の数", selection: $store.amount) {
+                ForEach(CharacterComparisonSample.Amount.allCases, id: \.self) { amount in
+                    Text("予定 \(amount.title)").tag(amount)
+                }
+            }
+            .pickerStyle(.segmented)
         }
     }
 }
