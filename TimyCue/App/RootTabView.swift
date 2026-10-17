@@ -1,4 +1,6 @@
+import Combine
 import SwiftUI
+import UIKit
 
 /// 下部タブ（仕様 §3）：ホーム｜カレンダー｜設定
 enum RootTab: String, CaseIterable {
@@ -28,6 +30,7 @@ struct RootTabView: View {
     @Environment(ScheduleEditorStore.self) private var editorStore
     @Environment(CalendarStore.self) private var calendarStore
     @Environment(CalendarConnection.self) private var connection
+    @Environment(\.scenePhase) private var scenePhase
     @State private var showsEditorForScreenshot = false
 
     var body: some View {
@@ -61,6 +64,21 @@ struct RootTabView: View {
         .onAppear {
             openEditorForScreenshot()
             markReadyForScreenshot()
+        }
+        // カレンダーの「今日」（月カレンダーの今日の丸・［＋］の初めの日・1 日タイムラインの今日）を、アプリを前面に戻したときと、
+        // 日付が変わったとき（夜 0 時をまたいだ・時刻やタイムゾーンを変えた）にも本当の今日へ直す。前は起動したときとタブが出たときだけで、
+        // 前の日から裏に残したアプリを前面に戻すと、ホームかカレンダーのタブが出るまで前の日のままだった（そのあいだに［＋］を押すと
+        // 前の日から始まる）。2026-10-17 の実機の不具合（Home の次の予定に直近の予定が出ない）の原因の候補の一つ（spec の記録の同じ日）。
+        // 日が同じなら何もしない
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { calendarStore.updateToday() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .NSCalendarDayChanged).receive(on: DispatchQueue.main)) { _ in
+            calendarStore.updateToday()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.significantTimeChangeNotification)
+            .receive(on: DispatchQueue.main)) { _ in
+            calendarStore.updateToday()
         }
         .fullScreenCover(isPresented: $showsEditorForScreenshot) {
             ScheduleEditorView(initialMonth: CalendarMonth(CalendarDay(Date())))
