@@ -64,9 +64,9 @@ final class CalendarStore {
     private(set) var openDays: [CalendarDay] = []
     /// 月カレンダーの吹き出しで、一覧から予定詳細に切り替えている日と予定（Q28(a)）
     private(set) var popoverDetails: [CalendarDay: UUID] = [:]
-    /// 自動で開いた「今日」の吹き出しの日（「今日」へ移ったとき・保存のあとにその日が今日だったとき）。
-    /// 日付が変わったら閉じる（2026-10-17 決定 Q96）。日付のマスを手で押して開いた日は入れない（手で選んだ日は変えない）
-    @ObservationIgnored private var autoOpenedTodays: Set<CalendarDay> = []
+    /// 開いたとき、その日が今日だった吹き出しの日（手で押したか、「今日」へ移ったか・保存のあとかに依らない）。
+    /// 日付が変わったら閉じる（2026-10-17 決定 Q96）。開いたときに今日でなかった日（手で選んだ別の日・日付が変わってから選んだ過去の日）は残す
+    @ObservationIgnored private var openedAsToday: Set<CalendarDay> = []
     /// 1 日タイムラインで予定詳細の吹き出しを出している予定（Q28(b)）
     private(set) var timelineDetailEventID: UUID?
     /// 予定詳細の吹き出しの「編集」で開く 3 分割画面（Q30）。閉じたら nil に戻るので外から書ける
@@ -129,10 +129,7 @@ final class CalendarStore {
     func scrollToToday() {
         closeAllPopovers()
         showCurrentMonth()
-        if !isOpen(today) {
-            tapDay(today)
-            autoOpenedTodays.insert(today)
-        }
+        if !isOpen(today) { tapDay(today) }
     }
 
     /// 今月を、開いたときと同じ位置に出す（仮）
@@ -204,21 +201,20 @@ final class CalendarStore {
             .mapValues { $0.sorted(by: Self.displayOrder) }
     }
 
-    /// 日付が変わったときに「今日」を更新する。前の日に自動で開いていた「今日」の吹き出しが残っていれば閉じる
-    /// （2026-10-17 決定 Q96。手で選んだ日の吹き出しは閉じない。今日の吹き出しを新しく開くことはしない）
+    /// 日付が変わったときに「今日」を更新する。開いたときに今日だった吹き出し（前の日の「今日」）が残っていれば閉じる
+    /// （2026-10-17 決定 Q96。手で押したか自動かに依らない。開いたときに別の日だった吹き出しは残す。今日の吹き出しを新しく開くことはしない）
     func updateToday(_ day: CalendarDay = CalendarDay(Date())) {
         guard day != today else { return }
-        let previous = today
         today = day
         let todayWeek = CalendarWeek(containing: day)
         if let first = weeks.first, let last = weeks.last, !(first...last).contains(todayWeek) {
             weeks = Self.weeks(around: todayWeek)
         }
-        if autoOpenedTodays.contains(previous), let index = openDays.firstIndex(of: previous) {
-            openDays.remove(at: index)
-            popoverDetails[previous] = nil
+        for stale in openedAsToday {
+            if let index = openDays.firstIndex(of: stale) { openDays.remove(at: index) }
+            popoverDetails[stale] = nil
         }
-        autoOpenedTodays.remove(previous)
+        openedAsToday = []
     }
 
     // MARK: - 週の追加（Q13）
@@ -306,19 +302,20 @@ final class CalendarStore {
     /// 日付を押す（仕様 §22・§23）。1 つ目・2 つ目は開く。3 つ目は古い方を閉じて入れ替える。
     /// 開いている日をもう一度押したら閉じる（Q9）
     func tapDay(_ day: CalendarDay) {
-        // 押して開いた・閉じた日は、手で選んだ日として扱う（自動で開いた「今日」の印を外す。Q96）
-        autoOpenedTodays.remove(day)
         if let index = openDays.firstIndex(of: day) {
             openDays.remove(at: index)
             popoverDetails[day] = nil
+            openedAsToday.remove(day)
             return
         }
         openDays.append(day)
+        // 開いたときにその日が今日だったかを覚える（日付が変わったら閉じる。Q96）。「今日」へ移ったとき・保存のあとも、ここを通る
+        if day == today { openedAsToday.insert(day) } else { openedAsToday.remove(day) }
         if openDays.count > Self.maxOpenPopovers {
             let closed = openDays.prefix(openDays.count - Self.maxOpenPopovers)
             closed.forEach {
                 popoverDetails[$0] = nil
-                autoOpenedTodays.remove($0)
+                openedAsToday.remove($0)
             }
             openDays.removeFirst(closed.count)
         }
@@ -326,7 +323,7 @@ final class CalendarStore {
 
     /// 吹き出しの外を押したとき、開いている吹き出しを閉じる。予定詳細に切り替えていても一覧へ戻さず、まとめて閉じる（Q9・Q29）
     func closeAllPopovers() {
-        autoOpenedTodays = []
+        openedAsToday = []
         guard !openDays.isEmpty else { return }
         openDays = []
         popoverDetails = [:]
@@ -386,11 +383,7 @@ final class CalendarStore {
     /// 複数日なら最初の日を代表にする（Q22）
     func showSavedDay(_ day: CalendarDay) {
         reload()
-        if !isOpen(day) {
-            tapDay(day)
-            // 今日の予定を保存して自動で開いた吹き出しは、日付が変わったら閉じる（Q96）。ほかの日は、編集画面で選んだ日なので残す
-            if day == today { autoOpenedTodays.insert(day) }
-        }
+        if !isOpen(day) { tapDay(day) }
     }
 
     /// 保存のあとに軽く出す知らせ（「3件コピーしました」など）。少したつと消える
