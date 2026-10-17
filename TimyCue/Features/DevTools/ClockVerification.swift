@@ -26,6 +26,14 @@ enum ClockVerificationScenario: String, CaseIterable {
     /// 場所ありの見本の移動時間（出発 10:00 → 開始 10:30）。経路は計算せず、決まった値にする
     static let sampleTravelMinutes = 30
 
+    /// 見本の時刻の説明。場所ありは出発と開始、場所なしは開始だけ（場所なしの予定に出発はない：spec §12。2026-10-17）
+    var scheduleText: String {
+        switch self {
+        case .withPlace: "出発 10:00・開始 10:30"
+        case .withoutPlace: "開始 10:00"
+        }
+    }
+
     /// 見本の予定（day の日の 1 件。見本と分かる名前）
     func event(on day: CalendarDay) -> CalendarEvent {
         switch self {
@@ -94,6 +102,12 @@ struct ClockVerificationModel: Equatable {
         case .eventStarted: "予定開始（予定時刻になりました）"
         case .moving, .arrived, .conflict, .departureUnavailable: "そのほか"
         }
+    }
+
+    /// 「いま」の文字を出すかの呼び名（時計があるときだけ）。到達点の言葉は案内の対象に合わせる（場所なしは「開始」。2026-10-17）
+    var nowLabelTitle: String? {
+        guard let face else { return nil }
+        return face.showsNowLabel ? "出す" : "出さない（\(targetWord ?? "出発")と5分以内）"
     }
 
     /// 残り時間の弧の色の呼び名（時計があるときだけ）

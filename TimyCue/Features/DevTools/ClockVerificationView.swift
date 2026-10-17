@@ -41,7 +41,7 @@ struct ClockVerificationView: View {
             Text("検証用の時刻 \(model.nowText)（\(model.offsetText)）")
                 .font(.headline.monospacedDigit())
                 .foregroundStyle(Theme.Colors.textPrimary)
-            Text("見本：\(store.scenario.title)。出発 10:00・開始 \(store.scenario == .withPlace ? "10:30" : "10:00")。実際の予定・通知には影響しません")
+            Text("見本：\(store.scenario.title)。\(store.scenario.scheduleText)。実際の予定・通知には影響しません")
                 .font(.caption)
                 .foregroundStyle(Theme.Colors.textSecondary)
         }
@@ -81,7 +81,7 @@ struct ClockVerificationView: View {
             if let face = model.face {
                 fact("残り", "\(face.remainingMinutes)分（弧は \(face.remainingMinutes * 6)°）")
                 fact("弧の色", model.ringColorTitle ?? "")
-                fact("「いま」の文字", face.showsNowLabel ? "出す" : "出さない（出発と5分以内）")
+                fact("「いま」の文字", model.nowLabelTitle ?? "")
                 fact("いまの丸", face.markersCoincide ? "内側へずらす（60分前）" : "ずらさない")
             }
         }

@@ -147,6 +147,66 @@ workflows:
             set -- $SHOT
             capture "clock-$1-$2" -TimyCueTab settings -TimyCueDevScreen clockCheck -TimyCueClockScenario "$1" -TimyCueClockOffset "$2"
           done
+          # Q94 の足りない状態（2026-10-17 許可）：「いま」の文字の出し入れ（55・54・6・5 分前）、弧の色の境目（31・30・15 分前）、
+          # 出発の 2 分後（まだ出発してください）、場所ありの開始 10:30（予定時刻になりました）、場所なしの 61 分前と 3 分後（知らせが終わる）
+          for SHOT in "withPlace m55" "withPlace m54" "withPlace m31" "withPlace m30" "withPlace m15" "withPlace m6" "withPlace m5" \
+                      "withPlace p2" "withPlace p30" "withoutPlace m61" "withoutPlace p3"; do
+            set -- $SHOT
+            capture "clock-$1-$2" -TimyCueTab settings -TimyCueDevScreen clockCheck -TimyCueClockScenario "$1" -TimyCueClockOffset "$2"
+          done
+          # 小さい iPhone 相当の幅（375pt）でも撮る（2026-10-17 許可）。画面の大きさの確かめで、実機の確認ではない。
+          # iOS 17 以上で幅がいちばん狭いのは 375pt（iPhone SE 第 3 世代・mini）。用意されていなければ SE（第 3 世代）を作る。作れなければ撮らない
+          SMALL_UDID=$(xcrun simctl list devices available -j | python3 -c '
+          import json, sys
+          devices = json.load(sys.stdin)["devices"]
+          for name in ["iPhone SE (3rd generation)", "iPhone 13 mini", "iPhone 12 mini"]:
+              found = [d for runtime, items in sorted(devices.items()) if "iOS" in runtime for d in items if d["name"] == name]
+              if found:
+                  print(found[-1]["udid"])
+                  break
+          ') || true
+          if [ -z "$SMALL_UDID" ]; then
+            RUNTIME=$(xcrun simctl list runtimes available -j | python3 -c '
+          import json, sys
+          runtimes = [r for r in json.load(sys.stdin)["runtimes"] if r.get("platform") == "iOS" or "iOS" in r.get("name", "")]
+          print(runtimes[-1]["identifier"] if runtimes else "")
+          ') || true
+            if [ -n "$RUNTIME" ]; then
+              SMALL_UDID=$(xcrun simctl create "TimyCue SE" com.apple.CoreSimulator.SimDeviceType.iPhone-SE-3rd-generation "$RUNTIME" 2>/dev/null || true)
+            fi
+          fi
+          # 小さい機種の写真は、うまくいかなくてもビルド確認を止めない（set +e の中で撮る）
+          if [ -n "$SMALL_UDID" ]; then (
+            set +e
+            echo "小さい iPhone のシミュレータ: $SMALL_UDID"
+            xcrun simctl shutdown "$SIM_UDID" 2>/dev/null || true
+            SIM_UDID=$SMALL_UDID
+            xcrun simctl boot "$SIM_UDID" 2>/dev/null || true
+            xcrun simctl bootstatus "$SIM_UDID" -b
+            xcrun simctl status_bar "$SIM_UDID" override --time "9:41" --batteryState charged --batteryLevel 100 || true
+            # アプリを入れられなかったら、まちがった写真を撮らずに抜ける（サブシェルの exit は外を止めない）
+            xcrun simctl install "$SIM_UDID" "$APP" || exit 0
+            DATA=$(xcrun simctl get_app_container "$SIM_UDID" "$BUNDLE" data) || exit 0
+            [ -n "$DATA" ] || exit 0
+            READY="$DATA/Documents/timycue-screenshot-ready"
+            launch_and_wait -TimyCueTab home
+            # 時計 40％の中央の文字 4 種類と、出発 3 分超過の知らせ
+            for SHOT in "withPlace m60" "withPlace m23" "withPlace m1" "withoutPlace m23" "withPlace p3"; do
+              set -- $SHOT
+              capture "small-clock-$1-$2" -TimyCueTab settings -TimyCueDevScreen clockCheck -TimyCueClockScenario "$1" -TimyCueClockOffset "$2"
+            done
+            # 人型の定位置（時計あり・なし、出発を過ぎた、予定が多い）
+            for SHOT in "human YES before usual" "turtle YES before usual" "human NO before usual" "rabbit NO overdue usual" \
+                        "human YES before many"; do
+              set -- $SHOT
+              if [ "$2" = YES ]; then CLOCK=clock40; else CLOCK=noclock; fi
+              capture "small-layout-$1-$CLOCK-$3-$4" -TimyCueTab settings -TimyCueDevScreen characterDesigns -TimyCueCharacterDesign official3 \
+                -TimyCueCharacterMode "$1" -TimyCueCharacterClock "$2" -TimyCueDevScenario "$3" -TimyCueDevEvents "$4"
+            done
+          ) || true
+          else
+            echo "小さい iPhone のシミュレータを用意できなかったので、小さい幅の画面写真は撮らない"
+          fi
           ls -l build/screenshots
     artifacts:
       - build/screenshots/*.png

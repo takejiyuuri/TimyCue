@@ -62,6 +62,44 @@ final class ClockVerificationTests: XCTestCase {
         XCTAssertNil(model(3, .withoutPlace).state.headline)
     }
 
+    func testArcEndIsTheDepartureWithAPlaceAndTheStartWithoutOne() throws {
+        // 外周の到達点（弧の終わり）の名前は案内の対象で切り替える（2026-10-17 正式採用。spec §88.3）。
+        // 場所あり：推奨出発時刻の位置に「出発」。場所なし：予定の開始時刻の位置に「開始」で、架空の出発や移動時間を足さない
+        let withPlace = model(-23)
+        let withPlaceFace = try XCTUnwrap(withPlace.face)
+        XCTAssertEqual(withPlace.targetWord, "出発")
+        XCTAssertEqual(withPlaceFace.target, withPlace.target, "弧の終わりは推奨出発時刻（10:00）")
+        XCTAssertLessThan(withPlaceFace.target, HomeSchedule.startDate(of: withPlace.event, calendar: withPlace.calendar),
+                          "場所ありの出発は予定の開始（10:30）より前")
+
+        let withoutPlace = model(-23, .withoutPlace)
+        let withoutPlaceFace = try XCTUnwrap(withoutPlace.face)
+        XCTAssertEqual(withoutPlace.targetWord, "開始")
+        XCTAssertEqual(withoutPlaceFace.target, HomeSchedule.startDate(of: withoutPlace.event, calendar: withoutPlace.calendar),
+                       "弧の終わりは予定の開始時刻（10:00）")
+        for offset in ClockVerificationStore.range {
+            switch model(offset, .withoutPlace).state {
+            case .departureCountdown, .departureTime, .departureOverdue:
+                XCTFail("場所なしの予定に出発の案内は出さない（\(offset) 分）")
+            default:
+                break
+            }
+        }
+    }
+
+    func testSampleScheduleTextHasNoDepartureForAnEventWithoutAPlace() {
+        // 場所なしの予定に出発はない（spec §12）。検証画面の説明文も開始だけ（2026-10-17）
+        XCTAssertEqual(ClockVerificationScenario.withPlace.scheduleText, "出発 10:00・開始 10:30")
+        XCTAssertEqual(ClockVerificationScenario.withoutPlace.scheduleText, "開始 10:00")
+        XCTAssertFalse(ClockVerificationScenario.withoutPlace.scheduleText.contains("出発"))
+        XCTAssertEqual(model(-23, .withoutPlace).offsetText, "開始の23分前")
+        XCTAssertEqual(model(-5, .withoutPlace).nowLabelTitle, "出さない（開始と5分以内）", "欄の言葉も「開始」")
+        XCTAssertEqual(model(-5).nowLabelTitle, "出さない（出発と5分以内）")
+        XCTAssertEqual(model(-23, .withoutPlace).nowLabelTitle, "出す")
+        XCTAssertNil(model(-61, .withoutPlace).nowLabelTitle, "時計がないときは出さない")
+        XCTAssertEqual(model(0, .withoutPlace).offsetText, "ちょうど開始時刻")
+    }
+
     func testCenterTextPresets() {
         let texts = ClockVerificationPreset.centerTexts.map { preset -> String in
             let model = ClockVerificationModel(scenario: preset.scenario, day: day, offsetMinutes: preset.offset)
