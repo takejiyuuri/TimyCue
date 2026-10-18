@@ -1,5 +1,21 @@
 import Foundation
 
+/// 新しい予定を書く先（spec §89.2・§89.6。S2）。作成画面がはっきり決めて、書き込みの層へ渡す
+enum EventStoreKind: Equatable {
+    /// この iPhone の中（「TimyCue のみ」と、Apple カレンダーと連携していないとき）
+    case onDevice
+    /// Apple カレンダー
+    case appleCalendar
+}
+
+/// 書く先の取り違え。書かずに止める（spec §89.4。S2）
+enum SaveRoutingError: Error, Equatable {
+    /// 保存先の状態が変わった（Apple カレンダー向けの予定なのに連携が切れた直後など）。どこにも書いていない
+    case destinationChanged
+    /// 「TimyCue のみ」「まだ決まっていない」の予定を Apple カレンダーへ書こうとした。書いていない
+    case notAnAppleSave
+}
+
 /// 予定（Apple カレンダーと共有する部分）の読み書き。今はモック、第4段階で EventKit 版に差し替える（仕様 §68）。
 protocol EventRepository: AnyObject {
     /// 読み込んである予定
@@ -7,6 +23,9 @@ protocol EventRepository: AnyObject {
     func insert(_ events: [CalendarEvent]) throws
     /// 新しい予定を 1 件ずつ書き、日ごとの結果を返す（一部だけ書けた・結果不明を分ける。spec §89.9・2026-10-18 S1b）
     func insertEach(_ events: [CalendarEvent]) -> InsertReport
+    /// 書く先（この iPhone の中か Apple カレンダーか）をはっきり決めて、新しい予定を 1 件ずつ書く（S2）。
+    /// その書く先を受け持たない保存先は、何も書かずに「書いていない」で返す（黙ってほかの書く先へ入れない）
+    func insertEach(_ events: [CalendarEvent], into destination: EventStoreKind) -> InsertReport
     func update(_ event: CalendarEvent) throws
     func delete(id: UUID) throws
     /// その期間の予定を読み込んでおく。Apple カレンダーは表示に必要な範囲だけ、必要になったときに読む（Q35）
@@ -38,6 +57,11 @@ extension EventRepository {
             if (error as? SaveFaultInjected)?.fault == .unknownResult { return .unknown }
             return allEvents().contains { $0.id == event.id } ? .saved : .notSaved
         })
+    }
+
+    /// メモリの中の保存先（見本の予定・テスト）は、どちらの書く先も受ける
+    func insertEach(_ events: [CalendarEvent], into destination: EventStoreKind) -> InsertReport {
+        insertEach(events)
     }
 
     /// 全部を手元に持っている保存先では何もしない

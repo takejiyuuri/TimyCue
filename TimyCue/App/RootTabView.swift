@@ -72,7 +72,10 @@ struct RootTabView: View {
         // 前の日から始まる）。2026-10-17 の実機の不具合（Home の次の予定に直近の予定が出ない）の原因の候補の一つ（spec の記録の同じ日）。
         // 日が同じなら何もしない
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active { calendarStore.updateToday() }
+            guard phase == .active else { return }
+            calendarStore.updateToday()
+            // 保存先の移行の先送りのやり直し（spec §89.8）
+            connection.handleBecameActive()
         }
         .onReceive(NotificationCenter.default.publisher(for: .NSCalendarDayChanged).receive(on: DispatchQueue.main)) { _ in
             calendarStore.updateToday()

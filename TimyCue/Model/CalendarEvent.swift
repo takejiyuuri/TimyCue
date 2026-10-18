@@ -125,6 +125,9 @@ struct CalendarEvent: Identifiable, Equatable, Codable {
     var source: EventSource
     /// 保存先の Apple カレンダー（EKCalendar の calendarIdentifier）。nil は既定の保存先（Q32）
     var calendarID: String?
+    /// Apple カレンダーと連携しているあいだに、利用者が「TimyCue のみ」を選んでこの iPhone の中に保存した印（spec §89.7・Q104）。
+    /// 自動の重複候補から外す。true のときだけファイルに書く（印のない予定のファイルの中身は前と同じ。古い版は読み飛ばす）
+    var savedOnDeviceWhileLinked: Bool?
 
     init(id: UUID = UUID(),
          day: CalendarDay,
@@ -136,7 +139,8 @@ struct CalendarEvent: Identifiable, Equatable, Codable {
          repeatRule: RepeatRule = .none,
          notes: String = "",
          source: EventSource = .timyCue,
-         calendarID: String? = nil) {
+         calendarID: String? = nil,
+         savedOnDeviceWhileLinked: Bool? = nil) {
         self.id = id
         self.day = day
         self.startMinute = startMinute
@@ -148,6 +152,7 @@ struct CalendarEvent: Identifiable, Equatable, Codable {
         self.notes = notes
         self.source = source
         self.calendarID = calendarID
+        self.savedOnDeviceWhileLinked = savedOnDeviceWhileLinked
     }
 
     /// 終了時刻。終了未設定なら nil（Apple カレンダー用の仮の終了を本当の終了と見なさない。仕様 §69）

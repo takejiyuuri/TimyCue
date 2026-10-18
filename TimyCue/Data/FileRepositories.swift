@@ -48,8 +48,9 @@ final class JSONFile<Value: Codable> {
         }
     }
 
-    func save(_ value: Value) throws {
-        try SaveFaults.check(faultPoint)
+    /// allowsFault が false なら、開発用の失敗の再現を使わない（利用者の操作ではない保存。起動のときの移行など）
+    func save(_ value: Value, allowsFault: Bool = true) throws {
+        if allowsFault { try SaveFaults.check(faultPoint) }
         // 開けなかったファイル・別名で残せなかった壊れたファイルを、上書きしない（中身を失わないため）
         guard !couldNotOpen else { throw JSONFileError.couldNotOpen(url) }
         guard !couldNotKeepUnreadable else { throw JSONFileError.unreadableNotKept(url) }
@@ -132,12 +133,26 @@ final class FileEventRepository: EventRepository {
         events = next
     }
 
+    /// この iPhone の中へ書く予定だけを受ける。Apple カレンダーへ書くはずの予定（連携が切れた直後など）は、
+    /// 黙って端末の中へ入れず、何も書かずに返す（S2）
+    func insertEach(_ events: [CalendarEvent], into destination: EventStoreKind) -> InsertReport {
+        guard destination == .onDevice else {
+            return InsertReport(notSaved: events, error: SaveRoutingError.destinationChanged)
+        }
+        return insertEach(events)
+    }
+
+    /// 連携中に「TimyCue のみ」で保存した印（Q104）は、入ってきた予定に印がなければ前の値を引き継ぐ（編集で印を外さない）
     func update(_ event: CalendarEvent) throws {
         guard let index = events.firstIndex(where: { $0.id == event.id }) else {
             throw EventRepositoryError.notFound(event.id)
         }
+        var updated = event
+        if updated.savedOnDeviceWhileLinked == nil {
+            updated.savedOnDeviceWhileLinked = events[index].savedOnDeviceWhileLinked
+        }
         var next = events
-        next[index] = event
+        next[index] = updated
         try file.save(next)
         events = next
     }
@@ -216,6 +231,9 @@ final class SwitchableEventRepository: EventRepository {
     func allEvents() -> [CalendarEvent] { current.allEvents() }
     func insert(_ events: [CalendarEvent]) throws { try current.insert(events) }
     func insertEach(_ events: [CalendarEvent]) -> InsertReport { current.insertEach(events) }
+    func insertEach(_ events: [CalendarEvent], into destination: EventStoreKind) -> InsertReport {
+        current.insertEach(events, into: destination)
+    }
     func update(_ event: CalendarEvent) throws { try current.update(event) }
     func delete(id: UUID) throws { try current.delete(id: id) }
     func ensureLoaded(from start: CalendarDay, to end: CalendarDay) { current.ensureLoaded(from: start, to: end) }
@@ -232,7 +250,8 @@ final class SwitchableEventRepository: EventRepository {
 
 /// Apple カレンダーとつないだあとの保存先。Apple カレンダーの予定と、つなぐ前から TimyCue の中にあった予定の両方を見せる。
 /// つないでも TimyCue の中の予定を勝手に Apple カレンダーへ移したり複製したりしない（Q34）。
-/// 新しく作る予定は Apple カレンダーへ。直す・消すは、その予定がある方で行う
+/// 新しく作る予定は、作成画面が決めた書く先へ（Apple カレンダーか、「TimyCue のみ」ならこの iPhone の中。S2）。
+/// 直す・消すは、その予定がある方で行う
 final class CombinedEventRepository: EventRepository {
     private let primary: EventRepository
     private let local: EventRepository
@@ -243,8 +262,17 @@ final class CombinedEventRepository: EventRepository {
     }
 
     func allEvents() -> [CalendarEvent] { primary.allEvents() + local.allEvents() }
+    /// 書く先を決めない古い呼び方（Apple カレンダーへ書く）。テストと古い呼び方のために残す。アプリの中からは insertEach(_:into:) を使う
     func insert(_ events: [CalendarEvent]) throws { try primary.insert(events) }
     func insertEach(_ events: [CalendarEvent]) -> InsertReport { primary.insertEach(events) }
+
+    /// 書く先ごとに振り分ける：この iPhone の中ならローカルの保存先だけ、Apple カレンダーなら Apple の保存先だけへ書く
+    func insertEach(_ events: [CalendarEvent], into destination: EventStoreKind) -> InsertReport {
+        switch destination {
+        case .onDevice: local.insertEach(events, into: .onDevice)
+        case .appleCalendar: primary.insertEach(events, into: .appleCalendar)
+        }
+    }
 
     func update(_ event: CalendarEvent) throws {
         try update(event, scope: .thisEvent)

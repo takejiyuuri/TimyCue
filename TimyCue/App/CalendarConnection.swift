@@ -47,9 +47,16 @@ final class CalendarConnection {
     @ObservationIgnored private var eventKit: EventKitEventRepository?
     /// カレンダーの一覧（書き込めないものも含む。表示のみは手で直した分を当てたもの）と、保存先の決まりを知らせる
     @ObservationIgnored private let onChange: @MainActor ([CalendarChoice], SaveTargetRules) -> Void
+    /// 保存先の移行の済んだ記録（UserDefaults。spec §89.8）。本物の保存先で動くときだけ渡す（見本の予定・今のテストは移行しない）
+    @ObservationIgnored private let saveTargetRecords: SaveTargetRecordStore?
+    /// 起動の時点で設定のファイルがあったか（移行の材料。使った跡）
+    @ObservationIgnored private var preferencesFileExistedAtLaunch = false
+    /// 材料のファイルを開けなかったので、移行を先送りしている（メモリの中だけ「保存の前に確かめる」。ファイルには仮の種類を書かない）
+    @ObservationIgnored private var migrationDeferred = false
 
     /// localEvents が nil のとき（DEBUG の見本の予定で動かしているとき）は、つながない。
-    /// 開発用・見本の予定を Apple カレンダーへ書き込まないため（Q34）
+    /// 開発用・見本の予定を Apple カレンダーへ書き込まないため（Q34）。
+    /// saveTargetRecords を渡したとき（アプリの本物の保存先）は、読み込みの直後に保存先の移行を一度だけ行う（spec §89.8）
     init(eventStore: EKEventStore,
          switchable: SwitchableEventRepository,
          localEvents: FileEventRepository?,
@@ -57,6 +64,7 @@ final class CalendarConnection {
          preferencesFile: JSONFile<CalendarPreferences> = JSONFile(url: JSONFile<CalendarPreferences>.appSupportURL(named: "calendar-preferences.json"),
                                                                    empty: CalendarPreferences(), faultPoint: .settingsWrite),
          journal: SaveJournal = .inMemory(),
+         saveTargetRecords: SaveTargetRecordStore? = nil,
          onChange: @escaping @MainActor (_ calendars: [CalendarChoice], _ saveTargets: SaveTargetRules) -> Void) {
         self.eventStore = eventStore
         self.switchable = switchable
@@ -64,12 +72,17 @@ final class CalendarConnection {
         self.metadata = metadata
         self.preferencesFile = preferencesFile
         self.journal = journal
+        self.saveTargetRecords = saveTargetRecords
         self.onChange = onChange
+        let existed = FileManager.default.fileExists(atPath: preferencesFile.url.path)
         preferences = preferencesFile.load()
         // 初期化が済むまでは self のプロパティを読めないので、いったん手元に置く
         let status = EKEventStore.authorizationStatus(for: .event)
         authorization = status
         state = Self.state(for: status)
+        preferencesFileExistedAtLaunch = existed
+        // 保存先の移行は、保存の途中の記録の復旧と Apple カレンダーの読み込みより前に行う
+        migrateSaveTargetIfNeeded()
         recoverLocalSaves()
         if state == .connected { useEventKit() }
     }
@@ -135,6 +148,12 @@ final class CalendarConnection {
         if state == .connected { useEventKit() }
     }
 
+    /// アプリが前面に戻ったとき（RootTabView）。保存先の移行を先送りしていたら、やり直す（spec §89.8）
+    func handleBecameActive() {
+        guard isLive else { return }
+        if retryDeferredMigration() { notify() }
+    }
+
     /// Apple カレンダー側が変わったとき（§68）。読み直す
     func calendarDidChange() {
         guard state == .connected, let eventKit else { return }
@@ -146,10 +165,30 @@ final class CalendarConnection {
 
     // MARK: - 設定 ＞ カレンダー連携
 
-    /// 新しい予定の既定の保存先を変える（Q32）。nil で iPhone の既定に戻す
+    /// 新しい予定の既定の保存先を変える（spec §89.2・§89.4。設定画面での変更と、初めて保存する前の確かめではっきり選んだとき）。
+    /// 「TimyCue のみ」にしても、前に選んでいた Apple カレンダー（defaultCalendarID）は消さずに覚えておく。
+    /// 保存できなければ値を戻して知らせ、false を返す
+    @discardableResult
+    func setDefaultSaveTarget(_ target: DefaultSaveTarget) -> Bool {
+        let saved = updatePreferences(choosesSaveTarget: true) { preferences in
+            switch target {
+            case .timyCueOnly:
+                preferences.saveTargetKind = .timyCueOnly
+            case .systemDefault:
+                preferences.saveTargetKind = .appleCalendar
+                preferences.defaultCalendarID = nil
+            case .calendar(let id):
+                preferences.saveTargetKind = .appleCalendar
+                preferences.defaultCalendarID = id
+            }
+        }
+        if saved { notify() }
+        return saved
+    }
+
+    /// 新しい予定の既定の保存先を Apple カレンダーにする（Q32）。nil で iPhone の既定
     func setDefaultCalendar(_ calendarID: String?) {
-        guard updatePreferences({ $0.defaultCalendarID = calendarID }) else { return }
-        notify()
+        setDefaultSaveTarget(calendarID.map(DefaultSaveTarget.calendar) ?? .systemDefault)
     }
 
     /// そのカレンダーを読み込むかどうか（Q33）
@@ -243,15 +282,18 @@ final class CalendarConnection {
         try? metadata.delete(for: candidate.local.id)
     }
 
-    /// 同期のたびに重複候補を見直す（見つけるのは Apple カレンダーとの同期のとき。Q50）
+    /// 同期のたびに重複候補を見直す（見つけるのは Apple カレンダーとの同期のとき。Q50）。
+    /// 連携中に「TimyCue のみ」で保存した予定は外す。「Apple Calendarに保存」が途中で止まった元の予定は候補にする（Q104）
     private func refreshDuplicates() {
         guard state == .connected, let eventKit, let localEvents else {
             duplicateCandidates = []
             return
         }
+        let moving = Set(journal.entries.compactMap(\.movedFromLocalID))
         duplicateCandidates = DuplicateCandidates.find(local: localEvents.allEvents(),
                                                        apple: eventKit.allEvents(),
-                                                       keptBoth: preferences.keptBothDuplicates ?? [])
+                                                       keptBoth: preferences.keptBothDuplicates ?? [],
+                                                       pendingMoveLocalIDs: moving)
     }
 
     // MARK: - 内部
@@ -275,14 +317,27 @@ final class CalendarConnection {
     }
 
     /// 設定を変えて保存する。保存できなければ変更前の値のままにし、知らせる（変更済みと誤って見せない。読み直しより前に戻す。spec §89.9）。
-    /// 案内を閉じた印のような、ユーザーが設定として変えたのではないものは `reportsFailure: false`（戻すだけ）
+    /// 案内を閉じた印のような、ユーザーが設定として変えたのではないものは `reportsFailure: false`（戻すだけ）。
+    /// 新しい版の印（formatVersion）を書き、保存できたら移行の済んだ記録にも写す（spec §89.8）。
+    /// 移行を先送りしているあいだは、仮の保存先の種類と印を書かない。利用者が保存先をはっきり選んだとき（choosesSaveTarget）だけ書いて、先送りを解く
     @discardableResult
-    private func updatePreferences(reportsFailure: Bool = true, _ change: (inout CalendarPreferences) -> Void) -> Bool {
+    private func updatePreferences(reportsFailure: Bool = true, choosesSaveTarget: Bool = false,
+                                   _ change: (inout CalendarPreferences) -> Void) -> Bool {
         var next = preferences
         change(&next)
+        var written = next
+        if migrationDeferred && !choosesSaveTarget {
+            written.saveTargetKind = nil
+            written.formatVersion = nil
+        } else {
+            next.formatVersion = CalendarPreferences.currentFormatVersion
+            written = next
+        }
         do {
-            try preferencesFile.save(next)
+            try preferencesFile.save(written)
             preferences = next
+            if choosesSaveTarget { migrationDeferred = false }
+            syncSaveTargetRecord()
             return true
         } catch {
             settingsRevision += 1
@@ -291,6 +346,82 @@ final class CalendarConnection {
             }
             return false
         }
+    }
+
+    // MARK: - 保存先の移行（spec §89.8・Q98・Q111。S2）
+
+    /// 新しい版を初めて開いたときに一度だけ、新しい予定の既定の保存先の種類を決める。済んだ記録は UserDefaults に置き、
+    /// 設定のファイルにも種類と版の印を書く。2 回目からは決め直さない（古い版がファイルを書き直したときは、記録から戻す）。
+    /// 予定・TimyCue の設定・結び付け・保存の途中の記録・古い切り替えの印には何も書かない。予定の複製・移動・削除もしない
+    private func migrateSaveTargetIfNeeded() {
+        guard let records = saveTargetRecords, isLive else { return }
+        // 設定のファイルがあるのに開けない（端末のロック中など）：この起動では決めず、メモリの中だけ「保存の前に確かめる」
+        if preferencesFile.couldNotOpen {
+            preferences.saveTargetKind = .askBeforeSaving
+            migrationDeferred = true
+            return
+        }
+        // 新しい版が書いたファイル：そのまま使う（記録の写しが違えば直す）
+        if preferences.formatVersion != nil, preferences.saveTargetKind != nil {
+            migrationDeferred = false
+            syncSaveTargetRecord()
+            return
+        }
+        // 記録があるのに、ファイルに新しい項目がない（古い版が書き直した・前回の保存に失敗した）：記録から戻す
+        if let record = records.load() {
+            var next = preferences
+            next.saveTargetKind = SaveTargetMigration.restoredKind(record: record, file: preferences)
+            // 連携の OFF も戻す（OFF を黙って ON にしない）
+            next.appleLinkEnabled = record.linkEnabled
+            persistMigrated(next)
+            return
+        }
+        // 初めて：材料を集めて一度だけ決める
+        let evidence = SaveTargetMigration.collect(folder: preferencesFile.url.deletingLastPathComponent(),
+                                                   preferences: preferences,
+                                                   preferencesFileExisted: preferencesFileExistedAtLaunch)
+        switch SaveTargetMigration.decide(evidence) {
+        case .decided(let kind, _):
+            var next = preferences
+            next.saveTargetKind = kind
+            persistMigrated(next)
+        case .deferred:
+            preferences.saveTargetKind = .askBeforeSaving
+            migrationDeferred = true
+        }
+    }
+
+    /// 移行で決めた値を残す：記録を先に書き、設定のファイルへも書く。利用者の操作ではないので、書けなくても知らせない
+    /// （決めた値はメモリで使い、次に開いたときに記録から書き直す）。開発用の失敗の再現も使わない
+    private func persistMigrated(_ value: CalendarPreferences) {
+        var next = value
+        next.formatVersion = CalendarPreferences.currentFormatVersion
+        if let kind = next.saveTargetKind {
+            saveTargetRecords?.save(SaveTargetRecord(kind: kind, calendarID: next.defaultCalendarID, linkEnabled: next.appleLinkEnabled))
+        }
+        try? preferencesFile.save(next, allowsFault: false)
+        preferences = next
+        migrationDeferred = false
+    }
+
+    /// 移行の済んだ記録に、今の保存先の種類・保存先のカレンダー・連携の ON/OFF を写す（変わったときだけ）
+    private func syncSaveTargetRecord() {
+        guard let records = saveTargetRecords, !migrationDeferred, let kind = preferences.saveTargetKind else { return }
+        let record = SaveTargetRecord(kind: kind, calendarID: preferences.defaultCalendarID, linkEnabled: preferences.appleLinkEnabled)
+        if records.load() != record { records.save(record) }
+    }
+
+    /// 移行を先送りしていたら、もう一度やり直す（設定のファイルを開けなかったなら読み直す）。決まったら true
+    private func retryDeferredMigration() -> Bool {
+        guard migrationDeferred else { return false }
+        if preferencesFile.couldNotOpen {
+            let reloaded = preferencesFile.load()
+            guard !preferencesFile.couldNotOpen else { return false }
+            preferences = reloaded
+        }
+        migrationDeferred = false
+        migrateSaveTargetIfNeeded()
+        return !migrationDeferred
     }
 
     /// 設定の保存の失敗の知らせを閉じた

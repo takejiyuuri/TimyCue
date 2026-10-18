@@ -320,6 +320,16 @@ final class EventKitEventRepository: EventRepository {
         guard report.isComplete else { throw report.error ?? WriteCheckError.unconfirmed }
     }
 
+    /// Apple カレンダーへ書く予定だけを受ける。この iPhone の中へ書くはずの予定（「TimyCue のみ」）は、
+    /// 黙って Apple カレンダーへ入れず、何も書かずに返す（S2）。Apple へ書く予定も、書く直前の確かめで
+    /// 「TimyCue のみ」「まだ決まっていない」になる予定は書かない（SaveTargetRules.usableTargets）
+    func insertEach(_ events: [CalendarEvent], into destination: EventStoreKind) -> InsertReport {
+        guard destination == .appleCalendar else {
+            return InsertReport(notSaved: events, error: SaveRoutingError.destinationChanged)
+        }
+        return insertEach(events)
+    }
+
     /// 新しい予定を 1 件ずつ書き、1 件ずつ確定する（複数日は日ごとに分かれる。spec §89.9・2026-10-18 S1b）。
     /// 書く前に、その場で読み直したカレンダーと設定で、全部の予定の保存先を確かめる。1 件でも使えない保存先
     /// （表示 OFF・表示のみ・書き込めない・見つからない）があれば、何も書かずに理由で止める。別のカレンダーへ勝手に移らない（spec §89.4）。

@@ -199,7 +199,7 @@ final class ScheduleEditorStore {
     var selectedSaveTargetID: String? {
         switch pendingSaveTarget ?? moveToAppleTarget {
         case .usable(let calendar, _)?: calendar.id
-        case .unavailable?: nil
+        case .unavailable?, .timyCueOnly?, .notChosen?: nil
         case nil: content.calendarID
         }
     }
@@ -222,6 +222,8 @@ final class ScheduleEditorStore {
         let shortName: String? = switch resolution {
         case .usable(let calendar, _): calendar.title
         case .unavailable(let problem, _): SaveTargetRules.title(of: problem)
+        case .timyCueOnly: SaveTargetRules.timyCueOnlyShortLabel
+        case .notChosen: nil
         }
         var values = [full]
         if resolution.problem != nil {

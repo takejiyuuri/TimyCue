@@ -23,9 +23,11 @@ struct CalendarChoice: Identifiable, Equatable, Hashable {
     }
 }
 
-/// カレンダー連携の設定（設定 ＞ カレンダー連携。Q32・Q33）。端末の中に保存する
+/// カレンダー連携の設定（設定 ＞ カレンダー連携。Q32・Q33）。端末の中に保存する。
+/// 新しい版で足す項目は、なくても読める項目だけにする（古い TestFlight のビルドに戻しても読めるように。spec §89.8）
 struct CalendarPreferences: Codable, Equatable {
-    /// 新しい予定の既定の保存先。nil なら iPhone の「新規イベントのデフォルトカレンダー」（Q32）
+    /// 新しい予定の既定の保存先にする Apple カレンダー。nil なら iPhone の「新規イベントのデフォルトカレンダー」（Q32）。
+    /// 保存先の種類を「TimyCue のみ」にしても、連携を OFF にしても消さない（Apple の選択の記憶。Q103）
     var defaultCalendarID: String?
     /// 読み込まないカレンダー。初めは何も外さない（参照できるカレンダーはすべて読み込む。Q33）
     var hiddenCalendarIDs: Set<String> = []
@@ -42,6 +44,22 @@ struct CalendarPreferences: Codable, Equatable {
     /// 祝日カレンダーを手で直した分（カレンダーの id → 祝日として扱うか）。手で直した分は自動の判定より優先する（Q55）。
     /// 古いファイルにはないので省略できる
     var holidayOverrides: [String: Bool]?
+    /// 新しい予定の既定の保存先の種類（spec §89.2・§89.8）。nil は移行の前（前の版と同じ Apple の決まりで扱う）。
+    /// アプリの本物の保存先では、起動のときの移行で必ず入る。古いファイルにはないので省略できる
+    var saveTargetKind: SaveTargetKind?
+    /// Apple カレンダー連携（全体の ON/OFF。spec §89.6）。nil・true は ON、false は利用者がわざと OFF にした。古いファイルにはないので省略できる
+    var appleLinkEnabled: Bool?
+    /// この形を書いた版の印。新しい版が保存するたびに書く（古い版が書き直すと消えるので、それで見分ける。spec §89.8）。
+    /// 古いファイルにはないので省略できる
+    var formatVersion: Int?
+
+    /// 新しい版が書く印の値
+    static let currentFormatVersion = 2
+
+    /// Apple カレンダー連携が ON か（初めは ON）
+    var isAppleLinkEnabled: Bool {
+        appleLinkEnabled ?? true
+    }
 
     /// そのカレンダーを祝日カレンダーとして扱うか：手で直していればそれ、なければ自動の判定（Q55）
     func isHolidayCalendar(_ calendar: CalendarChoice) -> Bool {

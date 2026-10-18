@@ -16,8 +16,11 @@ struct DuplicateCandidate: Identifiable, Equatable {
 /// 重複候補の見つけ方と、TimyCue の情報（到着目標など）の引き継ぎ方（Q42-8・Q50）。画面に依らない決まりだけを置く
 enum DuplicateCandidates {
     /// 同じ日付＋開始時刻が完全に一致する組を候補にする（Q42-8）。開始時刻が違えば、名前や場所が同じでも候補にしない。
-    /// 終日の予定どうしは、同じ日なら候補にする。「両方残す」を選んだ組はもう聞かない（Q50）
-    static func find(local: [CalendarEvent], apple: [CalendarEvent], keptBoth: Set<String>) -> [DuplicateCandidate] {
+    /// 終日の予定どうしは、同じ日なら候補にする。「両方残す」を選んだ組はもう聞かない（Q50）。
+    /// 連携中に「TimyCue のみ」を選んで保存したローカルの予定は候補にしない（spec §89.7・Q104）。
+    /// ただし「Apple Calendarに保存」が途中で止まって両方に残った元の予定（pendingMoveLocalIDs）は、片方を選べるよう候補にする
+    static func find(local: [CalendarEvent], apple: [CalendarEvent], keptBoth: Set<String>,
+                     pendingMoveLocalIDs: Set<UUID> = []) -> [DuplicateCandidate] {
         struct Slot: Hashable {
             let day: CalendarDay
             let isAllDay: Bool
@@ -28,7 +31,8 @@ enum DuplicateCandidates {
         }
         let appleBySlot = Dictionary(grouping: apple, by: slot)
         var result: [DuplicateCandidate] = []
-        for localEvent in local.sorted(by: { ($0.day, $0.startMinute) < ($1.day, $1.startMinute) }) {
+        let targets = local.filter { $0.savedOnDeviceWhileLinked != true || pendingMoveLocalIDs.contains($0.id) }
+        for localEvent in targets.sorted(by: { ($0.day, $0.startMinute) < ($1.day, $1.startMinute) }) {
             for appleEvent in appleBySlot[slot(localEvent)] ?? [] {
                 let candidate = DuplicateCandidate(local: localEvent, apple: appleEvent)
                 if !keptBoth.contains(candidate.id) { result.append(candidate) }

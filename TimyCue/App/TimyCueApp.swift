@@ -18,18 +18,29 @@ struct TimyCueApp: App {
         let localEvents: FileEventRepository?
         // 保存の途中の記録（spec §89.9）。見本の予定ではメモリの中だけ
         let journal: SaveJournal
+        // カレンダー連携の設定と、保存先の移行の済んだ記録（spec §89.8）
+        let preferencesFile: JSONFile<CalendarPreferences>
+        let saveTargetRecords: SaveTargetRecordStore?
         if Self.usesSampleData {
             let samples = SampleEvents.make()
             metadata = InMemoryEventMetadataRepository(metadata: samples.metadata)
             switchable = SwitchableEventRepository(InMemoryEventRepository(events: samples.events))
             localEvents = nil
             journal = .inMemory()
+            // 見本の予定では、本物の設定のファイルを読まず書かない（使い捨ての一時ファイル）。移行もしない
+            preferencesFile = JSONFile(url: FileManager.default.temporaryDirectory
+                                           .appendingPathComponent("timycue-sample-preferences-\(UUID().uuidString).json"),
+                                       empty: CalendarPreferences(), faultPoint: .settingsWrite)
+            saveTargetRecords = nil
         } else {
             let files = FileEventRepository()
             metadata = FileEventMetadataRepository()
             switchable = SwitchableEventRepository(files)
             localEvents = files
             journal = .onDevice()
+            preferencesFile = JSONFile(url: JSONFile<CalendarPreferences>.appSupportURL(named: "calendar-preferences.json"),
+                                       empty: CalendarPreferences(), faultPoint: .settingsWrite)
+            saveTargetRecords = SaveTargetRecordStore.live
         }
 
         #if TIMYCUE_SAVE_FAULTS
@@ -50,7 +61,9 @@ struct TimyCueApp: App {
             switchable: switchable,
             localEvents: localEvents,
             metadata: metadata,
+            preferencesFile: preferencesFile,
             journal: journal,
+            saveTargetRecords: saveTargetRecords,
             onChange: { calendars, saveTargets in
                 calendar.setCalendars(calendars)
                 calendar.reload()

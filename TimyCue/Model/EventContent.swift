@@ -14,8 +14,14 @@ struct EventContent: Equatable {
     var hasPlace: Bool {
         !(locationName ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
-    /// 保存先の Apple カレンダー。nil は既定の保存先（Q32）
-    var calendarID: String?
+    /// 保存先の Apple カレンダー。nil は既定の保存先（Q32）。カレンダーを選んだら、「TimyCue のみ」の選びは外す
+    var calendarID: String? {
+        didSet {
+            if calendarID != nil { isTimyCueOnly = false }
+        }
+    }
+    /// 新規・コピーで、この予定だけ「TimyCue のみ」を選んだ（spec §89.3。S2）。保存はしない（画面の中だけ）
+    var isTimyCueOnly = false
 
     init() {}
 
@@ -28,6 +34,27 @@ struct EventContent: Equatable {
         self.metadata = metadata
     }
 
+    /// この予定だけの保存先の選び（作成画面の「カレンダー」の行）。nil は設定の既定
+    var saveChoice: SaveChoice? {
+        get {
+            if isTimyCueOnly { return .timyCueOnly }
+            return calendarID.map(SaveChoice.calendar)
+        }
+        set {
+            switch newValue {
+            case .timyCueOnly?:
+                calendarID = nil
+                isTimyCueOnly = true
+            case .calendar(let id)?:
+                calendarID = id
+                isTimyCueOnly = false
+            case nil:
+                calendarID = nil
+                isTimyCueOnly = false
+            }
+        }
+    }
+
     /// コピー先に渡す中身（仕様 §63）。繰り返しは原則として引き継がない
     func copiedForNewEvent() -> EventContent {
         var copy = self
@@ -35,7 +62,7 @@ struct EventContent: Equatable {
         return copy
     }
 
-    /// この中身で、その日の予定を組み立てる
+    /// この中身で、その日の予定を組み立てる。「TimyCue のみ」を選んでいれば、Apple カレンダーの指定は付けない
     func makeEvent(id: UUID = UUID(),
                    day: CalendarDay,
                    startMinute: MinuteOfDay,
@@ -52,6 +79,6 @@ struct EventContent: Equatable {
                       repeatRule: repeatRule,
                       notes: notes,
                       source: source,
-                      calendarID: calendarID)
+                      calendarID: isTimyCueOnly ? nil : calendarID)
     }
 }
