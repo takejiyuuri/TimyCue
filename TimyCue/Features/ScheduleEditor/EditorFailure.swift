@@ -12,6 +12,8 @@ struct EditorFailure: Equatable, Identifiable {
     let action: Action
     let title: String
     let message: String
+    /// 知らせを閉じたら、画面も閉じる（もう保存するものがない・その場で押し直させないとき）
+    var closesEditor = false
 
     var id: String { title + message }
 
@@ -76,18 +78,101 @@ struct EditorFailure: Equatable, Identifiable {
         return EditorFailure(action: action, title: title(for: action), message: sentences.joined())
     }
 
-    /// 書き込みの途中で失敗したとき。S1a では、一部だけ書けたかを確かめられないので、確かめてからやり直してもらう
-    /// （予定を重複させないため。一部だけの成功の扱いは S1b。spec §89.9）
-    static func writeFailed(action: Action) -> EditorFailure {
+    /// 書いていない・消していないと確かめたとき（書く前に止まった・失敗のあと確かめても見つからなかった。spec §89.9・2026-10-18 S1b）
+    static func notWritten(action: Action) -> EditorFailure {
         let message = switch action {
         case .save:
-            "Apple カレンダーか、この iPhone への書き込みに失敗しました。予定が一部だけ保存されていることがあるため、カレンダーで確かめてから、もう一度お試しください。"
+            "Apple カレンダーか、この iPhone への書き込みに失敗しました。予定は保存していません。もう一度お試しください。"
         case .moveToApple:
-            "Apple カレンダーへの書き込みに失敗しました。予定が Apple カレンダーと TimyCue の両方に残っていることがあるため、カレンダーで確かめてから、もう一度お試しください。"
+            "Apple Calendarへの書き込みに失敗しました。Apple Calendarには作っていません。TimyCue の中の予定はそのまま残っています。もう一度お試しください。"
         case .delete:
-            "削除の途中で失敗しました。予定が残っているか、カレンダーで確かめてから、もう一度お試しください。"
+            "削除できませんでした。予定は残っています。もう一度お試しください。"
         }
         return EditorFailure(action: action, title: title(for: action), message: message)
+    }
+
+    /// 編集の保存に失敗したとき。Apple カレンダーの予定は、直ったかどうかをその場で確かめられないので、確かめてもらう
+    /// （直す保存は、押し直しても予定は増えない）
+    static func updateFailed(isAppleEvent: Bool) -> EditorFailure {
+        EditorFailure(action: .save, title: title(for: .save),
+                      message: isAppleEvent
+                          ? "変更を保存できませんでした。予定の内容が変わっていないか、カレンダーで確かめてから、もう一度お試しください。"
+                          : "変更を保存できませんでした。予定は前の内容のままです。もう一度お試しください。")
+    }
+
+    /// 書けたか・消せたかを確かめられなかったとき。失敗とは言わず、自動ではやり直さない
+    static func unconfirmed(action: Action) -> EditorFailure {
+        switch action {
+        case .save, .moveToApple:
+            EditorFailure(action: action, title: "保存結果を確認できませんでした",
+                          message: "保存結果を確認できませんでした。重複を防ぐため、自動で再保存していません。カレンダーで予定があるか確かめてください。")
+        case .delete:
+            EditorFailure(action: action, title: "削除結果を確認できませんでした",
+                          message: "削除できたか確認できませんでした。カレンダーで予定が残っているか確かめてください。")
+        }
+    }
+
+    /// 複数日の一部だけ保存できた・結果を確かめられない日があったとき（spec §89.9・Q110）。
+    /// 保存した日・保存していない日・確認が必要な日を分けて出す。保存していない日だけが選ばれた状態で、もう一度保存できる。
+    /// 保存していない日がなければ、知らせのあと閉じる
+    static func partialSave(saved: [CalendarDay], notSaved: [CalendarDay], unknown: [CalendarDay],
+                            settingsSaved: Bool) -> EditorFailure {
+        var lines: [String] = []
+        let title: String
+        if unknown.isEmpty {
+            title = "一部の日だけ保存しました"
+        } else {
+            title = "保存結果を確認できませんでした"
+            lines.append("保存結果を確認できませんでした。重複を防ぐため、自動で再保存していません。")
+            lines.append("確認が必要な日：\(dayList(unknown))")
+        }
+        if !saved.isEmpty { lines.append("保存した日：\(dayList(saved))") }
+        if !notSaved.isEmpty { lines.append("保存していない日：\(dayList(notSaved))") }
+        if !unknown.isEmpty { lines.append("確認が必要な日に予定があるか、カレンダーで確かめてください。") }
+        if !notSaved.isEmpty {
+            lines.append("保存していない日だけを残しました。もう一度保存すると、その日だけを保存します（保存した日は重ねて保存しません）。")
+        }
+        if !settingsSaved { lines.append("到着目標などの TimyCue の設定は、あとで自動でもう一度保存します。") }
+        return EditorFailure(action: .save, title: title, message: lines.joined(separator: "\n"), closesEditor: notSaved.isEmpty)
+    }
+
+    /// 予定は保存できたのに、到着目標などの TimyCue の設定を保存できなかったとき。予定は保存してあるので、押し直してもらわない
+    static func settingsNotSaved(isEdit: Bool) -> EditorFailure {
+        EditorFailure(action: .save, title: isEdit ? "変更を保存しました" : "予定を保存しました",
+                      message: "到着目標などの TimyCue の設定を保存できませんでした。予定は保存してあるので、もう一度保存しなくてかまいません。設定は、あとで自動でもう一度保存します。",
+                      closesEditor: true)
+    }
+
+    /// 「Apple Calendarに保存」で、Apple に作れたか確かめられなかったとき。作り直さず、元の予定も消さない
+    static func moveUnconfirmed() -> EditorFailure {
+        EditorFailure(action: .moveToApple, title: "保存結果を確認できませんでした",
+                      message: "Apple Calendarに予定を作れたか確認できませんでした。重複を防ぐため、自動で作り直さず、TimyCue の中の予定も消していません。カレンダーで同じ予定があるか確かめてください。",
+                      closesEditor: true)
+    }
+
+    /// 「Apple Calendarに保存」で、Apple に作れたあとに止まったとき。両方に残し、どちらも自動では消さない
+    static func moveIncomplete(settingsCopied: Bool) -> EditorFailure {
+        let reason = settingsCopied
+            ? "TimyCue の中の予定を消せなかったため、両方に残っています。"
+            : "到着目標などの設定を引き継げなかったため、TimyCue の中の予定は消していません。両方に残っています。"
+        return EditorFailure(action: .moveToApple, title: "Apple Calendarに保存しました",
+                             message: "Apple Calendarに予定を作りましたが、\(reason)どちらも自動では消しません。もう一度この予定を開いて「Apple Calendarに保存」を押すと、Apple Calendarに作り直さずに続きを行います。重複候補から片方を選ぶこともできます。",
+                             closesEditor: true)
+    }
+
+    /// 「Apple Calendarに保存」の続き（前に Apple に作った予定がある）で、その予定を今の内容に直せなかったとき。
+    /// 両方に残し、どちらも自動では消さない。押し直しても作り直さないので、閉じずにもう一度試せる
+    static func moveResumeFailed(unconfirmed: Bool) -> EditorFailure {
+        EditorFailure(action: .moveToApple,
+                      title: unconfirmed ? "保存結果を確認できませんでした" : title(for: .moveToApple),
+                      message: "Apple Calendarには、前に作った予定があります。"
+                          + (unconfirmed ? "今の内容に直せたか確認できませんでした。" : "今の内容に直せませんでした。")
+                          + "TimyCue の中の予定も消していないので、両方に残っています。どちらも自動では消しません。もう一度押しても Apple Calendarに作り直さず、続きを行います。")
+    }
+
+    /// 日の並び（例「10月18日（日）、10月19日（月）」）
+    static func dayList(_ days: [CalendarDay]) -> String {
+        days.sorted().map { "\($0.month)月\($0.day)日（\($0.weekdaySymbol())）" }.joined(separator: "、")
     }
 
     /// 編集している予定が見つからなかったとき（Apple カレンダー側で消された・移されたなど）

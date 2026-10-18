@@ -50,6 +50,23 @@ final class ScheduleEditorStore {
     private var showsSaveIssue = false
     /// 保存・「Apple Calendarに保存」・削除に失敗したときの知らせ（spec §89.9）。画面はこれをアラートで出す
     private(set) var failure: EditorFailure?
+    /// この画面で保存できた予定（一部だけ保存できたとき・知らせを出してから閉じるときに、元の画面へ渡す）
+    private(set) var savedEventsThisSession: [CalendarEvent] = []
+    /// 保存が済んだ。押し直し（続けて 2 回押したなど）で二度書かない。新規・編集を始め直すまで（spec §89.9・2026-10-18 S1b）
+    private(set) var isFinished = false
+    /// 新規・コピーで、日ごとに使う予定の id（押し直しても同じ id で書く。端末の中の保存では同じ予定を 2 件にしない）
+    @ObservationIgnored private var plannedEventIDs: [CalendarDay: UUID] = [:]
+    /// 予定は書けたのに保存できなかった TimyCue の設定（到着目標など）。次に保存・読み直すときに、もう一度保存する
+    @ObservationIgnored private var pendingMetadata: [UUID: TimyCueEventMetadata] = [:]
+    /// 「Apple Calendarに保存」が途中までのローカルの予定（id → どこまで済んだか）。押し直しでは Apple に作り直さず、続きから行う
+    @ObservationIgnored private var moveProgress: [UUID: MoveProgress] = [:]
+
+    private enum MoveProgress {
+        /// Apple に作れた（その予定）。元のローカルの予定はまだ残っている
+        case created(CalendarEvent)
+        /// Apple に作れたか確かめられなかった。次に移すときは、確かめたかを聞く
+        case unconfirmed
+    }
 
     @ObservationIgnored private let repository: EventRepository
     @ObservationIgnored private let metadataRepository: EventMetadataRepository
@@ -95,7 +112,8 @@ final class ScheduleEditorStore {
     var draftEvents: [CalendarEvent] {
         selectedDays.compactMap { day in
             guard let start = startMinutes[day] else { return nil }
-            return content.makeEvent(day: day, startMinute: start, durationMinutes: durationMinutes(on: day))
+            return content.makeEvent(id: plannedEventIDs[day] ?? UUID(), day: day, startMinute: start,
+                                     durationMinutes: durationMinutes(on: day))
         }
     }
 
@@ -304,6 +322,7 @@ final class ScheduleEditorStore {
         baseDay = day
         setsTimesIndividually = false
         resetTransientState()
+        resetSaveProgress()
         if let day { selectedDays = [day] }
         baseline = snapshot
     }
@@ -327,6 +346,7 @@ final class ScheduleEditorStore {
         baseDay = event.day
         setsTimesIndividually = false
         resetTransientState()
+        resetSaveProgress()
         baseline = snapshot
     }
 
@@ -345,6 +365,8 @@ final class ScheduleEditorStore {
         startMinutes = [:]
         commonDurationMinutes = duration
         durationOverrides = [:]
+        plannedEventIDs = [:]
+        savedEventsThisSession = []
         resetTransientState()
         // 表示中の日はコピー元の日のまま。コピー先はカレンダーで選んでもらう
     }
@@ -598,9 +620,12 @@ final class ScheduleEditorStore {
     }
 
     /// 保存して、保存した予定を返す。足りないものがあれば、その項目を開いて知らせ、保存しない（仕様 §46）。
-    /// 繰り返し予定の編集では、scope の範囲（この予定のみ／これ以降／すべて）で直す（Q44）
+    /// 繰り返し予定の編集では、scope の範囲（この予定のみ／これ以降／すべて）で直す（Q44）。
+    /// 複数日の一部だけ保存できた・結果を確かめられなかったときは、知らせを作って partiallySaved を投げる（spec §89.9）
     @discardableResult
     func save(scope: RecurrenceScope = .thisEvent) throws -> [CalendarEvent] {
+        // 済んだあとの押し直し（続けて 2 回押したなど）では、もう書かない
+        guard !isFinished else { throw ScheduleEditorError.alreadySaved }
         let issues = saveIssues
         guard issues.isEmpty else {
             present(issues)
@@ -614,6 +639,9 @@ final class ScheduleEditorStore {
         }
         do {
             return try performSave(scope: scope)
+        } catch ScheduleEditorError.partiallySaved {
+            // 知らせはもう作ってある
+            throw ScheduleEditorError.partiallySaved
         } catch {
             failure = describeFailure(error, action: .save)
             throw error
@@ -627,16 +655,29 @@ final class ScheduleEditorStore {
         var entries: [UUID: TimyCueEventMetadata] = [:]
         switch mode {
         case .new, .copy:
-            saved = draftEvents
-            try repository.insert(saved)
+            // 日ごとの id を決めておく（押し直しでも同じ id）。1 日ずつ書いて、日ごとの結果を受け取る（spec §89.9）
+            for day in selectedDays where plannedEventIDs[day] == nil { plannedEventIDs[day] = UUID() }
+            let report = repository.insertEach(draftEvents)
             var common = content.metadata
             common.overrides = nil
-            for event in saved {
+            for event in report.saved {
                 entries[event.id] = common
                 if event.repeatRule.isRepeating, let seriesID = repository.seriesID(of: event.id) {
                     entries[seriesID] = common
                 }
             }
+            savedEventsThisSession += report.saved
+            guard report.isComplete else {
+                // 書けた日の設定は保存しておく（保存できなければ、あとでもう一度）
+                let settingsSaved = saveMetadata(entries) == nil
+                // 何も書いていないと確かめられた：今までどおりの失敗。入力はそのまま
+                if report.saved.isEmpty && report.unknown.isEmpty {
+                    throw report.error ?? WriteCheckError.unconfirmed
+                }
+                reportPartialSave(report, settingsSaved: settingsSaved)
+                throw ScheduleEditorError.partiallySaved
+            }
+            saved = report.saved
         case .edit(let id):
             guard let original = events.first(where: { $0.id == id }),
                   let day = selectedDays.first,
@@ -693,13 +734,61 @@ final class ScheduleEditorStore {
                 }
             }
         }
-        try metadataRepository.saveAll(entries)
+        // 予定は書けている。設定を保存できなくても失敗にはせず（押し直しで予定をもう 1 組作らない）、あとでもう一度保存する
+        let metadataError = saveMetadata(entries)
+        // ただし、書き込めないカレンダーの予定は TimyCue の設定だけが変更なので、保存できなければ失敗（何も変えていない）
+        if let metadataError, mode.isEdit, areAppleFieldsLocked {
+            for key in entries.keys { pendingMetadata[key] = nil }
+            throw metadataError
+        }
+        if mode.isEdit { savedEventsThisSession = saved }
+        let settingsSaved = metadataError == nil
 
         reloadEvents()
         showsSaveIssue = false
-        failure = nil
+        failure = settingsSaved ? nil : .settingsNotSaved(isEdit: mode.isEdit)
         baseline = snapshot
+        isFinished = true
         return saved
+    }
+
+    /// 一部だけ書けた・結果を確かめられなかったとき：書けた日と結果不明の日を選んだ日から外し（押し直しで重ねて書かない・
+    /// 確かめずに書き直さない）、書いていない日だけを残して知らせる。残る日がなければ、知らせのあと閉じる（spec §89.9）
+    private func reportPartialSave(_ report: InsertReport, settingsSaved: Bool) {
+        dropDays(Set((report.saved + report.unknown).map(\.day)))
+        reloadEvents()
+        showsSaveIssue = false
+        if selectedDays.isEmpty { isFinished = true }
+        failure = .partialSave(saved: report.saved.map(\.day), notSaved: report.notSaved.map(\.day),
+                               unknown: report.unknown.map(\.day), settingsSaved: settingsSaved)
+    }
+
+    /// 保存が済んだ日（と結果不明の日）を、選んだ日から外す（新規の最初の日も外す）
+    private func dropDays(_ days: Set<CalendarDay>) {
+        selectedDays.removeAll { days.contains($0) }
+        for day in days {
+            startMinutes[day] = nil
+            durationOverrides[day] = nil
+            plannedEventIDs[day] = nil
+        }
+        copyPicks.removeAll { days.contains($0) }
+        if let base = baseDay, days.contains(base) { baseDay = selectedDays.first }
+        if let shown = displayedDay, days.contains(shown) { displayedDay = baseDay ?? selectedDays.first ?? shown }
+    }
+
+    /// TimyCue の設定を保存する。前に保存できなかった分も一緒に保存する。保存できなければ、あとでもう一度保存するよう残して、その失敗を返す
+    private func saveMetadata(_ entries: [UUID: TimyCueEventMetadata]) -> Error? {
+        let all = pendingMetadata.merging(entries) { _, new in new }
+        guard !all.isEmpty else { return nil }
+        do {
+            try SaveFaults.check(.metadataWrite)
+            try metadataRepository.saveAll(all)
+            pendingMetadata = [:]
+            return nil
+        } catch {
+            pendingMetadata = all
+            return error
+        }
     }
 
     /// 編集中の予定を消す（仕様 §64。編集のときだけ）。消したら新規の状態に戻す。
@@ -713,11 +802,13 @@ final class ScheduleEditorStore {
         if effectiveScope == .allEvents, let seriesID = repository.seriesID(of: id) { removed.insert(seriesID) }
         do {
             try repository.delete(id: id, scope: effectiveScope)
-            try metadataRepository.deleteAll(removed)
         } catch {
             failure = describeFailure(error, action: .delete)
             throw error
         }
+        // 予定は消せた。設定の削除に失敗しても、失敗にはしない（残った設定は使われない。spec §89.9）
+        try? metadataRepository.deleteAll(removed)
+        pendingMetadata = pendingMetadata.filter { !removed.contains($0.key) }
         reloadEvents()
         startNew(on: day)
     }
@@ -748,10 +839,19 @@ final class ScheduleEditorStore {
         return "移す先の「\(saveTargets.name(for: target))」には移せません（\(SaveTargetRules.shortReason(problem))）。\(place)選び直してください。"
     }
 
+    /// 前回の「Apple Calendarに保存」で、Apple に作れたか確かめられなかった予定か（押したら、確かめたかを先に聞く）
+    var moveNeedsConfirmation: Bool {
+        guard case .edit(let id) = mode, case .unconfirmed? = moveProgress[id] else { return false }
+        return true
+    }
+
     /// 「Apple Calendarに保存」：今の内容で Apple カレンダーに新しく作り、TimyCue の設定を引き継いで、
-    /// 元のローカル予定を消す（二重に出さない）。作った予定を返す
+    /// 元のローカル予定を消す（二重に出さない）。作った予定を返す。
+    /// 前回作れたか確かめられなかった予定は、confirmedUnknown（確かめたと答えた）のときだけ作る（spec §89.9）
     @discardableResult
-    func moveToAppleCalendar() throws -> CalendarEvent {
+    func moveToAppleCalendar(confirmedUnknown: Bool = false) throws -> CalendarEvent {
+        guard !isFinished else { throw ScheduleEditorError.alreadySaved }
+        guard !moveNeedsConfirmation || confirmedUnknown else { throw ScheduleEditorError.needsConfirmation }
         let issues = saveIssues
         guard issues.isEmpty else {
             present(issues)
@@ -771,35 +871,82 @@ final class ScheduleEditorStore {
         }
         do {
             return try performMove(from: id, original: original, day: day, start: start)
+        } catch ScheduleEditorError.partiallySaved {
+            // 知らせはもう作ってある
+            throw ScheduleEditorError.partiallySaved
         } catch {
             failure = describeFailure(error, action: .moveToApple)
             throw error
         }
     }
 
-    /// 移すことそのもの（moveToAppleCalendar から呼ぶ）。Apple に作る → 設定を引き継ぐ → 元のローカル予定を消す の順
+    /// 移すことそのもの（moveToAppleCalendar から呼ぶ）。保存先の確かめ（呼ぶ前）→ Apple に作る → 作れたか確かめる →
+    /// 設定を引き継ぐ → 元のローカル予定を消す の順（spec §89.5・§89.9）。Apple に作れたあとで失敗したら、元の予定は消さずに
+    /// 両方を残し、どちらも自動では消さない。押し直しでは Apple に作り直さず、今の内容で直してから続きを行う
     private func performMove(from id: UUID, original: CalendarEvent, day: CalendarDay, start: MinuteOfDay) throws -> CalendarEvent {
-        let moved = content.makeEvent(id: UUID(),
+        let earlier: CalendarEvent? = {
+            guard case .created(let created)? = moveProgress[id], events.contains(where: { $0.id == created.id }) else { return nil }
+            return created
+        }()
+        let moved = content.makeEvent(id: earlier?.id ?? UUID(),
                                       day: day,
                                       startMinute: start,
                                       durationMinutes: durationMinutes(on: day),
                                       isAllDay: original.isAllDay,
                                       source: .appleCalendar)
-        try repository.insert([moved])
+        if earlier != nil {
+            // 前に作った Apple の予定を今の内容に直す。直せなくても、作り直さない（両方に残る。押し直せば、また続きから行う）
+            do {
+                try repository.update(moved)
+            } catch {
+                reloadEvents()
+                failure = .moveResumeFailed(unconfirmed: (error as? WriteCheckError) == .unconfirmed)
+                throw ScheduleEditorError.partiallySaved
+            }
+        } else {
+            let report = repository.insertEach([moved])
+            if !report.unknown.isEmpty {
+                moveProgress[id] = .unconfirmed
+                throw stopMove(.moveUnconfirmed(), moved: nil)
+            }
+            guard report.isComplete else { throw report.error ?? WriteCheckError.unconfirmed }
+            moveProgress[id] = .created(moved)
+        }
         var settings = content.metadata
         settings.overrides = nil
         var entries = [moved.id: settings]
         if moved.repeatRule.isRepeating, let seriesID = repository.seriesID(of: moved.id) { entries[seriesID] = settings }
-        try metadataRepository.saveAll(entries)
-        try repository.delete(id: id)
-        try metadataRepository.delete(for: id)
+        // 設定を引き継げなかったら、元の予定（設定を持っている）を消さない
+        guard saveMetadata(entries) == nil else { throw stopMove(.moveIncomplete(settingsCopied: false), moved: moved) }
+        do {
+            try SaveFaults.check(.moveAfterAppleWrite)
+            try repository.delete(id: id)
+        } catch {
+            throw stopMove(.moveIncomplete(settingsCopied: true), moved: moved)
+        }
+        moveProgress[id] = nil
+        // 元の予定は消せた。その設定の削除に失敗しても、失敗にはしない（残った設定は使われない）
+        try? metadataRepository.delete(for: id)
+        pendingMetadata[id] = nil
 
         reloadEvents()
         mode = .edit(eventID: moved.id)
         showsSaveIssue = false
         failure = nil
         baseline = snapshot
+        isFinished = true
+        savedEventsThisSession = [moved]
         return moved
+    }
+
+    /// 「Apple Calendarに保存」が途中で止まったとき：両方の予定を残したまま知らせ、知らせのあと閉じる（その場で押し直させない）
+    private func stopMove(_ notice: EditorFailure, moved: CalendarEvent?) -> ScheduleEditorError {
+        reloadEvents()
+        showsSaveIssue = false
+        failure = notice
+        isFinished = true
+        savedEventsThisSession = moved.map { [$0] } ?? []
+        return .partiallySaved
     }
 
     /// 失敗の知らせを閉じた
@@ -816,7 +963,14 @@ final class ScheduleEditorStore {
         }
         if let editorError = error as? ScheduleEditorError, case .eventNotFound = editorError { return .eventMissing(action: action) }
         if error is EventRepositoryError { return .eventMissing(action: action) }
-        return .writeFailed(action: action)
+        // 書けたか・消せたか確かめられなかった（失敗とは言わない）
+        if (error as? WriteCheckError) == .unconfirmed { return .unconfirmed(action: action) }
+        // 編集の保存の失敗（Apple の予定は、直ったかどうかをその場で確かめられない）
+        if action == .save, mode.isEdit {
+            return .updateFailed(isAppleEvent: editingEvent?.source == .appleCalendar && !areAppleFieldsLocked)
+        }
+        // 書いていないと確かめた・書く前に止まった
+        return .notWritten(action: action)
     }
 
     /// 予定詳細の吹き出しの「編集」（Q30）：その予定の編集を始め、カレンダー側に 3 分割画面を開いてもらう
@@ -874,9 +1028,21 @@ final class ScheduleEditorStore {
         failure = nil
     }
 
+    /// 新規・編集を始め直すとき：保存の進み具合を消す（前に保存できなかった設定と、「Apple Calendarに保存」の途中の記録は残す）
+    private func resetSaveProgress() {
+        plannedEventIDs = [:]
+        savedEventsThisSession = []
+        isFinished = false
+    }
+
+    /// 読み直す。前に保存できなかった TimyCue の設定があれば、先にもう一度保存する。
+    /// それでも保存できなければ、画面にはその値を出す（開き直して保存したとき、古い値で上書きしない）
     private func reloadEvents() {
+        if !pendingMetadata.isEmpty, (try? metadataRepository.saveAll(pendingMetadata)) != nil {
+            pendingMetadata = [:]
+        }
         events = repository.allEvents()
-        metadataByEventID = metadataRepository.allMetadata()
+        metadataByEventID = metadataRepository.allMetadata().merging(pendingMetadata) { _, pending in pending }
     }
 
     private static func isBlank(_ text: String) -> Bool {

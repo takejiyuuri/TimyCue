@@ -5,6 +5,8 @@ protocol EventRepository: AnyObject {
     /// 読み込んである予定
     func allEvents() -> [CalendarEvent]
     func insert(_ events: [CalendarEvent]) throws
+    /// 新しい予定を 1 件ずつ書き、日ごとの結果を返す（一部だけ書けた・結果不明を分ける。spec §89.9・2026-10-18 S1b）
+    func insertEach(_ events: [CalendarEvent]) -> InsertReport
     func update(_ event: CalendarEvent) throws
     func delete(id: UUID) throws
     /// その期間の予定を読み込んでおく。Apple カレンダーは表示に必要な範囲だけ、必要になったときに読む（Q35）
@@ -19,6 +21,19 @@ protocol EventRepository: AnyObject {
 }
 
 extension EventRepository {
+    /// 端末の中・メモリの中の保存先：1 件ずつ insert する。書けなかったら、手元の予定を見て確かめる
+    /// （書けてから手元を変えるので、投げたら書いていない）。検証用のビルドでは、2 日目の失敗・結果不明を再現できる
+    func insertEach(_ events: [CalendarEvent]) -> InsertReport {
+        InsertRun.run(events, write: { event, index in
+            if index == 1 { try SaveFaults.check(.multiDaySecondDay) }
+            try insert([event])
+            if SaveFaults.consume(.unknownResult) { throw SaveFaultInjected(fault: .unknownResult) }
+        }, verify: { event, error in
+            if (error as? SaveFaultInjected)?.fault == .unknownResult { return .unknown }
+            return allEvents().contains { $0.id == event.id } ? .saved : .notSaved
+        })
+    }
+
     /// 全部を手元に持っている保存先では何もしない
     func ensureLoaded(from start: CalendarDay, to end: CalendarDay) {}
     func update(_ event: CalendarEvent, scope: RecurrenceScope) throws { try update(event) }
@@ -76,8 +91,10 @@ final class InMemoryEventRepository: EventRepository {
         events
     }
 
+    /// 同じ id の予定がもうあれば足さない（押し直しで重複させない）
     func insert(_ newEvents: [CalendarEvent]) throws {
-        events.append(contentsOf: newEvents)
+        let known = Set(events.map(\.id))
+        events.append(contentsOf: newEvents.filter { !known.contains($0.id) })
     }
 
     func update(_ event: CalendarEvent) throws {

@@ -104,6 +104,19 @@ struct EventKitLinks: Codable, Equatable {
         keys.first { $0.value == key }?.key
     }
 
+    /// 予定の id と Apple カレンダーの予定の鍵を結ぶ。同じ鍵をほかの id が持っていたら、そちらの結び付きを外して、その id を返す
+    /// （1 つの Apple の予定を、2 つの TimyCue の予定に結ばない。spec §89.9・2026-10-18 S1b）
+    @discardableResult
+    mutating func setKey(_ key: String?, for id: UUID) -> UUID? {
+        var displaced: UUID?
+        if let key, let other = keys.first(where: { $0.value == key && $0.key != id })?.key {
+            keys[other] = nil
+            displaced = other
+        }
+        keys[id] = key
+        return displaced
+    }
+
     /// 結び付けている Apple カレンダーの予定の識別子（繰り返しの回は、シリーズの識別子にまとめる）
     var itemIdentifiers: Set<String> {
         Set(keys.values.map { EventKitMapping.parseLinkKey($0).itemIdentifier })

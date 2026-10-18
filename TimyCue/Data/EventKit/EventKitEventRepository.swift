@@ -24,6 +24,10 @@ final class EventKitEventRepository: EventRepository {
     private var cache: [CalendarEvent] = []
     /// 起動してから、Apple カレンダー側で消えた予定を一度見たか
     private var checkedDeletedOnce = false
+    /// 結び付けのファイルに書けなかった（メモリの上では結び付けてある）。次の書き込み・読み込みのときに、もう一度書く（spec §89.9）
+    private var linksDirty = false
+    /// 書き込みの回数。書く前に始めた裏の読み込みの結果は古いので、取り込まずに読み直す（消した予定が戻って見えないように）
+    private var writeGeneration = 0
     /// 裏で読むための列。順に処理するので、結果も頼んだ順に届く
     private let fetchQueue = DispatchQueue(label: "io.github.takejiyuuri.timycue.eventkit", qos: .userInitiated)
 
@@ -93,6 +97,7 @@ final class EventKitEventRepository: EventRepository {
         // 起動して初めて読むときも見る（アプリを閉じている間に消された予定）
         let linkedKeys = (checksDeleted || !checkedDeletedOnce) ? Array(links.keys.values) : []
         checkedDeletedOnce = true
+        let generation = writeGeneration
         fetchQueue.async { [weak self] in
             let fetched = ranges.flatMap { Self.fetch(store: store, hiddenCalendarIDs: hidden, range: $0, calendar: calendar) }
             let check = Self.missingTargets(linkedKeys: linkedKeys, fetchedKeys: Set(fetched.map(\.key)),
@@ -100,6 +105,13 @@ final class EventKitEventRepository: EventRepository {
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
                     guard let self else { return }
+                    // 読み始めたあとに書き込みがあったら、この結果は古い。取り込まずに読み直す（spec §89.9）
+                    guard generation == self.writeGeneration else {
+                        // 全部を読み直す読み込みは、今の範囲で読み直す（そのあいだに足した範囲を消さない）
+                        let current = replacingAll ? (self.requestedRange.map { [$0] } ?? ranges) : ranges
+                        self.load(current, replacingAll: replacingAll, checksDeleted: !linkedKeys.isEmpty)
+                        return
+                    }
                     if !linkedKeys.isEmpty { self.removeConfirmedMissing(check.missing, checked: check.checked) }
                     self.merge(fetched, ranges: ranges, replacingAll: replacingAll)
                     self.onLoaded?()
@@ -187,7 +199,7 @@ final class EventKitEventRepository: EventRepository {
             cache.removeAll { removed.contains($0.id) }
             try? metadata.deleteAll(removed)
         }
-        if links != before { try? linksFile.save(links) }
+        if links != before || linksDirty { persistLinks() }
     }
 
     /// 削除を確かめるまでに空ける時間。実装上の暫定値で、仕様の値ではない（追加仕様書 §1.5 の決まりは
@@ -249,7 +261,7 @@ final class EventKitEventRepository: EventRepository {
             event.calendarID = item.calendarID
             events.append(event)
         }
-        if linksChanged { try? linksFile.save(links) }
+        if linksChanged || linksDirty { persistLinks() }
         // 何百件あっても、ファイルへは 1 回だけ書く
         if !newMetadata.isEmpty { try? metadata.saveAll(newMetadata) }
 
@@ -298,28 +310,107 @@ final class EventKitEventRepository: EventRepository {
 
     // MARK: - 書き込み
 
-    /// 新しい予定を書く。書く前に、その場で読み直したカレンダーと設定で、全部の予定の保存先を確かめる。
-    /// 1 件でも使えない保存先（表示 OFF・表示のみ・書き込めない・見つからない）があれば、何も書かずに理由で止める。
-    /// 別のカレンダーへ勝手に移らない（spec §89.4）
+    /// 全部書けたときだけ成功（一部だけ書けた・結果不明は投げる）。日ごとの結果は insertEach
     func insert(_ events: [CalendarEvent]) throws {
-        let choices = try saveTargetRules().usableTargets(for: events.map(\.calendarID))
-        let targets = try choices.map { choice -> EKCalendar in
-            guard let target = store.calendar(withIdentifier: choice.id) else { throw SaveTargetProblem.notFound }
-            return target
+        let report = insertEach(events)
+        guard report.isComplete else { throw report.error ?? WriteCheckError.unconfirmed }
+    }
+
+    /// 新しい予定を 1 件ずつ書き、1 件ずつ確定する（複数日は日ごとに分かれる。spec §89.9・2026-10-18 S1b）。
+    /// 書く前に、その場で読み直したカレンダーと設定で、全部の予定の保存先を確かめる。1 件でも使えない保存先
+    /// （表示 OFF・表示のみ・書き込めない・見つからない）があれば、何も書かずに理由で止める。別のカレンダーへ勝手に移らない（spec §89.4）。
+    /// 書いたあとに失敗が届いたら、確定していない変更を捨ててから、実際に書けたかを確かめる
+    /// （書けていれば成功として結び付ける。確かめられなければ結果不明として止め、書き直さない）
+    func insertEach(_ events: [CalendarEvent]) -> InsertReport {
+        persistLinksIfNeeded()
+        let targets: [EKCalendar]
+        do {
+            let choices = try saveTargetRules().usableTargets(for: events.map(\.calendarID))
+            targets = try choices.map { choice -> EKCalendar in
+                guard let target = store.calendar(withIdentifier: choice.id) else { throw SaveTargetProblem.notFound }
+                return target
+            }
+        } catch {
+            return InsertReport(notSaved: events, error: error)
         }
-        for (event, target) in zip(events, targets) {
+        writeGeneration += 1
+        let startedAt = Date()
+        // いま書いている予定と保存先（失敗が届いたときに確かめるため）
+        var writing: (ekEvent: EKEvent?, target: EKCalendar)?
+        let report = InsertRun.run(events, write: { event, index in
+            writing = (nil, targets[index])
+            if index == 1 { try SaveFaults.check(.multiDaySecondDay) }
+            try SaveFaults.check(.appleBeforeWrite)
             let ekEvent = EKEvent(eventStore: store)
-            ekEvent.calendar = target
+            ekEvent.calendar = targets[index]
             Self.apply(EventKitMapping.record(from: event, calendar: calendar), to: ekEvent, includeRecurrence: true)
-            try store.save(ekEvent, span: event.repeatRule.isRepeating ? .futureEvents : .thisEvent, commit: false)
-            setKey(Self.linkKey(for: ekEvent), for: event.id)
-            setEndUnset(event)
+            writing = (ekEvent, targets[index])
+            try store.save(ekEvent, span: event.repeatRule.isRepeating ? .futureEvents : .thisEvent, commit: true)
+            #if TIMYCUE_DEV_TOOLS
+            // Apple に書けた直後にアプリを終える（次に開いたときの復旧を確かめる）
+            if SaveFaults.consume(.terminateAfterAppleWrite) { exit(0) }
+            #endif
+            if SaveFaults.consume(.unknownResult) { throw SaveFaultInjected(fault: .unknownResult) }
+            try SaveFaults.check(.appleAfterWrite)
+            link(event, to: ekEvent)
+        }, verify: { event, error in
+            guard let writing else { return .notSaved }
+            return verifyInsert(event, written: writing.ekEvent, target: writing.target, error: error, startedAt: startedAt)
+        })
+        if !report.saved.isEmpty {
+            // 結び付けのファイルに書けなくても、予定は書けている。成功のまま、次の機会にもう一度書く
+            persistLinks(fault: .appleLinksWrite)
+            refreshNow(days: report.saved.map(\.day))
         }
-        try store.commit()
-        try linksFile.save(links)
-        refreshNow(days: events.map(\.day))
-        // 繰り返しはほかの日にも出るので、読み込んである範囲を読み直す（裏で）
-        if events.contains(where: \.repeatRule.isRepeating) { reloadCache() }
+        // 繰り返しはほかの日にも出る・結果不明の予定もあれば見せるので、読み込んである範囲を読み直す（裏で）
+        if report.saved.contains(where: \.repeatRule.isRepeating) || !report.unknown.isEmpty { reloadCache() }
+        return report
+    }
+
+    /// 書いたあとに失敗が届いたときに、実際に書けたかを確かめる。識別子で引けたら書けている（結び付ける）。
+    /// 引けないのに、同じカレンダーに同じ日時・同じ予定名の、いま作られたばかりのまだ結び付けていない予定があれば、区別できないので結果不明。
+    /// 何もなく、フルアクセスで保存先も今あるなら、書いていない（spec §89.9・2026-10-18 S1b）
+    private func verifyInsert(_ event: CalendarEvent, written: EKEvent?, target: EKCalendar,
+                              error: Error, startedAt: Date) -> WriteOutcome {
+        if let injected = error as? SaveFaultInjected {
+            switch injected.fault {
+            case .multiDaySecondDay, .appleBeforeWrite: return .notSaved
+            case .unknownResult: return .unknown
+            default: break
+            }
+        }
+        // 書く前に止まった（予定を作る前）
+        guard let written else { return .notSaved }
+        let identifier = written.calendarItemIdentifier
+        let calendarID = target.calendarIdentifier
+        let record = EventKitMapping.record(from: event, calendar: calendar)
+        discardUncommittedChanges()
+        if !identifier.isEmpty, let found = store.calendarItem(withIdentifier: identifier) as? EKEvent {
+            link(event, to: found)
+            return .saved
+        }
+        let canTrustAbsence = EKEventStore.authorizationStatus(for: .event) == .fullAccess
+            && store.calendar(withIdentifier: calendarID) != nil
+        return WriteVerification.insertOutcome(foundByIdentifier: false,
+                                               lookalikes: recentLookalikes(of: record, calendarID: calendarID, since: startedAt),
+                                               canTrustAbsence: canTrustAbsence)
+    }
+
+    /// 同じカレンダーで、同じ日時・同じ予定名の、まだ結び付けていない、いま作られたばかりの予定の数（作った時刻が分からないものも数える）
+    private func recentLookalikes(of record: ExternalEventRecord, calendarID: String, since: Date) -> Int {
+        guard let target = store.calendar(withIdentifier: calendarID) else { return 0 }
+        let dayStart = calendar.startOfDay(for: record.startDate)
+        guard let dayEnd = calendar.date(byAdding: .day, value: 1, to: dayStart) else { return 0 }
+        let linked = links.itemIdentifiers
+        let threshold = since.addingTimeInterval(-60)
+        return store.events(matching: store.predicateForEvents(withStart: dayStart, end: dayEnd, calendars: [target]))
+            .filter { ekEvent in
+                (ekEvent.title ?? "") == record.title
+                    && ekEvent.startDate == record.startDate
+                    && !linked.contains(ekEvent.calendarItemIdentifier)
+                    && (ekEvent.creationDate.map { $0 >= threshold } ?? true)
+            }
+            .count
     }
 
     func update(_ event: CalendarEvent) throws {
@@ -329,9 +420,12 @@ final class EventKitEventRepository: EventRepository {
     /// 予定を直す。繰り返し予定は、この予定のみ／これ以降／すべて の範囲で直す（Q44）。
     /// 「この予定のみ」では繰り返しの決まりは変えない。「すべて」は、系列の初めの回に、この回で動かした分だけ同じように当てる
     func update(_ event: CalendarEvent, scope: RecurrenceScope) throws {
+        persistLinksIfNeeded()
         guard let occurrence = find(event.id) else { throw EventRepositoryError.notFound(event.id) }
         // その予定だけ保存先を変えるときは、何かを書き換える前に移す先を確かめる。使えなければ何も変えずに止める（spec §89.3・§89.4）
         let moveTarget = try calendarToMove(occurrence, to: event.calendarID)
+        try SaveFaults.check(.appleBeforeWrite)
+        writeGeneration += 1
         let record = EventKitMapping.record(from: event, calendar: calendar)
         let oldDay = cache.first { $0.id == event.id }?.day
         let wasRecurring = occurrence.hasRecurrenceRules
@@ -340,13 +434,16 @@ final class EventKitEventRepository: EventRepository {
             // 繰り返しでない予定に繰り返しを付けるのもここ（範囲は聞かない）
             Self.apply(record, to: occurrence, includeRecurrence: !wasRecurring)
             if let moveTarget { occurrence.calendar = moveTarget }
-            try store.save(occurrence, span: wasRecurring ? .thisEvent : .futureEvents, commit: true)
+            try commit(occurrence, span: wasRecurring ? .thisEvent : .futureEvents)
             setKey(Self.linkKey(for: occurrence), for: event.id)
         } else {
             let target: EKEvent
             let occurrenceDate: Date
-            if scope == .allEvents,
-               let master = store.calendarItem(withIdentifier: occurrence.calendarItemIdentifier) as? EKEvent {
+            if scope == .allEvents {
+                // 系列の初めの回が引けなければ、「これ以降」に変えて黙って直さない（一部だけ直ったように見せない）
+                guard let master = store.calendarItem(withIdentifier: occurrence.calendarItemIdentifier) as? EKEvent else {
+                    throw EventRepositoryError.notFound(event.id)
+                }
                 let shift = record.startDate.timeIntervalSince(occurrence.startDate)
                 var shifted = record
                 shifted.startDate = master.startDate.addingTimeInterval(shift)
@@ -360,13 +457,14 @@ final class EventKitEventRepository: EventRepository {
                 occurrenceDate = record.startDate
             }
             if let moveTarget { target.calendar = moveTarget }
-            try store.save(target, span: .futureEvents, commit: true)
+            try commit(target, span: .futureEvents)
             setKey(EventKitMapping.linkKey(itemIdentifier: target.calendarItemIdentifier,
                                            occurrenceDate: target.hasRecurrenceRules ? occurrenceDate : nil),
                    for: event.id)
         }
         setEndUnset(event)
-        try linksFile.save(links)
+        // 結び付けのファイルに書けなくても、予定は直っている。成功のまま、次の機会にもう一度書く
+        persistLinks()
         refreshNow(days: [event.day] + (oldDay.map { [$0] } ?? []))
         // 繰り返しが変わると、ほかの日の回も変わるので、読み込んである範囲を読み直す（裏で）
         if (wasRecurring && scope != .thisEvent) || (!wasRecurring && record.repeatRule.isRepeating) {
@@ -378,25 +476,50 @@ final class EventKitEventRepository: EventRepository {
         try delete(id: id, scope: .thisEvent)
     }
 
-    /// 予定を消す。繰り返し予定は、この予定のみ／これ以降／すべて の範囲で消す（§64・Q44）
+    /// 予定を消す。繰り返し予定は、この予定のみ／これ以降／すべて の範囲で消す（§64・Q44）。
+    /// 失敗が届いたら、確定していない変更を捨ててから、まだ引けるかを確かめる（消えていれば消せたとして続ける。まだあれば失敗。
+    /// 確かめられなければ結果不明）。消したあと結び付けのファイルに書けなくても、失敗にしない（spec §89.9・2026-10-18 S1b）
     func delete(id: UUID, scope: RecurrenceScope) throws {
+        persistLinksIfNeeded()
         guard let occurrence = find(id) else { throw EventRepositoryError.notFound(id) }
         let wasRecurring = occurrence.hasRecurrenceRules
         let removed = occurrenceIDs(sameSeriesAs: id, scope: wasRecurring ? scope : .thisEvent)
+        let target: EKEvent
+        let span: EKSpan
         switch (wasRecurring, scope) {
         case (true, .futureEvents):
-            try store.remove(occurrence, span: .futureEvents, commit: true)
+            target = occurrence
+            span = .futureEvents
         case (true, .allEvents):
-            let master = (store.calendarItem(withIdentifier: occurrence.calendarItemIdentifier) as? EKEvent) ?? occurrence
-            try store.remove(master, span: .futureEvents, commit: true)
+            // 系列の初めの回が引けなければ、「これ以降」に変えて黙って一部だけ消さない
+            guard let master = store.calendarItem(withIdentifier: occurrence.calendarItemIdentifier) as? EKEvent else {
+                throw EventRepositoryError.notFound(id)
+            }
+            target = master
+            span = .futureEvents
         default:
-            try store.remove(occurrence, span: .thisEvent, commit: true)
+            target = occurrence
+            span = .thisEvent
+        }
+        try SaveFaults.check(.appleBeforeWrite)
+        writeGeneration += 1
+        do {
+            try store.remove(target, span: span, commit: true)
+            try SaveFaults.check(.appleAfterWrite)
+        } catch {
+            discardUncommittedChanges()
+            let canTrustAbsence = EKEventStore.authorizationStatus(for: .event) == .fullAccess
+            switch WriteVerification.deleteOutcome(stillExists: find(id) != nil, canTrustAbsence: canTrustAbsence) {
+            case .saved: break
+            case .notSaved: throw error
+            case .unknown: throw WriteCheckError.unconfirmed
+            }
         }
         for removedID in removed {
             setKey(nil, for: removedID)
             links.endUnset.remove(removedID)
         }
-        try linksFile.save(links)
+        persistLinks(fault: .appleLinksAfterDelete)
         cache.removeAll { removed.contains($0.id) }
     }
 
@@ -410,7 +533,7 @@ final class EventKitEventRepository: EventRepository {
         var ids = links.seriesIDs ?? [:]
         ids[parsed.itemIdentifier] = created
         links.seriesIDs = ids
-        try? linksFile.save(links)
+        persistLinks()
         return created
     }
 
@@ -430,11 +553,52 @@ final class EventKitEventRepository: EventRepository {
 
     // MARK: - 内部
 
-    /// 予定の id と Apple カレンダーの予定の鍵を結ぶ（逆引きもそろえる）
+    /// 予定の id と Apple カレンダーの予定の鍵を結ぶ（逆引きもそろえる）。同じ鍵をほかの id が持っていたら、そちらを外す
     private func setKey(_ key: String?, for id: UUID) {
         if let old = links.keys[id], idByKey[old] == id { idByKey[old] = nil }
-        links.keys[id] = key
+        links.setKey(key, for: id)
         if let key { idByKey[key] = id }
+    }
+
+    /// 書けた予定を、TimyCue の予定の id に結び付ける
+    private func link(_ event: CalendarEvent, to ekEvent: EKEvent) {
+        setKey(Self.linkKey(for: ekEvent), for: event.id)
+        setEndUnset(event)
+    }
+
+    /// 書いて確定する。失敗したら、確定していない変更を捨ててから投げる
+    private func commit(_ ekEvent: EKEvent, span: EKSpan) throws {
+        do {
+            try store.save(ekEvent, span: span, commit: true)
+        } catch {
+            discardUncommittedChanges()
+            throw error
+        }
+    }
+
+    /// 失敗した書き込みの、確定していない変更を捨てる（押し直しや次の書き込みの確定で、一緒に書かれないように）。
+    /// EventKit には取り消しがないので、確定した状態へ戻す。裏の読み込みと同じ列で行う
+    private func discardUncommittedChanges() {
+        fetchQueue.sync { store.reset() }
+    }
+
+    /// 結び付けをファイルに書く。書けなければ、メモリの上の結び付けはそのままにして、次の機会にもう一度書く（spec §89.9）
+    @discardableResult
+    private func persistLinks(fault: SaveFault? = nil) -> Bool {
+        do {
+            try SaveFaults.check(fault)
+            try linksFile.save(links)
+            linksDirty = false
+            return true
+        } catch {
+            linksDirty = true
+            return false
+        }
+    }
+
+    /// 前に書けなかった結び付けを、書き込みの前に書いておく
+    private func persistLinksIfNeeded() {
+        if linksDirty { persistLinks() }
     }
 
     private func setEndUnset(_ event: CalendarEvent) {

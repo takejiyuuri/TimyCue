@@ -148,6 +148,10 @@ workflows:
           capture editor-calendar-unavailable -TimyCueEditorDays "0" -TimyCueSampleCalendars hiddenDefault -TimyCueEditorRow calendar
           # S1b：開発用の失敗の再現の画面（検証用のビルドだけ）
           capture dev-save-faults -TimyCueTab settings -TimyCueDevScreen saveFaults
+          # S1b（spec §89.9）：3 日を選んで保存し、検証用の失敗の再現で途中を失敗させる（見本の予定はメモリの中だけ。何も書かない）。
+          # 2 日目で失敗：保存した日と保存していない日を分けて出し、保存していない日だけが残る。結果不明：自動で再保存しないと出す
+          capture editor-save-partial -TimyCueEditorDays "0,1,2" -TimyCueEditorAutoSave YES -TimyCueSaveFault multiDaySecondDay
+          capture editor-save-unknown -TimyCueEditorDays "0,1,2" -TimyCueEditorAutoSave YES -TimyCueSaveFault unknownResult
           # H1 の比べる画面（設定 ＞ 開発用：キャラクターの案）で、正式キャラクター 3 モードを「いま」の直上の定位置に（2026-10-17。§88.3・Q87・Q88）。
           # 人型 36pt・時計 40％。名前は layout-モード-時計-見本の時刻-予定の数。overdue は 9:18（出発 9:15 を 3 分過ぎ。時計は終わっているので noclock。過ぎた出発の点が人型と「いま」のあいだ）
           for SHOT in "human YES before usual" "turtle YES before usual" "rabbit YES before usual" "human NO before usual" \

@@ -120,10 +120,14 @@ final class SaveTargetTests: XCTestCase {
         XCTAssertEqual(move.title, "Apple Calendarに保存できませんでした")
         XCTAssertTrue(move.message.contains("移していません"))
         XCTAssertTrue(move.message.contains("TimyCue の中の予定はそのまま残っています"))
-        let written = EditorFailure.writeFailed(action: .save)
-        XCTAssertTrue(written.message.contains("一部だけ保存されていることがあるため、カレンダーで確かめてから"),
-                      "一部だけ書けたかを確かめられないときは、重複させないよう確かめてからやり直してもらう（S1b で分ける）")
-        XCTAssertEqual(EditorFailure.writeFailed(action: .delete).title, "削除できませんでした")
+        // S1b：書いていないと確かめたときは「保存していません」。編集の失敗・結果不明は分ける（spec §89.9）
+        XCTAssertTrue(EditorFailure.notWritten(action: .save).message.contains("予定は保存していません"))
+        XCTAssertTrue(EditorFailure.notWritten(action: .moveToApple).message.contains("TimyCue の中の予定はそのまま残っています"))
+        XCTAssertEqual(EditorFailure.notWritten(action: .delete).title, "削除できませんでした")
+        XCTAssertTrue(EditorFailure.notWritten(action: .delete).message.contains("予定は残っています"))
+        XCTAssertTrue(EditorFailure.updateFailed(isAppleEvent: true).message.contains("カレンダーで確かめてから"),
+                      "Apple の予定は、直ったかどうかをその場で確かめられない")
+        XCTAssertEqual(EditorFailure.unconfirmed(action: .delete).title, "削除結果を確認できませんでした")
     }
 
     // MARK: - 作成画面（ScheduleEditorStore）
@@ -292,7 +296,8 @@ final class SaveTargetTests: XCTestCase {
         fillNewEvent(store)
         XCTAssertThrowsError(try store.save())
         XCTAssertEqual(store.failure?.title, "保存できませんでした")
-        XCTAssertTrue(store.failure?.message.contains("カレンダーで確かめてから") ?? false)
+        XCTAssertTrue(store.failure?.message.contains("予定は保存していません") ?? false,
+                      "書いていないと確かめられたときは、そう言う（S1b。spec §89.9）")
         XCTAssertTrue(store.hasUnsavedChanges, "成功したことにしない")
 
         store.dismissFailure()

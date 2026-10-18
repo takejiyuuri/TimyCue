@@ -51,10 +51,16 @@ struct ScheduleEditorView: View {
             .animation(.easeInOut(duration: 0.2), value: isTyping)
         }
         .background(Theme.Colors.separator.ignoresSafeArea())
-        // 未保存のまま離れるときは確かめる（§66）
-        .confirmationDialog("保存していない変更があります", isPresented: $confirmsDiscard, titleVisibility: .visible) {
-            Button("変更を破棄して閉じる", role: .destructive) { close() }
+        // 未保存のまま離れるときは確かめる（§66）。一部の日だけ保存できたあとは、保存した日は残ることを添える（spec §89.9）
+        .confirmationDialog(store.savedEventsThisSession.isEmpty ? "保存していない変更があります" : "まだ保存していない日があります",
+                            isPresented: $confirmsDiscard, titleVisibility: .visible) {
+            Button(store.savedEventsThisSession.isEmpty ? "変更を破棄して閉じる" : "保存していない日を捨てて閉じる",
+                   role: .destructive) { close() }
             Button("編集を続ける", role: .cancel) {}
+        } message: {
+            if !store.savedEventsThisSession.isEmpty {
+                Text("保存できた日の予定は、保存してあります。保存していない日の入力は消えます。")
+            }
         }
         // 初回の案内を「あとで」にしていたら、新しい予定を保存するときにもう一度だけ案内する（Q38）
         .sheet(isPresented: $showsGuidance) {
@@ -83,18 +89,27 @@ struct ScheduleEditorView: View {
         } message: {
             Text("どの予定に変更を当てますか？")
         }
-        // ローカル予定を Apple カレンダーへ移す（追加仕様書 §1.12）。確認を出すこと・文言は仮（未確定）
+        // ローカル予定を Apple カレンダーへ移す（追加仕様書 §1.12）。確認を出すこと・文言は仮（未確定）。
+        // 前回 Apple に作れたか確かめられなかった予定は、同じ予定がないことを確かめたかを聞いてから作る（spec §89.9）
         .confirmationDialog("Apple Calendarに保存しますか？", isPresented: $confirmsMoveToApple, titleVisibility: .visible) {
-            Button("Apple Calendarに保存") { moveToAppleCalendar() }
+            Button(store.moveNeedsConfirmation ? "確かめたので保存する" : "Apple Calendarに保存") { moveToAppleCalendar() }
             Button("やめる", role: .cancel) {}
         } message: {
-            Text("Apple Calendarに予定を作り、到着目標などの設定も引き継ぎます。TimyCue の中の予定は削除します。")
+            if store.moveNeedsConfirmation {
+                Text("前回、Apple Calendarに予定を作れたか確認できませんでした。Apple Calendarに同じ予定がないことを確かめてから保存してください。同じ予定があるときは、保存せずに重複候補から選んでください。")
+            } else {
+                Text("Apple Calendarに予定を作り、到着目標などの設定も引き継ぎます。TimyCue の中の予定は削除します。")
+            }
         }
-        // 保存・移す・削除に失敗したら、閉じずに理由と次の操作を出す（spec §89.9）。設定画面へ直接移るボタンは置かない（Q110）
+        // 保存・移す・削除に失敗したら、閉じずに理由と次の操作を出す（spec §89.9）。設定画面へ直接移るボタンは置かない（Q110）。
+        // 一部だけ保存できて残りがない・予定は保存できたが設定を保存できなかったなどの知らせは、「OK」のあと閉じる
         .alert(store.failure?.title ?? "",
                isPresented: Binding(get: { store.failure != nil }, set: { if !$0 { store.dismissFailure() } }),
-               presenting: store.failure) { _ in
-            Button("OK", role: .cancel) { store.dismissFailure() }
+               presenting: store.failure) { failure in
+            Button("OK", role: .cancel) {
+                store.dismissFailure()
+                if failure.closesEditor { finish(store.savedEventsThisSession) }
+            }
         } message: { failure in
             Text(failure.message)
         }
@@ -166,31 +181,39 @@ struct ScheduleEditorView: View {
     }
 
     /// 保存して元の画面へ戻る（Q22）。足りないものがあれば store が該当の行を開いて知らせ、閉じない（§46）。
-    /// 保存に失敗したときも閉じない。理由は store.failure をアラートで出す（spec §89.9）
+    /// 保存に失敗したときも閉じない。理由は store.failure をアラートで出す（spec §89.9）。
+    /// 一部の日だけ保存できたときも、保存できた日はすぐカレンダーに出す
     private func performSave(scope: RecurrenceScope = .thisEvent) {
-        let saved: [CalendarEvent]
         do {
-            saved = try store.save(scope: scope)
+            try store.save(scope: scope)
         } catch {
+            calendarStore.reload()
             return
         }
         focusedRow = nil
-        calendarStore.reload()
-        onSaved(saved)
-        dismiss()
+        // 知らせ（設定を保存できなかったなど）があれば、先に出す。閉じるのは「OK」のあと
+        guard store.failure == nil else { return }
+        // 一部の日だけ保存してから残りを保存したときも、この画面で保存した全部の日を渡す
+        finish(store.savedEventsThisSession)
     }
 
     /// 移したら編集画面を閉じる（仮。未確定）
     private func moveToAppleCalendar() {
         let moved: CalendarEvent
         do {
-            moved = try store.moveToAppleCalendar()
+            moved = try store.moveToAppleCalendar(confirmedUnknown: store.moveNeedsConfirmation)
         } catch {
+            calendarStore.reload()
             return
         }
         focusedRow = nil
+        finish([moved])
+    }
+
+    /// 保存が済んで、元の画面へ戻る
+    private func finish(_ saved: [CalendarEvent]) {
         calendarStore.reload()
-        onSaved([moved])
+        onSaved(saved)
         dismiss()
     }
 
@@ -205,7 +228,10 @@ struct ScheduleEditorView: View {
         dismiss()
     }
 
+    /// 保存せずに閉じる。一部の日だけ保存できていたら、その日は元の画面に渡す
     private func close() {
+        let saved = store.savedEventsThisSession
+        if !saved.isEmpty { onSaved(saved) }
         store.discardChanges()
         calendarStore.reload()
         dismiss()

@@ -15,6 +15,12 @@ enum EditorMode: Equatable {
         }
     }
 
+    /// 既存の予定の編集か
+    var isEdit: Bool {
+        if case .edit = self { return true }
+        return false
+    }
+
     /// 複数日を選べるか（仕様 §34・§60〜§62：新規・コピーは複数日、編集は 1 件）
     var allowsMultipleDays: Bool {
         switch self {
@@ -83,4 +89,10 @@ enum ScheduleEditorError: Error, Equatable {
     case notReady([SaveIssue])
     case eventNotFound(UUID)
     case copyRequiresEditMode
+    /// もう保存が済んでいる（続けて押したなど）。書かない
+    case alreadySaved
+    /// 一部だけ保存できた・結果を確かめられなかった。知らせ（failure）はもう作ってある
+    case partiallySaved
+    /// 前回の結果を確かめられなかったので、確かめたかを聞いてから行う
+    case needsConfirmation
 }

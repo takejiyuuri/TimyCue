@@ -119,8 +119,10 @@ final class FileEventMetadataRepository: EventMetadataRepository {
     private let file: JSONFile<[UUID: TimyCueEventMetadata]>
     private var storage: [UUID: TimyCueEventMetadata]
 
+    /// 失敗の再現（.metadataWrite）は、予定を書いたあとの設定の保存（ScheduleEditorStore）で行う。
+    /// ここに置くと、読み込みのときの初期値の保存が先に失敗を使ってしまう
     init(file: JSONFile<[UUID: TimyCueEventMetadata]> = JSONFile(url: JSONFile<[UUID: TimyCueEventMetadata]>.appSupportURL(named: "metadata.json"),
-                                                                 empty: [:], faultPoint: .metadataWrite)) {
+                                                                 empty: [:])) {
         self.file = file
         storage = file.load()
     }
@@ -174,6 +176,7 @@ final class SwitchableEventRepository: EventRepository {
 
     func allEvents() -> [CalendarEvent] { current.allEvents() }
     func insert(_ events: [CalendarEvent]) throws { try current.insert(events) }
+    func insertEach(_ events: [CalendarEvent]) -> InsertReport { current.insertEach(events) }
     func update(_ event: CalendarEvent) throws { try current.update(event) }
     func delete(id: UUID) throws { try current.delete(id: id) }
     func ensureLoaded(from start: CalendarDay, to end: CalendarDay) { current.ensureLoaded(from: start, to: end) }
@@ -199,6 +202,7 @@ final class CombinedEventRepository: EventRepository {
 
     func allEvents() -> [CalendarEvent] { primary.allEvents() + local.allEvents() }
     func insert(_ events: [CalendarEvent]) throws { try primary.insert(events) }
+    func insertEach(_ events: [CalendarEvent]) -> InsertReport { primary.insertEach(events) }
 
     func update(_ event: CalendarEvent) throws {
         try update(event, scope: .thisEvent)
