@@ -43,9 +43,10 @@ targets:
           UIImageName: LaunchLogo
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
-        # 許可の説明文。許可は必要になった時に初めて求める（仕様 §79）。位置情報・通知・モーションは使う段階で足す
-        NSCalendarsFullAccessUsageDescription: Apple カレンダーの予定を TimyCue に表示し、TimyCue で作った予定を Apple カレンダーに保存するために使います。
-        NSCalendarsUsageDescription: Apple カレンダーの予定を TimyCue に表示し、TimyCue で作った予定を Apple カレンダーに保存するために使います。
+        # 許可の説明文。許可は必要になった時に初めて求める（仕様 §79）。位置情報・通知・モーションは使う段階で足す。
+        # カレンダーの説明文は、作った予定を必ず Apple に保存するとは読めない文にした（spec §89.4・Q105。docs/calendar-save-target-plan.md の E-13 の案。文言は仮）
+        NSCalendarsFullAccessUsageDescription: Apple カレンダーの予定を TimyCue に表示し、保存先に選んだ Apple カレンダーへ TimyCue で作った予定を保存するために使います。
+        NSCalendarsUsageDescription: Apple カレンダーの予定を TimyCue に表示し、保存先に選んだ Apple カレンダーへ TimyCue で作った予定を保存するために使います。
         # 位置情報は、出発が近づいて現在地からの計算を始めるときに初めて求める（追加仕様書 §25.1）。文言は 2026-10-14 決定
         NSLocationWhenInUseUsageDescription: 現在地から目的地までの移動時間を計算し、適切な出発時刻と到着見込みを案内するために位置情報を使用します。
     settings:

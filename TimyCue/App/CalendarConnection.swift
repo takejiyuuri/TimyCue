@@ -122,11 +122,8 @@ final class CalendarConnection {
         isLive && state == .notAsked && (preferences.guidanceDismissCount ?? 0) == 0
     }
 
-    /// 初回の案内を「あとで」にしたあと、次に Apple カレンダーが実際に必要になる操作（新しい予定の保存）で、もう一度だけ案内するか（Q38。
-    /// 二度目も「あとで」なら、それ以上は自分からは案内しない。設定 ＞ カレンダー連携 からはいつでもつなげる）
-    var showsGuidanceBeforeSaving: Bool {
-        isLive && state == .notAsked && (preferences.guidanceDismissCount ?? 0) == 1
-    }
+    // 初回の案内を「あとで」にしたあと、新しい予定を保存するときにもう一度案内する決まり（Q38）は、2026-10-18 の Q105 でやめた
+    // （正常に保存できる状態で、保存のたびに許可の案内を繰り返さない。設定 ＞ カレンダー連携 からはいつでもつなげる）
 
     /// 案内を「あとで」にする
     /// 保存できなくても知らせない（戻すだけ。次にまた案内が出る。予定の保存の途中で、設定の失敗を混ぜて見せない）
@@ -191,8 +188,10 @@ final class CalendarConnection {
         setDefaultSaveTarget(calendarID.map(DefaultSaveTarget.calendar) ?? .systemDefault)
     }
 
-    /// そのカレンダーを読み込むかどうか（Q33）
-    func setShown(_ shown: Bool, calendarID: String) {
+    /// そのカレンダーを読み込むかどうか（Q33）。保存できなければ値を戻して知らせ、false を返す
+    /// （作成画面の「表示をONにして保存」は、保存できたときだけ予定を保存する。spec §89.4）
+    @discardableResult
+    func setShown(_ shown: Bool, calendarID: String) -> Bool {
         let saved = updatePreferences { preferences in
             if shown {
                 preferences.hiddenCalendarIDs.remove(calendarID)
@@ -200,9 +199,10 @@ final class CalendarConnection {
                 preferences.hiddenCalendarIDs.insert(calendarID)
             }
         }
-        guard saved else { return }
+        guard saved else { return false }
         eventKit?.reloadCache()
         notify()
+        return true
     }
 
     /// 祝日カレンダーとして扱うか（設定 ＞ カレンダー連携 ＞ 祝日カレンダー。Q55）

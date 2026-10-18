@@ -81,6 +81,13 @@ enum EditorMetrics {
     static let lockNoticeFont = Font.system(size: 12)
     static let lockIconFont = Font.system(size: 11)
 
+    // MARK: 保存先を選ぶ選択肢（spec §89.3・§89.4。下から出す選択肢が長くなりすぎないように。数は仮）
+
+    /// 初めて保存する前の確かめで並べる保存先の数（「TimyCue のみ」を含む）。多ければ「ほかのカレンダーを選ぶ」
+    static let firstSaveTargetChoiceLimit = 5
+    /// 保存の前の選び直しで並べる Apple カレンダーの数（「TimyCue のみ」は別に先頭へ）。多ければ「ほかのカレンダーを選ぶ」
+    static let saveTargetPromptCalendarLimit = 4
+
     // MARK: 下カレンダーと左右のバー（2026-10-13 ユーザー決定）
 
     /// 見える高さは、日付の行 6 行ぶん（月の行は別に数える）

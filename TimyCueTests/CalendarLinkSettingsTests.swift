@@ -66,20 +66,26 @@ final class CalendarLinkSettingsTests: XCTestCase {
         XCTAssertEqual(CalendarConnection.statusLabel(for: .restricted), "利用できません")
     }
 
+    /// 2026-10-18 S3 で書き直した（Q97：「TimyCue のみ」と使える Apple カレンダーを合わせて、候補が 2 種類以上なら行を出す。
+    /// 前の版は Apple カレンダーだけを数えて 2 つ以上のときに出していた）
     @MainActor
-    func testCalendarRowOnlyWithTwoOrMoreUsableCalendars() {
+    func testCalendarRowCountsTimyCueOnly() {
         let store = ScheduleEditorStore(repository: InMemoryEventRepository(), metadataRepository: InMemoryEventMetadataRepository())
         store.startNew(on: day)
-        XCTAssertFalse(store.visibleRows.contains(.calendar), "つないでいないときは出さない")
-        store.setCalendars(SaveTargetRules(calendars: [home, holidays], systemDefaultID: "home"))
-        XCTAssertFalse(store.visibleRows.contains(.calendar), "使える保存先が 1 つだけなら出さない（Q32。表示のみ・書き込めないものは数えない）")
-        var hidden = CalendarPreferences()
-        hidden.hiddenCalendarIDs = ["work"]
-        store.setCalendars(SaveTargetRules(calendars: [home, work], preferences: hidden, systemDefaultID: "home"))
+        XCTAssertFalse(store.visibleRows.contains(.calendar), "連携していないときは TimyCue のみしかないので出さない")
+        var timyCueOnly = CalendarPreferences()
+        timyCueOnly.saveTargetKind = .timyCueOnly
+        store.setCalendars(SaveTargetRules(calendars: [holidays], preferences: timyCueOnly, systemDefaultID: nil))
+        XCTAssertFalse(store.visibleRows.contains(.calendar),
+                       "使える Apple カレンダーがなければ TimyCue のみの 1 種類なので出さない（表示のみ・書き込めないものは数えない）")
+        var hidden = timyCueOnly
+        hidden.hiddenCalendarIDs = ["home"]
+        store.setCalendars(SaveTargetRules(calendars: [home, holidays], preferences: hidden, systemDefaultID: "home"))
         XCTAssertFalse(store.visibleRows.contains(.calendar), "表示 OFF のカレンダーも数えない")
-        store.setCalendars(SaveTargetRules(calendars: [home, work], systemDefaultID: "home"))
-        XCTAssertTrue(store.visibleRows.contains(.calendar), "2 つ以上なら出す")
+        store.setCalendars(SaveTargetRules(calendars: [home, holidays], systemDefaultID: "home"))
+        XCTAssertTrue(store.visibleRows.contains(.calendar), "TimyCue のみと、使える Apple カレンダー 1 つで 2 種類あれば出す（Q97）")
         XCTAssertEqual(store.valueText(for: .calendar), "iPhoneの既定（家）", "初めは既定の保存先。実際の名前を添える（Q106）")
+        store.setCalendars(SaveTargetRules(calendars: [home, work], systemDefaultID: "home"))
         store.content.calendarID = "work"
         XCTAssertEqual(store.valueText(for: .calendar), "仕事", "その予定だけ保存先を変えられる")
         store.content.title = "A社"
@@ -142,8 +148,10 @@ final class CalendarLinkSettingsTests: XCTestCase {
 
     // MARK: - 案内（Q38）
 
+    /// 2026-10-18 S3 で書き直した（Q105：正常に保存できる状態で、保存のたびに許可の案内を繰り返さない。
+    /// 前の版は、初回の案内を「あとで」にすると、新しい予定を保存するときにもう一度案内していた（Q38）
     @MainActor
-    func testGuidanceShownOnceThenOnceMoreBeforeSavingThenNotAgain() throws {
+    func testGuidanceIsShownOnceAndNotRepeatedBeforeSaving() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let local = FileEventRepository(file: JSONFile(url: directory.appendingPathComponent("events.json"), empty: []))
@@ -157,15 +165,18 @@ final class CalendarLinkSettingsTests: XCTestCase {
         guard connection.state == .notAsked else { throw XCTSkip("このシミュレータではカレンダーの許可がもう決まっている") }
 
         XCTAssertTrue(connection.showsFirstGuidance, "初回は理由と「カレンダーを連携」を案内する（開いただけで許可のダイアログは出さない）")
-        XCTAssertFalse(connection.showsGuidanceBeforeSaving)
-
         connection.dismissGuidance()
-        XCTAssertFalse(connection.showsFirstGuidance)
-        XCTAssertTrue(connection.showsGuidanceBeforeSaving, "「あとで」にしたら、新しい予定を保存するときにもう一度案内する")
+        XCTAssertFalse(connection.showsFirstGuidance, "「あとで」にしたら、初回の案内はもう出さない")
 
-        connection.dismissGuidance()
-        XCTAssertFalse(connection.showsFirstGuidance)
-        XCTAssertFalse(connection.showsGuidanceBeforeSaving, "何度も自分からは案内しない")
+        // 作成画面は、保存の前に案内を挟まず、この iPhone の中へ保存する（保存先が使えないときだけ選び直しを出す）
+        let store = ScheduleEditorStore(repository: SwitchableEventRepository(local), metadataRepository: InMemoryEventMetadataRepository())
+        store.startNew(on: day)
+        store.content.title = "A社"
+        store.setStartMinute(600)
+        XCTAssertFalse(store.needsFirstSaveTargetChoice)
+        XCTAssertNil(store.saveTargetPrompt)
+        XCTAssertNoThrow(try store.save())
+        XCTAssertEqual(local.allEvents().count, 1)
     }
 
     @MainActor

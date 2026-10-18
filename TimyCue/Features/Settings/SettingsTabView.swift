@@ -166,7 +166,7 @@ struct CalendarSettingsView: View {
                         ForEach(group.calendars) { calendar in
                             Toggle(isOn: Binding(
                                 get: { connection.preferences.isShown(calendar.id) },
-                                set: { connection.setShown($0, calendarID: calendar.id) })) {
+                                set: { _ = connection.setShown($0, calendarID: calendar.id) })) {
                                 CalendarLabel(calendar: calendar)
                             }
                             .tint(Theme.Colors.accent)

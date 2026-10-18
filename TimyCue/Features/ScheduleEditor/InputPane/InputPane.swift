@@ -64,7 +64,9 @@ struct InputPane: View {
                         }
                     }
                     if store.canMoveToAppleCalendar {
-                        MoveToAppleButton(unavailableReason: store.moveToAppleUnavailableReason, onMove: onMoveToApple)
+                        MoveToAppleButton(unavailableReason: store.moveToAppleUnavailableReason,
+                                          targetName: store.moveToAppleTargetName,
+                                          onMove: onMoveToApple)
                     }
                     // 書き込めないカレンダーの予定は消せない（§1.7）
                     if case .edit = store.mode, !store.areAppleFieldsLocked {
@@ -237,11 +239,8 @@ private struct InlineEditor: View {
                 }
             }
         case .calendar:
-            // その予定だけ保存先を変える（Q32）。選べるのは使えるカレンダーだけ（spec §89.2・§89.3）。ここで選んでも設定の既定は変えない（Q99）
-            ChipRow(options: store.saveTargetCandidates,
-                    label: \.title,
-                    isSelected: { $0.id == store.selectedSaveTargetID },
-                    onTap: { store.content.calendarID = $0.id })
+            // その予定だけ保存先を変える（spec §89.3）。選べるのは「TimyCue のみ」と使えるカレンダーだけ（§89.2）。設定の既定は変えない（Q99）
+            CalendarRowEditor()
         case .additionalDays:
             AdditionalDaysEditor()
         }
@@ -505,8 +504,8 @@ private struct WheelPicker<Option: Hashable, Row: View>: View {
     }
 }
 
-/// 選択肢を横に並べたもの
-private struct ChipRow<Option: Hashable>: View {
+/// 選択肢を横に並べたもの（「カレンダー」の行の CalendarRowEditor でも使う）
+struct ChipRow<Option: Hashable>: View {
     let options: [Option]
     let label: (Option) -> String
     let isSelected: (Option) -> Bool
@@ -537,6 +536,8 @@ private struct ChipRow<Option: Hashable>: View {
 private struct MoveToAppleButton: View {
     /// 移す先が使えないときの理由。あればボタンを押せなくして出す（spec §89.5）
     let unavailableReason: String?
+    /// 移す先が使えるときの名前（「iPhoneの既定（家）」など）
+    let targetName: String?
     let onMove: () -> Void
 
     var body: some View {
@@ -549,9 +550,15 @@ private struct MoveToAppleButton: View {
             .buttonStyle(.bordered)
             .tint(Theme.Colors.accent)
             .disabled(unavailableReason != nil)
-            Text("この予定は TimyCue の中だけにあります")
+            Text("この予定は \(SaveTargetRules.timyCueOnlyLabel)にあります")
                 .font(EditorMetrics.lockNoticeFont)
                 .foregroundStyle(Theme.Colors.textSecondary)
+            if let targetName, unavailableReason == nil {
+                // 移す先を確かめの画面で選ぶ形は S5。それまでは「カレンダー」の行で選ぶ（文言は仮）
+                Text("移す先：\(targetName)（「カレンダー」の行で変えられます）")
+                    .font(EditorMetrics.lockNoticeFont)
+                    .foregroundStyle(Theme.Colors.textSecondary)
+            }
             if let unavailableReason {
                 Text(unavailableReason)
                     .font(EditorMetrics.lockNoticeFont)

@@ -182,19 +182,24 @@ final class ScheduleEditorStore {
         pendingSaveTarget?.problem
     }
 
-    /// 「カレンダー」の行を出すか。つないでいて、選べる保存先が 2 つ以上あるとき（Q32・Q97）。
-    /// 今の保存先（コピー元・設定の既定・iPhone の既定、「Apple Calendarに保存」の移す先）が使えないときは、選べるものが 1 つでも出して
-    /// 選び直せるようにする（Q110）。行で選んで使えるようになっても、開いたときの保存先が使えなければ出したままにする（選んだ値が見えるように）。
-    /// 「TimyCue のみ」を数えるのは S2 から
+    /// 「カレンダー」の行を出すか（spec §89.3・Q97・Q110・Q113）。
+    /// 既存の予定（編集）：所属のカレンダーを確かめられるよう、いつも出す（変えられないときは閲覧専用）。
+    /// 新規・コピー：連携中で、保存先の候補（「TimyCue のみ」と使える Apple カレンダー）が 2 種類以上あるとき。
+    /// TimyCue のみしか使えなくても、今の保存先・開いたときの保存先（設定の既定・コピー元）が使えない、またはまだ決まっていないときは、
+    /// 出して選び直せるようにする。行で選んで使えるようになっても、開いたときの保存先が使えなければ出したままにする（選んだ値が見えるように）
     var showsCalendarRow: Bool {
-        guard isConnectedToApple else { return false }
-        let count = saveTargetCandidates.count
-        let unusable = saveTargetProblem != nil || moveToAppleTarget?.problem != nil || initialSaveTargetProblem != nil
-        return count >= 2 || (count >= 1 && unusable)
+        switch mode {
+        case .edit:
+            return true
+        case .new, .copy:
+            guard isConnectedToApple else { return false }
+            if !saveTargetCandidates.isEmpty { return true }
+            if case .notChosen? = pendingSaveTarget { return true }
+            return saveTargetProblem != nil || initialSaveTargetProblem != nil
+        }
     }
 
-    /// 開いたときの保存先（予定ごとの選びを当てる前。新規は設定の既定、コピーはコピー元の保存先、
-    /// ローカルの予定の編集は「Apple Calendarに保存」の移す先）が使えないなら、その理由
+    /// 開いたときの保存先（予定ごとの選びを当てる前。新規は設定の既定、コピーはコピー元の保存先）が使えないなら、その理由
     private var initialSaveTargetProblem: SaveTargetProblem? {
         guard isConnectedToApple else { return nil }
         switch mode {
@@ -203,11 +208,11 @@ final class ScheduleEditorStore {
         case .copy:
             return saveTargets.resolve(choice: copyInitialChoice).problem
         case .edit:
-            return canMoveToAppleCalendar ? saveTargets.resolveMoveTarget(eventCalendarID: initialContent.calendarID).problem : nil
+            return nil
         }
     }
 
-    /// 「カレンダー」の行で選ばれている保存先（チップの印）。使えないものは選ばれていないことにする
+    /// 「カレンダー」の行で選ばれている Apple カレンダー（チップの印）。使えないもの・TimyCue のみ・まだ決まっていないときは nil
     var selectedSaveTargetID: String? {
         switch pendingSaveTarget ?? moveToAppleTarget {
         case .usable(let calendar, _)?: calendar.id
@@ -216,35 +221,66 @@ final class ScheduleEditorStore {
         }
     }
 
-    /// 「カレンダー」の行の値：「iPhoneの既定（Default）」かカレンダー名。使えないときは「（使えません）」を付ける（spec §89.11・Q110）
+    /// 「カレンダー」の行の値（spec §89.3・§89.11・Q110・Q113）。新規・コピーは今の保存先（「TimyCue のみ（このiPhone）」「未選択」
+    /// 「iPhoneの既定（Default）」かカレンダー名。使えないときは「（使えません）」を付ける）。
+    /// 既存の予定は所属のカレンダー（TimyCue の予定は「TimyCue のみ（このiPhone）」、書き込めない予定は「名前（閲覧のみ）」）
     var calendarRowValue: String {
-        if let resolution = pendingSaveTarget ?? moveToAppleTarget { return saveTargets.label(for: resolution) }
-        // Apple へ書かない編集（所属を変えない・書き込めない予定）は、今の所属の名前
-        if let id = content.calendarID, let calendar = saveTargets.calendars.first(where: { $0.id == id }) {
-            return calendar.title
-        }
-        return saveTargets.systemDefaultLabel
+        calendarRowValues.first ?? SaveTargetRules.timyCueOnlyLabel
     }
 
     /// 「カレンダー」の行の値の候補（長い順）。行に入りきらなくても「（使えません）」が切れないように、短い言い方も渡す
     /// （例「iPhoneの既定（Default）（使えません）」→「Default（使えません）」→「使えません」。ビルド確認 #57 の画面写真で切れていた）
     var calendarRowValues: [String] {
-        let full = calendarRowValue
-        guard let resolution = pendingSaveTarget ?? moveToAppleTarget else { return [full] }
-        let shortName: String? = switch resolution {
-        case .usable(let calendar, _): calendar.title
-        case .unavailable(let problem, _): SaveTargetRules.title(of: problem)
-        case .timyCueOnly: SaveTargetRules.timyCueOnlyShortLabel
-        case .notChosen: nil
+        let timyCueOnly = [SaveTargetRules.timyCueOnlyLabel, SaveTargetRules.timyCueOnlyShortLabel]
+        switch mode {
+        case .new, .copy:
+            // 連携していなければ、この iPhone の中へ保存する
+            guard let resolution = pendingSaveTarget else { return timyCueOnly }
+            return Self.rowValues(for: resolution, rules: saveTargets)
+        case .edit:
+            // TimyCue の予定は所属の「TimyCue のみ（このiPhone）」（「Apple Calendarに保存」の移す先は、ボタンの下に出す）
+            guard let event = editingEvent, event.source == .appleCalendar else { return timyCueOnly }
+            // 所属を変えたなら、変えた先
+            if let resolution = pendingSaveTarget { return Self.rowValues(for: resolution, rules: saveTargets) }
+            guard let id = event.calendarID else { return ["Apple カレンダー"] }
+            if let title = readOnlyCalendarTitles[id] { return ["\(title)（閲覧のみ）", title] }
+            if let calendar = saveTargets.calendars.first(where: { $0.id == id }) { return [calendar.title] }
+            return ["Apple カレンダー"]
         }
-        var values = [full]
-        if resolution.problem != nil {
-            if let shortName { values.append("\(shortName)（使えません）") }
+    }
+
+    private static func rowValues(for resolution: SaveTargetResolution, rules: SaveTargetRules) -> [String] {
+        switch resolution {
+        case .timyCueOnly:
+            return [SaveTargetRules.timyCueOnlyLabel, SaveTargetRules.timyCueOnlyShortLabel]
+        case .notChosen:
+            return [SaveTargetRules.notChosenLabel]
+        case .usable(let calendar, _):
+            let full = rules.label(for: resolution)
+            return full == calendar.title ? [full] : [full, calendar.title]
+        case .unavailable(let problem, _):
+            var values = [rules.label(for: resolution)]
+            if let title = SaveTargetRules.title(of: problem) { values.append("\(title)（使えません）") }
             values.append("使えません")
-        } else if let shortName, shortName != full {
-            values.append(shortName)
+            return values
         }
-        return values
+    }
+
+    /// 「カレンダー」の行・保存の前の確かめで、この予定の保存先を選ぶ（spec §89.3）。この予定だけに使い、設定の既定は変えない（Q99）。
+    /// 新規・コピーは「TimyCue のみ」か Apple カレンダー。編集は Apple カレンダーだけ（Apple の予定の所属・ローカルの予定の移す先）
+    func chooseSaveTarget(_ choice: SaveChoice) {
+        switch mode {
+        case .new, .copy:
+            content.saveChoice = choice
+        case .edit:
+            if case .calendar(let id) = choice { content.calendarID = id }
+        }
+    }
+
+    /// 「カレンダー」の行を開く（保存の前の確かめの「ほかのカレンダーを選ぶ」）。出していない・閲覧専用なら開かない
+    func openCalendarRow() {
+        guard showsCalendarRow, !isLocked(.calendar) else { return }
+        expandedRow = .calendar
     }
 
     // MARK: - 編集できない Apple カレンダーの予定（追加仕様書 §1.7）
@@ -264,9 +300,11 @@ final class ScheduleEditorStore {
         appleFieldsLockReason != nil
     }
 
-    /// その行がロックされているか（TimyCue の設定の行はロックしない）
+    /// その行がロックされているか（TimyCue の設定の行はロックしない）。
+    /// 「カレンダー」の行は、選べないとき（連携していない・書き込めない予定・変更先がない）に閲覧専用にする（Q113）
     func isLocked(_ row: InputRow) -> Bool {
-        areAppleFieldsLocked && row.isAppleField
+        if row == .calendar { return !canChooseInCalendarRow }
+        return areAppleFieldsLocked && row.isAppleField
     }
 
     /// 保存に足りないもの。日付 → 開始時刻 → 予定名 の順（仕様 §46・§87）
@@ -936,7 +974,7 @@ final class ScheduleEditorStore {
         if saveTargetCandidates.isEmpty {
             return "移せる Apple カレンダーがありません。設定 ＞ カレンダー連携 で表示を ON にしてください（表示のみのカレンダーには移せません）。"
         }
-        let place = showsCalendarRow ? "「カレンダー」の行か、設定 ＞ カレンダー連携 で" : "設定 ＞ カレンダー連携 で"
+        let place = canChooseInCalendarRow ? "「カレンダー」の行か、設定 ＞ カレンダー連携 で" : "設定 ＞ カレンダー連携 で"
         return "移す先の「\(saveTargets.name(for: target))」には移せません（\(SaveTargetRules.shortReason(problem))）。\(place)選び直してください。"
     }
 

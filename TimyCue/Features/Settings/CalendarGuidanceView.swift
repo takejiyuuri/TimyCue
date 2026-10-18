@@ -1,7 +1,8 @@
 import SwiftUI
 
 /// 未連携のときだけ出す「カレンダーを連携」の案内（Q38）。TimyCue が Apple カレンダーを使う理由を説明し、
-/// 「カレンダーを連携」を押したときに初めて iOS の許可のダイアログを出す。通常のカレンダー画面に常設するボタンではない
+/// 「カレンダーを連携」を押したときに初めて iOS の許可のダイアログを出す。通常のカレンダー画面に常設するボタンではない。
+/// 2 文目は、作った予定を必ず Apple に保存するとは読めない文にした（spec §89.4・Q105。案は docs/calendar-save-target-plan.md の E-13。文言は仮）
 struct CalendarGuidanceView: View {
     let onConnect: () -> Void
     let onLater: () -> Void
@@ -16,7 +17,7 @@ struct CalendarGuidanceView: View {
                 Text("カレンダーを連携")
                     .font(.title3.weight(.semibold))
                     .foregroundStyle(Theme.Colors.textPrimary)
-                Text("カレンダーを連携すると、予定から出発時刻を計算できます。\nApple カレンダーの予定を TimyCue に表示し、TimyCue で作った予定を Apple カレンダーに保存します。")
+                Text("カレンダーを連携すると、予定から出発時刻を計算できます。\nApple カレンダーの予定を TimyCue に表示します。新しい予定を Apple カレンダーに保存するかは、設定 ＞ カレンダー連携 で選べます。")
                     .font(.subheadline)
                     .foregroundStyle(Theme.Colors.textSecondary)
                     .multilineTextAlignment(.center)
