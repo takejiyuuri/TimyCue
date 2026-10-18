@@ -17,6 +17,8 @@ final class EventKitEventRepository: EventRepository {
     private var idByKey: [String: UUID]
     private let metadata: EventMetadataRepository
     private let preferences: () -> CalendarPreferences
+    /// 保存の途中の記録（Apple に書けた直後に鍵を足す。spec §89.9）
+    private let journal: SaveJournal
     private let calendar = Calendar.timyCue
 
     /// 読み込みを頼んだ範囲（内部のキャッシュ。ユーザーから見える制限ではない。Q35）
@@ -37,10 +39,12 @@ final class EventKitEventRepository: EventRepository {
     init(store: EKEventStore,
          metadata: EventMetadataRepository,
          preferences: @escaping () -> CalendarPreferences,
+         journal: SaveJournal = .inMemory(),
          linksFile: JSONFile<EventKitLinks> = JSONFile(url: JSONFile<EventKitLinks>.appSupportURL(named: "eventkit-links.json"), empty: EventKitLinks())) {
         self.store = store
         self.metadata = metadata
         self.preferences = preferences
+        self.journal = journal
         self.linksFile = linksFile
         let loaded = linksFile.load()
         links = loaded
@@ -345,7 +349,10 @@ final class EventKitEventRepository: EventRepository {
             ekEvent.calendar = targets[index]
             Self.apply(EventKitMapping.record(from: event, calendar: calendar), to: ekEvent, includeRecurrence: true)
             writing = (ekEvent, targets[index])
+            journal.markWriteStarted(event.id)
             try store.save(ekEvent, span: event.repeatRule.isRepeating ? .futureEvents : .thisEvent, commit: true)
+            // 書けた直後に、Apple の予定の鍵を記録する（このあとアプリが終わっても、次に開いたときにこの鍵で結び付け直す）
+            journal.recordKey(Self.linkKey(for: ekEvent), for: event.id)
             #if TIMYCUE_DEV_TOOLS
             // Apple に書けた直後にアプリを終える（次に開いたときの復旧を確かめる）
             if SaveFaults.consume(.terminateAfterAppleWrite) { exit(0) }
@@ -386,6 +393,7 @@ final class EventKitEventRepository: EventRepository {
         let record = EventKitMapping.record(from: event, calendar: calendar)
         discardUncommittedChanges()
         if !identifier.isEmpty, let found = store.calendarItem(withIdentifier: identifier) as? EKEvent {
+            journal.recordKey(Self.linkKey(for: found), for: event.id)
             link(event, to: found)
             return .saved
         }
@@ -522,6 +530,74 @@ final class EventKitEventRepository: EventRepository {
         persistLinks(fault: .appleLinksAfterDelete)
         cache.removeAll { removed.contains($0.id) }
     }
+
+    /// 予定は書けたのに、結び付けをまだファイルに書けていない
+    var hasUnsavedLinks: Bool { linksDirty }
+
+    /// Apple の予定の結び付けを持っている（Apple の保存の記録を片付けてよい）
+    var managesAppleLinks: Bool { true }
+
+    /// 結び付けた Apple の予定が今もあるか（読み込んだ範囲・表示の設定によらない）
+    func containsEvent(id: UUID) -> Bool {
+        find(id) != nil
+    }
+
+    /// 前回、Apple カレンダーへの保存の途中でアプリが終わっていたら、記録した鍵で結び付け直し、まだ保存していない設定を当てる
+    /// （読み込みを始める前に呼ぶ。spec §89.9・2026-10-18 S1b 指示 5・6）。名前や日時が似ているだけでは結び付けない。
+    /// 鍵のない記録（書けたか分からない）は、確かめてもらう記録として返す（自動では書き直さない）。
+    /// 「Apple Calendarに保存」の記録は、元の予定を消すのは次に移すときなので、作れた印を付けて残す
+    func recover(now: Date = Date()) -> [SaveJournalEntry] {
+        let canTrustAbsence = EKEventStore.authorizationStatus(for: .event) == .fullAccess
+        var askUser: [SaveJournalEntry] = []
+        var finished = Set<UUID>()
+        for entry in journal.entries where entry.isApple {
+            let linkedKey = links.keys[entry.id]
+            let itemExists = (linkedKey ?? entry.appleKey).map { key in
+                store.calendarItem(withIdentifier: EventKitMapping.parseLinkKey(key).itemIdentifier) != nil
+            }
+            switch JournalRecovery.action(for: entry, isLinked: linkedKey != nil,
+                                          itemExists: itemExists, canTrustAbsence: canTrustAbsence) {
+            case .linked:
+                settle(entry, finished: &finished)
+            case .adopt(let key):
+                setKey(key, for: entry.id)
+                if entry.endUnset { links.endUnset.insert(entry.id) }
+                persistLinks()
+                settle(entry, finished: &finished)
+            case .drop:
+                finished.insert(entry.id)
+            case .askUser:
+                // 「Apple Calendarに保存」の記録は、次に移すときに確かめたかを聞くので残す
+                if entry.movedFromLocalID == nil { finished.insert(entry.id) }
+                askUser.append(entry)
+            case .keep:
+                // 確かめられないまま長く残った記録は消す（実装上の暫定値）
+                if now.timeIntervalSince(entry.createdAt) > Self.journalKeepSeconds { finished.insert(entry.id) }
+            }
+        }
+        journal.finish(finished)
+        return askUser
+    }
+
+    /// 結び付いた記録：まだ保存していない設定を当てる（繰り返しならシリーズ共通の設定にも）。当てられなければ、次に開いたときにもう一度。
+    /// 結び付けをファイルに書けていなければ、記録は残す（次に開いたときに、もう一度結び付け直す）
+    private func settle(_ entry: SaveJournalEntry, finished: inout Set<UUID>) {
+        if entry.metadataSaved != true, var settings = entry.metadata {
+            settings.overrides = nil
+            var all = [entry.id: settings]
+            if let seriesID = seriesID(of: entry.id) { all[seriesID] = settings }
+            guard (try? metadata.saveAll(all)) != nil else { return }
+            journal.markMetadataSaved([entry.id])
+        }
+        if entry.movedFromLocalID == nil {
+            if !linksDirty { finished.insert(entry.id) }
+        } else {
+            journal.markCreated([entry.id])
+        }
+    }
+
+    /// 確かめられない記録を残しておく長さ（30 日。実装上の暫定値で、仕様の値ではない）
+    private static let journalKeepSeconds: TimeInterval = 30 * 24 * 60 * 60
 
     /// 繰り返し予定のシリーズ共通の設定を保存する id。初めて聞かれたシリーズには作って覚える（追加仕様書 §2.7.1）
     func seriesID(of eventID: UUID) -> UUID? {

@@ -16,22 +16,26 @@ struct TimyCueApp: App {
         let metadata: EventMetadataRepository
         let switchable: SwitchableEventRepository
         let localEvents: FileEventRepository?
+        // 保存の途中の記録（spec §89.9）。見本の予定ではメモリの中だけ
+        let journal: SaveJournal
         if Self.usesSampleData {
             let samples = SampleEvents.make()
             metadata = InMemoryEventMetadataRepository(metadata: samples.metadata)
             switchable = SwitchableEventRepository(InMemoryEventRepository(events: samples.events))
             localEvents = nil
+            journal = .inMemory()
         } else {
             let files = FileEventRepository()
             metadata = FileEventMetadataRepository()
             switchable = SwitchableEventRepository(files)
             localEvents = files
+            journal = .onDevice()
         }
 
         #if TIMYCUE_DEV_TOOLS
         SaveFaultView.armFromLaunchArguments()
         #endif
-        let editor = ScheduleEditorStore(repository: switchable, metadataRepository: metadata)
+        let editor = ScheduleEditorStore(repository: switchable, metadataRepository: metadata, journal: journal)
         let calendar = CalendarStore(repository: switchable, metadataRepository: metadata)
         #if DEBUG
         if Self.usesSampleData, let rules = Self.sampleSaveTargets() { editor.setCalendars(rules) }
@@ -46,6 +50,7 @@ struct TimyCueApp: App {
             switchable: switchable,
             localEvents: localEvents,
             metadata: metadata,
+            journal: journal,
             onChange: { calendars, saveTargets in
                 calendar.setCalendars(calendars)
                 calendar.reload()

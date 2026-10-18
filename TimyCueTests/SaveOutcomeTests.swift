@@ -265,6 +265,22 @@ final class SaveOutcomeTests: XCTestCase {
         XCTAssertFalse(store.isFinished)
     }
 
+    @MainActor
+    func testJournalKeepsSettingsUntilTheyAreSaved() throws {
+        let journal = SaveJournal.inMemory()
+        let metadata = FailingMetadataRepository()
+        metadata.failsOnSave = true
+        let store = ScheduleEditorStore(repository: ScriptedEventRepository(), metadataRepository: metadata, journal: journal)
+        fillThreeDays(store)
+        try store.save()
+        XCTAssertEqual(journal.entries.count, 3, "設定を保存できるまで、記録を残す（途中でアプリが終わったら、次に開いたときに当てる）")
+        XCTAssertTrue(journal.entries.allSatisfy { $0.created == true && $0.metadataSaved != true })
+
+        metadata.failsOnSave = false
+        store.refresh()
+        XCTAssertTrue(journal.entries.isEmpty, "設定を保存できたら、記録を消す")
+    }
+
     // MARK: - 削除
 
     @MainActor

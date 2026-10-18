@@ -18,6 +18,12 @@ protocol EventRepository: AnyObject {
     func occurrenceIDs(sameSeriesAs id: UUID, scope: RecurrenceScope) -> [UUID]
     /// 繰り返し予定のシリーズ全体の共通設定を保存する id（追加仕様書 §2.7.1）。繰り返しでない・繰り返しを持たない保存先では nil
     func seriesID(of eventID: UUID) -> UUID?
+    /// 予定は書けたのに、結び付けをまだファイルに書けていない（保存の途中の記録を消さずに残す。spec §89.9）
+    var hasUnsavedLinks: Bool { get }
+    /// Apple の予定の結び付けを持っている保存先か（Apple の保存の記録を片付けてよいか。つなぐ前は false）
+    var managesAppleLinks: Bool { get }
+    /// その予定が今もあるか（Apple カレンダーでは、読み込んだ範囲によらず結び付けで引く）
+    func containsEvent(id: UUID) -> Bool
 }
 
 extension EventRepository {
@@ -40,6 +46,10 @@ extension EventRepository {
     func delete(id: UUID, scope: RecurrenceScope) throws { try delete(id: id) }
     func occurrenceIDs(sameSeriesAs id: UUID, scope: RecurrenceScope) -> [UUID] { [id] }
     func seriesID(of eventID: UUID) -> UUID? { nil }
+    /// 結び付けのない保存先では、いつも書けている
+    var hasUnsavedLinks: Bool { false }
+    var managesAppleLinks: Bool { false }
+    func containsEvent(id: UUID) -> Bool { allEvents().contains { $0.id == id } }
 }
 
 /// TimyCue だけが使う情報の読み書き（仕様 §84）。Apple カレンダーの予定とは別に保存する（仕様 §68）。

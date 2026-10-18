@@ -186,6 +186,9 @@ final class SwitchableEventRepository: EventRepository {
         current.occurrenceIDs(sameSeriesAs: id, scope: scope)
     }
     func seriesID(of eventID: UUID) -> UUID? { current.seriesID(of: eventID) }
+    var hasUnsavedLinks: Bool { current.hasUnsavedLinks }
+    var managesAppleLinks: Bool { current.managesAppleLinks }
+    func containsEvent(id: UUID) -> Bool { current.containsEvent(id: id) }
 }
 
 /// Apple カレンダーとつないだあとの保存先。Apple カレンダーの予定と、つなぐ前から TimyCue の中にあった予定の両方を見せる。
@@ -235,6 +238,10 @@ final class CombinedEventRepository: EventRepository {
     func seriesID(of eventID: UUID) -> UUID? {
         local.allEvents().contains(where: { $0.id == eventID }) ? nil : primary.seriesID(of: eventID)
     }
+
+    var hasUnsavedLinks: Bool { primary.hasUnsavedLinks }
+    var managesAppleLinks: Bool { primary.managesAppleLinks }
+    func containsEvent(id: UUID) -> Bool { primary.containsEvent(id: id) || local.containsEvent(id: id) }
 
     func ensureLoaded(from start: CalendarDay, to end: CalendarDay) {
         primary.ensureLoaded(from: start, to: end)

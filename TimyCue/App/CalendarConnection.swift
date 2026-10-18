@@ -34,12 +34,16 @@ final class CalendarConnection {
     private(set) var settingsFailure: SettingsFailure?
     /// 設定を保存できなかった回数。スイッチや選択の行を描き直して、戻した値を見せるのに使う
     private(set) var settingsRevision = 0
+    /// 前回、予定の保存の途中でアプリが終わっていて、確かめてもらうことがあるときの知らせ（spec §89.9）
+    private(set) var recoveryNotice: String?
 
     @ObservationIgnored private let eventStore: EKEventStore
     @ObservationIgnored private let switchable: SwitchableEventRepository
     @ObservationIgnored private let localEvents: FileEventRepository?
     @ObservationIgnored private let metadata: EventMetadataRepository
     @ObservationIgnored private let preferencesFile: JSONFile<CalendarPreferences>
+    /// 保存の途中の記録（作成画面と同じもの。spec §89.9）
+    @ObservationIgnored private let journal: SaveJournal
     @ObservationIgnored private var eventKit: EventKitEventRepository?
     /// カレンダーの一覧（書き込めないものも含む。表示のみは手で直した分を当てたもの）と、保存先の決まりを知らせる
     @ObservationIgnored private let onChange: @MainActor ([CalendarChoice], SaveTargetRules) -> Void
@@ -52,18 +56,21 @@ final class CalendarConnection {
          metadata: EventMetadataRepository,
          preferencesFile: JSONFile<CalendarPreferences> = JSONFile(url: JSONFile<CalendarPreferences>.appSupportURL(named: "calendar-preferences.json"),
                                                                    empty: CalendarPreferences(), faultPoint: .settingsWrite),
+         journal: SaveJournal = .inMemory(),
          onChange: @escaping @MainActor (_ calendars: [CalendarChoice], _ saveTargets: SaveTargetRules) -> Void) {
         self.eventStore = eventStore
         self.switchable = switchable
         self.localEvents = localEvents
         self.metadata = metadata
         self.preferencesFile = preferencesFile
+        self.journal = journal
         self.onChange = onChange
         preferences = preferencesFile.load()
         // 初期化が済むまでは self のプロパティを読めないので、いったん手元に置く
         let status = EKEventStore.authorizationStatus(for: .event)
         authorization = status
         state = Self.state(for: status)
+        recoverLocalSaves()
         if state == .connected { useEventKit() }
     }
 
@@ -254,7 +261,10 @@ final class CalendarConnection {
     private func useEventKit() {
         guard let localEvents else { return }
         let repository = EventKitEventRepository(store: eventStore, metadata: metadata,
-                                                 preferences: { [weak self] in self?.preferences ?? CalendarPreferences() })
+                                                 preferences: { [weak self] in self?.preferences ?? CalendarPreferences() },
+                                                 journal: journal)
+        // 前回の保存の途中で終わっていたら、読み込みを始める前に結び付け直す（spec §89.9）
+        noteRecovery(askUser: repository.recover(), localEvents: localEvents)
         // 予定は裏で読むので、読み終わったら画面を描き直す
         repository.onLoaded = { [weak self] in self?.notify() }
         eventKit = repository
@@ -286,6 +296,59 @@ final class CalendarConnection {
     /// 設定の保存の失敗の知らせを閉じた
     func dismissSettingsFailure() {
         settingsFailure = nil
+    }
+
+    // MARK: - 保存の途中で終わったあとの復旧（spec §89.9・2026-10-18 S1b 指示 5）
+
+    /// 前回、この iPhone の中への保存の途中でアプリが終わっていたら、書けた予定に、まだ保存していない設定を当てる。
+    /// 端末の中の保存は、書けたか書けていないかのどちらかなので、確かめてもらうことはない
+    private func recoverLocalSaves() {
+        guard let localEvents else { return }
+        let ids = Set(localEvents.allEvents().map(\.id))
+        var finished = Set<UUID>()
+        for entry in journal.entries where !entry.isApple {
+            if ids.contains(entry.id), entry.metadataSaved != true, let settings = entry.metadata {
+                // 当てられなければ、次に開いたときにもう一度
+                guard (try? metadata.save(settings, for: entry.id)) != nil else { continue }
+            }
+            finished.insert(entry.id)
+        }
+        journal.finish(finished)
+    }
+
+    /// 確かめてもらうことを知らせに書く。「Apple Calendarに保存」が途中までで、元の予定も残っているものも書く。
+    /// 元の予定がもうない「Apple Calendarに保存」の記録は、済んでいるので消す
+    private func noteRecovery(askUser: [SaveJournalEntry], localEvents: FileEventRepository) {
+        let localIDs = Set(localEvents.allEvents().map(\.id))
+        let moves = journal.entries.filter { $0.movedFromLocalID != nil }
+        journal.finish(Set(moves.filter { !localIDs.contains($0.movedFromLocalID!) }.map(\.id)))
+        // 同じことを起動のたびに知らせない（その場で知らせたもの・前に知らせたものは出さない）
+        var lines: [String] = []
+        var noticed = Set<UUID>()
+        for entry in askUser where entry.noticed != true {
+            if let localID = entry.movedFromLocalID {
+                guard localIDs.contains(localID) else { continue }
+                lines.append("\(entry.label)：「Apple Calendarに保存」の途中でした。Apple Calendarに同じ予定があるか確かめてください。")
+            } else {
+                lines.append("\(entry.label)：Apple カレンダーに保存されているか確かめてください。")
+            }
+            noticed.insert(entry.id)
+        }
+        let asked = Set(askUser.map(\.id))
+        for entry in journal.entries where entry.created == true && entry.noticed != true && !asked.contains(entry.id) {
+            guard let localID = entry.movedFromLocalID, localIDs.contains(localID) else { continue }
+            lines.append("\(entry.label)：Apple Calendarに作ってあり、TimyCue の中の予定も残っています。もう一度「Apple Calendarに保存」を押すと、作り直さずに続きを行います。")
+            noticed.insert(entry.id)
+        }
+        journal.markNoticed(noticed)
+        guard !lines.isEmpty else { return }
+        recoveryNotice = (["前回、予定の保存の途中でアプリが終わりました。重複を防ぐため、自動では保存し直していません。"] + lines)
+            .joined(separator: "\n")
+    }
+
+    /// 復旧の知らせを閉じた
+    func dismissRecoveryNotice() {
+        recoveryNotice = nil
     }
 
     private func notify() {

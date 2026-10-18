@@ -130,7 +130,8 @@ struct EditorFailure: Equatable, Identifiable {
         if !notSaved.isEmpty { lines.append("保存していない日：\(dayList(notSaved))") }
         if !unknown.isEmpty { lines.append("確認が必要な日に予定があるか、カレンダーで確かめてください。") }
         if !notSaved.isEmpty {
-            lines.append("保存していない日だけを残しました。もう一度保存すると、その日だけを保存します（保存した日は重ねて保存しません）。")
+            lines.append("保存していない日だけを残しました。もう一度保存すると、その日だけを保存します"
+                         + (saved.isEmpty ? "。" : "（保存した日は重ねて保存しません）。"))
         }
         if !settingsSaved { lines.append("到着目標などの TimyCue の設定は、あとで自動でもう一度保存します。") }
         return EditorFailure(action: .save, title: title, message: lines.joined(separator: "\n"), closesEditor: notSaved.isEmpty)

@@ -55,6 +55,13 @@ struct RootTabView: View {
         .tint(Theme.Colors.accent)
         // 設定（保存先・表示など）を保存できなかったら、変更は戻して知らせる（spec §89.9）
         .settingsFailureAlert()
+        // 前回、予定の保存の途中でアプリが終わっていたら、確かめてもらうことを知らせる（spec §89.9）
+        .alert("前回の保存を確かめてください",
+               isPresented: Binding(get: { connection.recoveryNotice != nil }, set: { _ in })) {
+            Button("OK", role: .cancel) { connection.dismissRecoveryNotice() }
+        } message: {
+            Text(connection.recoveryNotice ?? "")
+        }
         .onAppear {
             openEditorForScreenshot()
             markReadyForScreenshot()
