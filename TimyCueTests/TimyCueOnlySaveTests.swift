@@ -180,4 +180,310 @@ final class TimyCueOnlySaveTests: XCTestCase {
         XCTAssertNil(content.saveChoice)
         XCTAssertNil(content.calendarID)
     }
+
+    // MARK: - 作成画面の保存（S2-2）
+
+    @MainActor
+    private func makeLinkedStore(_ rules: SaveTargetRules, local: EventRepository, apple: EventRepository,
+                                 metadata: EventMetadataRepository = InMemoryEventMetadataRepository(),
+                                 journal: SaveJournal = .inMemory()) -> ScheduleEditorStore {
+        let store = ScheduleEditorStore(repository: CombinedEventRepository(primary: apple, local: local),
+                                        metadataRepository: metadata, journal: journal)
+        store.setCalendars(rules)
+        return store
+    }
+
+    @MainActor
+    private func fillNewEvent(_ store: ScheduleEditorStore) {
+        store.startNew(on: day)
+        store.content.title = "A社"
+        store.setStartMinute(600)
+    }
+
+    @MainActor
+    func testATimyCueOnlyDefaultWhileLinkedSavesOnThisIPhoneWithTheMark() throws {
+        let local = InMemoryEventRepository()
+        let apple = InMemoryEventRepository()
+        let store = makeLinkedStore(rules(.timyCueOnly), local: local, apple: apple)
+        fillNewEvent(store)
+        XCTAssertEqual(store.pendingSaveTarget, .timyCueOnly(source: .settingsDefault))
+        try store.save()
+        XCTAssertTrue(apple.allEvents().isEmpty, "連携中でも、TimyCue のみの予定は Apple へ書かない")
+        XCTAssertEqual(local.allEvents().count, 1)
+        XCTAssertEqual(local.allEvents().first?.savedOnDeviceWhileLinked, true, "連携中に TimyCue のみで保存した印（Q104）")
+        XCTAssertNil(local.allEvents().first?.calendarID)
+        XCTAssertNil(store.failure)
+    }
+
+    @MainActor
+    func testChoosingAnAppleCalendarForThisEventDoesNotChangeTheDefault() throws {
+        let local = InMemoryEventRepository()
+        let apple = InMemoryEventRepository()
+        let store = makeLinkedStore(rules(.timyCueOnly), local: local, apple: apple)
+        fillNewEvent(store)
+        store.content.saveChoice = .calendar("work")
+        try store.save()
+        XCTAssertEqual(apple.allEvents().map(\.calendarID), ["work"], "行で選んだ Apple カレンダーへ")
+        XCTAssertNil(apple.allEvents().first?.savedOnDeviceWhileLinked)
+        XCTAssertTrue(local.allEvents().isEmpty)
+        XCTAssertEqual(store.saveTargets.preferences.saveTargetKind, .timyCueOnly, "この予定だけ。設定の既定は変えない（Q99）")
+    }
+
+    @MainActor
+    func testChoosingTimyCueOnlyForThisEventKeepsTheAppleDefault() throws {
+        let local = InMemoryEventRepository()
+        let apple = InMemoryEventRepository()
+        let store = makeLinkedStore(rules(.appleCalendar, settingsDefault: "work"), local: local, apple: apple)
+        fillNewEvent(store)
+        XCTAssertEqual(store.pendingSaveTarget, .usable(work, source: .settingsDefault))
+        store.content.saveChoice = .timyCueOnly
+        try store.save()
+        XCTAssertTrue(apple.allEvents().isEmpty)
+        XCTAssertEqual(local.allEvents().first?.savedOnDeviceWhileLinked, true)
+        XCTAssertEqual(store.saveTargets.preferences.saveTargetKind, .appleCalendar, "設定の既定は変えない（Q99）")
+        XCTAssertEqual(store.saveTargets.preferences.defaultCalendarID, "work")
+    }
+
+    @MainActor
+    func testWithoutTheLinkEventsAreSavedOnThisIPhoneWithoutTheMark() throws {
+        let local = InMemoryEventRepository()
+        let apple = InMemoryEventRepository()
+        let store = makeLinkedStore(rules(.appleCalendar, settingsDefault: "work"), local: local, apple: apple)
+        store.setCalendars(nil)
+        XCTAssertFalse(store.isConnectedToApple)
+        fillNewEvent(store)
+        XCTAssertNil(store.pendingSaveTarget, "連携していないときは保存先を確かめない")
+        try store.save()
+        XCTAssertTrue(apple.allEvents().isEmpty, "連携 OFF・許可なしでは Apple へ書かない（spec §89.6）")
+        XCTAssertEqual(local.allEvents().count, 1)
+        XCTAssertNil(local.allEvents().first?.savedOnDeviceWhileLinked, "連携していないときは印を付けない")
+        XCTAssertNil(local.allEvents().first?.calendarID, "端末の中の予定には Apple カレンダーの指定を残さない")
+    }
+
+    @MainActor
+    func testAnUndecidedDefaultStopsBeforeWriting() {
+        let local = InMemoryEventRepository()
+        let apple = InMemoryEventRepository()
+        let store = makeLinkedStore(rules(.askBeforeSaving), local: local, apple: apple)
+        fillNewEvent(store)
+        XCTAssertThrowsError(try store.save()) { error in
+            XCTAssertEqual(error as? ScheduleEditorError, .needsSaveTargetChoice)
+        }
+        XCTAssertTrue(local.allEvents().isEmpty, "保存先が決まるまで何も書かない（Q111-4）")
+        XCTAssertTrue(apple.allEvents().isEmpty)
+        XCTAssertNil(store.failure, "アラートではなく、保存の前の確かめで選んでもらう")
+        XCTAssertEqual(store.expandedRow, .calendar)
+        XCTAssertFalse(store.isFinished)
+    }
+
+    @MainActor
+    func testATimyCueOnlySaveWhileLinkedIsRecoveredLikeALocalSave() throws {
+        let eventsURL = directory.appendingPathComponent("events.json")
+        let journalURL = directory.appendingPathComponent("save-journal.json")
+        let local = FileEventRepository(file: JSONFile(url: eventsURL, empty: []))
+        let store = makeLinkedStore(rules(.timyCueOnly), local: local, apple: InMemoryEventRepository(),
+                                    metadata: RefusingMetadataRepository(),
+                                    journal: SaveJournal(file: JSONFile(url: journalURL, empty: [])))
+        fillNewEvent(store)
+        store.content.metadata.arrivalTargetMinutes = 25
+        let saved = try store.save()
+        XCTAssertEqual(store.failure?.title, "予定を保存しました", "予定は書けた。設定はあとでもう一度保存する")
+        let entries = SaveJournal(file: JSONFile(url: journalURL, empty: [])).entries
+        XCTAssertEqual(entries.map(\.id), saved.map(\.id), "設定を保存できるまで、保存の途中の記録を残す")
+        XCTAssertEqual(entries.first?.isApple, false, "実際に書いた先（この iPhone の中）の記録にする")
+
+        // アプリが終わって、次に開いた：端末の中の保存として、記録した設定を当てる
+        let reopened = FileEventRepository(file: JSONFile(url: eventsURL, empty: []))
+        let metadata = InMemoryEventMetadataRepository()
+        _ = CalendarConnection(eventStore: EKEventStore(), switchable: SwitchableEventRepository(reopened),
+                               localEvents: reopened, metadata: metadata,
+                               preferencesFile: JSONFile(url: directory.appendingPathComponent("prefs.json"), empty: CalendarPreferences()),
+                               journal: SaveJournal(file: JSONFile(url: journalURL, empty: [])),
+                               onChange: { _, _ in })
+        XCTAssertEqual(metadata.allMetadata()[saved[0].id]?.arrivalTargetMinutes, 25)
+        XCTAssertTrue(SaveJournal(file: JSONFile(url: journalURL, empty: [])).entries.isEmpty, "済んだ記録は消す")
+    }
+
+    @MainActor
+    func testAPartialLocalSaveCanBeFinishedInAnAppleCalendarWithoutDuplicates() throws {
+        let local = StepRepository(script: [.saved, .notSaved])
+        let apple = StepRepository()
+        let store = makeLinkedStore(rules(.timyCueOnly), local: local, apple: apple)
+        fillNewEvent(store)
+        let day1 = day.adding(days: 1)
+        let day2 = day.adding(days: 2)
+        store.addDay(day1)
+        store.addDay(day2)
+
+        XCTAssertThrowsError(try store.save()) { error in
+            XCTAssertEqual(error as? ScheduleEditorError, .partiallySaved)
+        }
+        XCTAssertEqual(local.allEvents().map(\.day), [day])
+        XCTAssertEqual(store.selectedDays, [day1, day2], "保存していない日だけを残す")
+        let firstTryID = try XCTUnwrap(local.writeAttempts.first(where: { $0.day == day1 })?.id)
+
+        // 行で Apple カレンダーに替えて、もう一度保存する
+        store.dismissFailure()
+        store.content.saveChoice = .calendar("work")
+        try store.save()
+        XCTAssertEqual(local.allEvents().map(\.day), [day], "保存した日は重ねて書かない")
+        XCTAssertEqual(apple.allEvents().map(\.day).sorted(), [day1, day2], "残った日だけを新しい保存先へ")
+        XCTAssertEqual(apple.allEvents().first(where: { $0.day == day1 })?.id, firstTryID, "押し直しても同じ日は同じ id")
+        XCTAssertTrue(apple.allEvents().allSatisfy { $0.calendarID == "work" && $0.savedOnDeviceWhileLinked == nil })
+    }
+
+    @MainActor
+    func testACopyOfALocalEventStartsAsTimyCueOnly() throws {
+        // 前の版で「Apple Calendarに保存」の移す先を選んだまま残っている指定
+        let original = CalendarEvent(day: day, startMinute: 600, title: "歯医者", calendarID: "work")
+        let local = InMemoryEventRepository(events: [original])
+        let apple = InMemoryEventRepository()
+        let store = makeLinkedStore(rules(.appleCalendar, settingsDefault: "work"), local: local, apple: apple)
+        try store.startEditing(eventID: original.id)
+        try store.startCopy()
+        XCTAssertEqual(store.content.saveChoice, .timyCueOnly, "TimyCue の予定のコピーは TimyCue のみが初め（Q97）。残っていた移す先は使わない")
+        XCTAssertEqual(store.copyInitialChoice, .timyCueOnly)
+        XCTAssertEqual(store.pendingSaveTarget, .timyCueOnly(source: .event))
+
+        let target = day.adding(days: 7)
+        store.toggleCopyDestination(target)
+        store.setStartMinute(600, on: target)
+        XCTAssertEqual(try store.save().count, 1)
+        XCTAssertTrue(apple.allEvents().isEmpty, "Apple には入らない")
+        let copy = try XCTUnwrap(local.allEvents().first(where: { $0.day == target }))
+        XCTAssertEqual(copy.savedOnDeviceWhileLinked, true)
+        XCTAssertNil(copy.calendarID)
+    }
+
+    @MainActor
+    func testACopyOfAnAppleEventStartsInItsCalendarAndCanBeKeptOnThisIPhone() throws {
+        let original = CalendarEvent(day: day, startMinute: 600, title: "A社", source: .appleCalendar, calendarID: "work")
+        let local = InMemoryEventRepository()
+        let apple = InMemoryEventRepository(events: [original])
+        let store = makeLinkedStore(rules(.timyCueOnly), local: local, apple: apple)
+        try store.startEditing(eventID: original.id)
+        try store.startCopy()
+        XCTAssertEqual(store.pendingSaveTarget, .usable(work, source: .event), "Apple の予定のコピーは元のカレンダーが初め（Q97）")
+
+        let target = day.adding(days: 7)
+        store.toggleCopyDestination(target)
+        store.setStartMinute(600, on: target)
+        store.content.saveChoice = .timyCueOnly
+        try store.save()
+        XCTAssertEqual(apple.allEvents().map(\.id), [original.id], "TimyCue のみに替えたら Apple には入らない")
+        XCTAssertEqual(local.allEvents().map(\.day), [target])
+    }
+
+    @MainActor
+    func testEditingAMarkedEventKeepsTheMark() throws {
+        let marked = CalendarEvent(day: day, startMinute: 600, title: "歯医者", savedOnDeviceWhileLinked: true)
+        let local = InMemoryEventRepository(events: [marked])
+        let store = makeLinkedStore(rules(.appleCalendar), local: local, apple: InMemoryEventRepository())
+        try store.startEditing(eventID: marked.id)
+        store.content.title = "歯医者（変更）"
+        try store.save()
+        XCTAssertEqual(local.allEvents().first?.title, "歯医者（変更）")
+        XCTAssertEqual(local.allEvents().first?.savedOnDeviceWhileLinked, true, "編集で印を外さない（Q104）")
+    }
+
+    @MainActor
+    func testMovingWithATimyCueOnlyDefaultUsesTheUsableIPhoneDefault() throws {
+        let localEvent = CalendarEvent(day: day, startMinute: 600, title: "歯医者")
+        let local = InMemoryEventRepository(events: [localEvent])
+        let apple = InMemoryEventRepository()
+        let store = makeLinkedStore(rules(.timyCueOnly), local: local, apple: apple)
+        try store.startEditing(eventID: localEvent.id)
+        XCTAssertTrue(store.canMoveToAppleCalendar)
+        XCTAssertEqual(store.moveToAppleTarget, .usable(home, source: .systemDefault), "TimyCue のみなら、使えるときの iPhone の既定（Q100）")
+        XCTAssertNil(store.moveToAppleUnavailableReason)
+        try store.moveToAppleCalendar()
+        XCTAssertEqual(apple.allEvents().map(\.calendarID), ["home"], "移す先をはっきり渡す")
+        XCTAssertTrue(local.allEvents().isEmpty, "Apple に作れたと確かめてから、元の予定を消す（S1b の順のまま）")
+    }
+
+    @MainActor
+    func testMovingIsRefusedWhenTheIPhoneDefaultCannotBeUsed() throws {
+        let localEvent = CalendarEvent(day: day, startMinute: 600, title: "歯医者")
+        let hidden = makeLinkedStore(rules(.timyCueOnly, hidden: ["default"], systemDefault: "default"),
+                                     local: InMemoryEventRepository(events: [localEvent]), apple: InMemoryEventRepository())
+        try hidden.startEditing(eventID: localEvent.id)
+        XCTAssertTrue(hidden.moveToAppleUnavailableReason?.hasPrefix("移す先の「iPhoneの既定（Default）」には移せません（表示 OFF）") ?? false)
+
+        let none = makeLinkedStore(rules(.timyCueOnly, hidden: ["default", "home", "work"], systemDefault: "default"),
+                                   local: InMemoryEventRepository(events: [localEvent]), apple: InMemoryEventRepository())
+        try none.startEditing(eventID: localEvent.id)
+        XCTAssertTrue(none.moveToAppleUnavailableReason?.contains("移せる Apple カレンダーがありません") ?? false)
+        XCTAssertThrowsError(try none.moveToAppleCalendar())
+    }
+
+    func testTheFailureMentionsTimyCueOnlyOnlyForNewEvents() {
+        let save = EditorFailure.saveTarget(.hidden(calendarTitle: "Default"), source: .systemDefault,
+                                            systemDefaultLabel: "iPhoneの既定（Default）", action: .save, canChooseInRow: true,
+                                            offersTimyCueOnly: true)
+        XCTAssertTrue(save.message.contains("「TimyCue のみ（このiPhone）」も選べます"), "選び直す候補に TimyCue のみを含める（spec §89.4）")
+        XCTAssertTrue(save.message.contains("予定は保存していません"), "S1a の文はそのまま")
+        let move = EditorFailure.saveTarget(.hidden(calendarTitle: "Default"), source: .systemDefault,
+                                            systemDefaultLabel: "iPhoneの既定（Default）", action: .moveToApple, canChooseInRow: true,
+                                            offersTimyCueOnly: true)
+        XCTAssertFalse(move.message.contains("TimyCue のみ（このiPhone）」も選べます"), "移す先は Apple カレンダーだけ")
+        XCTAssertTrue(EditorFailure.destinationChanged(action: .save).message.contains("予定は保存していません"))
+    }
+
+    @MainActor
+    func testAnEditorThatThinksItIsLinkedWritesNothingToTheDeviceFile() throws {
+        let url = directory.appendingPathComponent("events.json")
+        let store = ScheduleEditorStore(repository: FileEventRepository(file: JSONFile(url: url, empty: [])),
+                                        metadataRepository: InMemoryEventMetadataRepository())
+        store.setCalendars(rules(.appleCalendar))
+        fillNewEvent(store)
+        XCTAssertThrowsError(try store.save(), "連携が切れた直後など、Apple 向けの予定を黙って端末の中へ入れない")
+        XCTAssertTrue(store.failure?.message.contains("保存先の状態が変わったため") ?? false)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))
+        XCTAssertTrue(store.hasUnsavedChanges, "入力はそのまま")
+    }
+}
+
+/// 決めた順に、書けた・書けなかったを返す保存先（テスト用）
+private final class StepRepository: EventRepository {
+    struct Failure: Error {}
+
+    private let base = InMemoryEventRepository()
+    private var script: [WriteOutcome]
+    /// 書こうとした予定（順に）
+    private(set) var writeAttempts: [CalendarEvent] = []
+
+    init(script: [WriteOutcome] = []) {
+        self.script = script
+    }
+
+    func allEvents() -> [CalendarEvent] { base.allEvents() }
+
+    func insert(_ events: [CalendarEvent]) throws {
+        let report = insertEach(events)
+        if !report.isComplete { throw report.error ?? Failure() }
+    }
+
+    func insertEach(_ events: [CalendarEvent]) -> InsertReport {
+        InsertRun.run(events, write: { event, _ in
+            writeAttempts.append(event)
+            let outcome: WriteOutcome = script.isEmpty ? .saved : script.removeFirst()
+            guard outcome == .saved else { throw Failure() }
+            try base.insert([event])
+        }, verify: { [base] event, _ in
+            base.allEvents().contains { $0.id == event.id } ? .saved : .notSaved
+        })
+    }
+
+    func update(_ event: CalendarEvent) throws { try base.update(event) }
+    func delete(id: UUID) throws { try base.delete(id: id) }
+}
+
+/// TimyCue の設定をいつも保存できない保存先（テスト用）
+private final class RefusingMetadataRepository: EventMetadataRepository {
+    struct Failure: Error {}
+
+    func allMetadata() -> [UUID: TimyCueEventMetadata] { [:] }
+    func save(_ metadata: TimyCueEventMetadata, for eventID: UUID) throws { throw Failure() }
+    func saveAll(_ entries: [UUID: TimyCueEventMetadata]) throws { throw Failure() }
+    func delete(for eventID: UUID) throws {}
 }

@@ -26,12 +26,14 @@ struct EditorFailure: Equatable, Identifiable {
     }
 
     /// 保存先が使えないので、何も書かずに止めたとき（spec §89.4）。
-    /// canChooseInRow：作成画面の「カレンダー」の行で、ほかの保存先を選べるか
+    /// canChooseInRow：作成画面の「カレンダー」の行で、ほかの保存先を選べるか。
+    /// offersTimyCueOnly：新しい予定の保存で、「TimyCue のみ（このiPhone）」も選べることを添えるか（S2。移すときは添えない）
     static func saveTarget(_ problem: SaveTargetProblem,
                            source: SaveTargetSource,
                            systemDefaultLabel: String,
                            action: Action,
-                           canChooseInRow: Bool) -> EditorFailure {
+                           canChooseInRow: Bool,
+                           offersTimyCueOnly: Bool = false) -> EditorFailure {
         let isMove = action == .moveToApple
         let target = isMove ? "移す先" : "保存先"
         let name = source == .systemDefault ? "「\(systemDefaultLabel)」" : SaveTargetRules.title(of: problem).map { "「\($0)」" } ?? ""
@@ -75,7 +77,23 @@ struct EditorFailure: Equatable, Identifiable {
                                  : "この予定だけ別のカレンダーに保存するときは、「カレンダー」の行で選んでください。")
             }
         }
+        if offersTimyCueOnly && !isMove {
+            sentences.append("「\(SaveTargetRules.timyCueOnlyLabel)」も選べます。")
+        }
         return EditorFailure(action: action, title: title(for: action), message: sentences.joined())
+    }
+
+    /// 書く直前に、保存先の状態が変わっていた（Apple カレンダー向けの予定なのに連携が切れた直後など。S2）。どこにも書いていない
+    static func destinationChanged(action: Action) -> EditorFailure {
+        let message = switch action {
+        case .save:
+            "保存先の状態が変わったため、予定は保存していません。保存先を確かめて、もう一度保存してください。"
+        case .moveToApple:
+            "保存先の状態が変わったため、Apple Calendarには作っていません。TimyCue の中の予定はそのまま残っています。もう一度お試しください。"
+        case .delete:
+            "保存先の状態が変わったため、削除していません。予定は残っています。もう一度お試しください。"
+        }
+        return EditorFailure(action: action, title: title(for: action), message: message)
     }
 
     /// 書いていない・消していないと確かめたとき（書く前に止まった・失敗のあと確かめても見つからなかった。spec §89.9・2026-10-18 S1b）

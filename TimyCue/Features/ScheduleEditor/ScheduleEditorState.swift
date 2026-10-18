@@ -39,7 +39,8 @@ enum InputRow: CaseIterable, Equatable {
     case route
     case notifications
     case color
-    /// 保存先の Apple カレンダー。書き込めるカレンダーが 2 つ以上あるときだけ出す（Q32）
+    /// 保存先（spec §89.3）。新規・コピーは、連携中で「TimyCue のみ」と使える Apple カレンダーを合わせて 2 種類以上あるとき、
+    /// または今の保存先が使えない・まだ決まっていないときに出す（Q97・Q110）。既存の予定では所属のカレンダーをいつも出す（Q113）
     case calendar
     /// 同じ内容で別の日にも登録する。新規・コピーのときだけ、いちばん下に出す。
     /// 開いている間だけ、下のカレンダーをなぞって日を足したり外したりできる（2026-10-14 ユーザー決定）
@@ -95,4 +96,6 @@ enum ScheduleEditorError: Error, Equatable {
     case partiallySaved
     /// 前回の結果を確かめられなかったので、確かめたかを聞いてから行う
     case needsConfirmation
+    /// 新しい予定の保存先がまだ決まっていない（Q111-4）。何も書かず、保存先を選んでもらう
+    case needsSaveTargetChoice
 }

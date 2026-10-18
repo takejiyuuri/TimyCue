@@ -37,10 +37,13 @@ final class ScheduleEditorStore {
     private(set) var expandedRow: InputRow?
     private(set) var events: [CalendarEvent] = []
     private(set) var metadataByEventID: [UUID: TimyCueEventMetadata] = [:]
-    /// Apple カレンダーの保存先の決まり（spec §89.2・§89.4）。つないでいないときは空
+    /// 保存先の決まり（spec §89.2・§89.4）。つないでいないときは空
     private(set) var saveTargets = SaveTargetRules()
-    /// Apple カレンダーとつないでいるか。つないでいれば、新しい予定は Apple カレンダーへ書く（§68。「TimyCue のみ」は S2）
+    /// Apple カレンダーと連携しているか（連携 ON で、フルアクセスがある）。連携中の新しい予定は、選んだ保存先（「TimyCue のみ」か
+    /// Apple カレンダー）へ書く。連携していないときは、保存先の種類によらず、この iPhone の中へ書く（spec §89.2・§89.6）
     private(set) var isConnectedToApple = false
+    /// 「別の日にコピー」を始めたときの保存先の選び（元の予定の保存先。Q97）。使えるかを開いたときの保存先として確かめる
+    private(set) var copyInitialChoice: SaveChoice?
     /// 到着目標の全体既定値（Q70。設定画面で変えられるようにするのは後の段階）
     var defaultArrivalTargetMinutes = TimyCueEventMetadata.defaultArrivalTargetMinutes
     /// 書き込めない Apple カレンダー（共有・購読など）の id → 名前（追加仕様書 §1.7）
@@ -137,8 +140,15 @@ final class ScheduleEditorStore {
         }
     }
 
-    /// Apple カレンダーとつないだ・設定を変えたとき（書き込めないカレンダーも含めた一覧と、表示・表示のみ・既定の保存先の設定）
-    func setCalendars(_ rules: SaveTargetRules) {
+    /// Apple カレンダーとつないだ・設定を変えたとき（書き込めないカレンダーも含めた一覧と、表示・表示のみ・既定の保存先の設定）。
+    /// nil は連携していない（連携 OFF・許可なし。spec §89.6）
+    func setCalendars(_ rules: SaveTargetRules?) {
+        guard let rules else {
+            saveTargets = SaveTargetRules()
+            isConnectedToApple = false
+            readOnlyCalendarTitles = [:]
+            return
+        }
         saveTargets = rules
         isConnectedToApple = true
         readOnlyCalendarTitles = Dictionary(rules.calendars.filter { !$0.isWritable }.map { ($0.id, $0.title) },
@@ -152,13 +162,13 @@ final class ScheduleEditorStore {
         saveTargets.candidates
     }
 
-    /// 保存すると Apple カレンダーへ書く予定の保存先：新規・コピー（つないでいるとき）と、Apple の予定の所属を変える編集。
-    /// Apple へ書かないとき（つないでいない・ローカルの予定・所属を変えない編集・書き込めない予定）は nil
+    /// 保存したときの保存先：新規・コピー（連携しているとき。「TimyCue のみ」「まだ決まっていない」を含む）と、
+    /// Apple の予定の所属を変える編集。保存先を確かめないとき（連携していない・ローカルの予定・所属を変えない編集・書き込めない予定）は nil
     var pendingSaveTarget: SaveTargetResolution? {
         guard isConnectedToApple else { return nil }
         switch mode {
         case .new, .copy:
-            return saveTargets.resolve(eventCalendarID: content.calendarID)
+            return saveTargets.resolve(choice: content.saveChoice)
         case .edit(let id):
             guard !areAppleFieldsLocked,
                   let original = events.first(where: { $0.id == id }), original.source == .appleCalendar,
@@ -183,15 +193,17 @@ final class ScheduleEditorStore {
         return count >= 2 || (count >= 1 && unusable)
     }
 
-    /// 開いたときの保存先（予定ごとの選びを当てる前。新規は設定の既定 → iPhone の既定、コピーはコピー元の所属、
+    /// 開いたときの保存先（予定ごとの選びを当てる前。新規は設定の既定、コピーはコピー元の保存先、
     /// ローカルの予定の編集は「Apple Calendarに保存」の移す先）が使えないなら、その理由
     private var initialSaveTargetProblem: SaveTargetProblem? {
         guard isConnectedToApple else { return nil }
         switch mode {
-        case .new, .copy:
-            return saveTargets.resolve(eventCalendarID: initialContent.calendarID).problem
+        case .new:
+            return saveTargets.resolve(choice: initialContent.saveChoice).problem
+        case .copy:
+            return saveTargets.resolve(choice: copyInitialChoice).problem
         case .edit:
-            return canMoveToAppleCalendar ? saveTargets.resolve(eventCalendarID: initialContent.calendarID).problem : nil
+            return canMoveToAppleCalendar ? saveTargets.resolveMoveTarget(eventCalendarID: initialContent.calendarID).problem : nil
         }
     }
 
@@ -323,6 +335,7 @@ final class ScheduleEditorStore {
         displayedDay = day
         baseDay = day
         setsTimesIndividually = false
+        copyInitialChoice = nil
         resetTransientState()
         resetSaveProgress()
         if let day { selectedDays = [day] }
@@ -347,19 +360,26 @@ final class ScheduleEditorStore {
         displayedDay = event.day
         baseDay = event.day
         setsTimesIndividually = false
+        copyInitialChoice = nil
         resetTransientState()
         resetSaveProgress()
         baseline = snapshot
     }
 
     /// 編集中の予定からコピーを始める（仕様 §62・§63）。元の予定は変えない。
-    /// 日付と開始時刻は引き継がない。所要時間は引き継ぐ。編集中に直した中身は、そのままコピーの中身になる
+    /// 日付と開始時刻は引き継がない。所要時間は引き継ぐ。編集中に直した中身は、そのままコピーの中身になる。
+    /// 保存先は元の予定の保存先を初めの選択にする（Q97）：TimyCue の予定は「TimyCue のみ」、Apple の予定は元のカレンダー。
+    /// 古いローカルの予定に残る Apple カレンダーの指定（前の移す先）は使わない
     func startCopy() throws {
         guard case .edit(let id) = mode else { throw ScheduleEditorError.copyRequiresEditMode }
         stateBeforeCopy = (snapshot, displayedDay, setsTimesIndividually, baseline)
         let duration = selectedDays.first.flatMap { durationMinutes(on: $0) } ?? commonDurationMinutes
+        let isAppleEvent = events.first(where: { $0.id == id })?.source == .appleCalendar
+        let choice: SaveChoice? = isAppleEvent ? content.calendarID.map(SaveChoice.calendar) : .timyCueOnly
         mode = .copy(sourceID: id)
         content = content.copiedForNewEvent()
+        content.saveChoice = choice
+        copyInitialChoice = choice
         selectedDays = []
         copyPicks = []
         baseDay = nil
@@ -386,6 +406,7 @@ final class ScheduleEditorStore {
         displayedDay = saved.displayedDay
         setsTimesIndividually = saved.setsTimesIndividually
         copyPicks = []
+        copyInitialChoice = nil
         resetTransientState()
         baseline = saved.baseline
         stateBeforeCopy = nil
@@ -633,10 +654,17 @@ final class ScheduleEditorStore {
             present(issues)
             throw ScheduleEditorError.notReady(issues)
         }
+        // 新しい予定の保存先がまだ決まっていない（Q111-4）：何も書かず、「カレンダー」の行を開く。
+        // 画面は保存の前に確かめを出すので、ここは最後の守り（アラートは出さない）
+        if case .notChosen? = pendingSaveTarget {
+            expandedRow = .calendar
+            throw ScheduleEditorError.needsSaveTargetChoice
+        }
         // Apple カレンダーへ書くときは、何かを書く前に保存先を確かめる。使えなければ何も書かずに止め、理由を出す（spec §89.4）
         if case .unavailable(let problem, let source)? = pendingSaveTarget {
             failure = .saveTarget(problem, source: source, systemDefaultLabel: saveTargets.systemDefaultLabel,
-                                  action: .save, canChooseInRow: showsCalendarRow && !isLocked(.calendar))
+                                  action: .save, canChooseInRow: showsCalendarRow && !isLocked(.calendar),
+                                  offersTimyCueOnly: mode.allowsMultipleDays && isConnectedToApple)
             throw problem
         }
         do {
@@ -657,14 +685,25 @@ final class ScheduleEditorStore {
         var entries: [UUID: TimyCueEventMetadata] = [:]
         switch mode {
         case .new, .copy:
-            // 日ごとの id を決めておく（押し直しでも同じ id）。1 日ずつ書いて、日ごとの結果を受け取る（spec §89.9）
+            // 書く先（この iPhone の中か Apple カレンダーか）と保存先のカレンダーを、行に出していたとおりに決めて渡す（S2）
+            let destination = try newEventDestination()
+            // 日ごとの id を決めておく（押し直しでも同じ id）。1 日ずつ書いて、日ごとの結果を受け取る（spec §89.9）。
+            // 一部だけ保存したあとに保存先を変えたときも、残った日だけを同じ id で新しい書く先へ書く（保存した日は選んだ日から外してある）
             for day in selectedDays where plannedEventIDs[day] == nil { plannedEventIDs[day] = UUID() }
-            let drafts = draftEvents
+            let drafts = draftEvents.map { event -> CalendarEvent in
+                var draft = event
+                draft.calendarID = destination.calendarID
+                // 連携中に「TimyCue のみ」を選んで保存した印（自動の重複候補から外す。Q104）
+                draft.savedOnDeviceWhileLinked = destination.marksTimyCueOnly ? true : nil
+                return draft
+            }
             var common = content.metadata
             common.overrides = nil
-            // 途中でアプリが終わっても、次に開いたときに結び付け直して設定を当てられるよう、書く前に記録する
-            journal.begin(drafts.map { journalEntry(for: $0, metadata: common, movedFrom: nil) })
-            let report = repository.insertEach(drafts)
+            // 途中でアプリが終わっても、次に開いたときに結び付け直して設定を当てられるよう、書く前に記録する。
+            // Apple の記録かは、実際に書く先で決める（連携中の TimyCue のみは、この iPhone の中の記録として片付ける）
+            let isApple = destination.store == .appleCalendar
+            journal.begin(drafts.map { journalEntry(for: $0, metadata: common, isApple: isApple, movedFrom: nil) })
+            let report = repository.insertEach(drafts, into: destination.store)
             journal.markCreated(Set(report.saved.map(\.id)))
             // 書いていない日・結果不明の日（その場で知らせて確かめてもらう）の記録は消す
             journal.finish(Set((report.notSaved + report.unknown).map(\.id)))
@@ -692,12 +731,14 @@ final class ScheduleEditorStore {
                   let start = startMinutes[day] else {
                 throw ScheduleEditorError.eventNotFound(id)
             }
-            let updated = content.makeEvent(id: original.id,
+            var updated = content.makeEvent(id: original.id,
                                             day: day,
                                             startMinute: start,
                                             durationMinutes: durationMinutes(on: day),
                                             isAllDay: original.isAllDay,
                                             source: original.source)
+            // 連携中に「TimyCue のみ」で保存した印は、編集で外さない（Q104）
+            updated.savedOnDeviceWhileLinked = original.savedOnDeviceWhileLinked
             let isRecurring = original.repeatRule.isRepeating
             let effectiveScope: RecurrenceScope = isRecurring ? scope : .thisEvent
             var before = metadataByEventID[id] ?? TimyCueEventMetadata()
@@ -801,20 +842,49 @@ final class ScheduleEditorStore {
         }
     }
 
-    /// 保存の途中の記録 1 件（新しい予定・「Apple Calendarに保存」）
-    private func journalEntry(for event: CalendarEvent, metadata: TimyCueEventMetadata, movedFrom: UUID?) -> SaveJournalEntry {
+    /// 保存の途中の記録 1 件（新しい予定・「Apple Calendarに保存」）。isApple：実際に Apple カレンダーへ書くか
+    private func journalEntry(for event: CalendarEvent, metadata: TimyCueEventMetadata, isApple: Bool,
+                              movedFrom: UUID?) -> SaveJournalEntry {
         SaveJournalEntry(id: event.id, title: event.title, day: event.day, startMinute: event.startMinute,
                          endUnset: event.durationMinutes == nil && !event.isAllDay, metadata: metadata,
-                         isApple: isConnectedToApple || movedFrom != nil, appleKey: nil, movedFromLocalID: movedFrom,
+                         isApple: isApple, appleKey: nil, movedFromLocalID: movedFrom,
                          created: nil, metadataSaved: nil, createdAt: Date())
     }
 
+    /// 新しい予定（新規・コピー）を書く先（spec §89.2〜§89.4・Q104）。作成画面がはっきり決めて、書き込みの層へ渡す
+    private struct NewEventDestination {
+        let store: EventStoreKind
+        /// 書く Apple カレンダー（行に出していたカレンダー）。この iPhone の中へ書くときは nil
+        let calendarID: String?
+        /// 連携中に「TimyCue のみ」を選んで保存する（印を付ける）
+        let marksTimyCueOnly: Bool
+    }
+
+    /// 連携していない（連携 OFF・許可なし）：保存先の種類によらず、確かめずにこの iPhone の中へ、印なしで。
+    /// 「TimyCue のみ」：この iPhone の中へ、印ありで。Apple カレンダー：そのカレンダーへ。
+    /// 使えない・まだ決まっていないときは、保存の前に止めてあるので、守りとして投げる
+    private func newEventDestination() throws -> NewEventDestination {
+        guard let target = pendingSaveTarget else {
+            return NewEventDestination(store: .onDevice, calendarID: nil, marksTimyCueOnly: false)
+        }
+        switch target {
+        case .timyCueOnly:
+            return NewEventDestination(store: .onDevice, calendarID: nil, marksTimyCueOnly: true)
+        case .usable(let calendar, _):
+            return NewEventDestination(store: .appleCalendar, calendarID: calendar.id, marksTimyCueOnly: false)
+        case .unavailable(let problem, _):
+            throw problem
+        case .notChosen:
+            throw ScheduleEditorError.needsSaveTargetChoice
+        }
+    }
+
     /// 書けて、設定も結び付けも保存できた新しい予定の記録を消す（「Apple Calendarに保存」の記録は、元の予定を消したときに消す）。
-    /// Apple の予定の記録は、Apple とつないで前回の分を復旧したあと（結び付けを持つ保存先のとき）だけ消す。
-    /// 起動してすぐ（つなぐ前）に消すと、結び付けを書けないまま終わった予定を次に開いたときに結び付け直せない
+    /// Apple の予定の記録は、Apple とつないで前回の分を復旧したあと（結び付けを持つ保存先のとき）で、結び付けをファイルに書けているときだけ消す。
+    /// 起動してすぐ（つなぐ前）に消すと、結び付けを書けないまま終わった予定を次に開いたときに結び付け直せない。
+    /// この iPhone の中の記録（連携中の「TimyCue のみ」を含む）は、結び付けによらず片付ける
     private func settleJournal() {
-        guard !repository.hasUnsavedLinks else { return }
-        let canSettleApple = repository.managesAppleLinks
+        let canSettleApple = repository.managesAppleLinks && !repository.hasUnsavedLinks
         let done = journal.entries.filter {
             $0.movedFromLocalID == nil && $0.created == true && $0.metadataSaved == true && (!$0.isApple || canSettleApple)
         }
@@ -853,10 +923,11 @@ final class ScheduleEditorStore {
         return event.source == .timyCue
     }
 
-    /// 「Apple Calendarに保存」の移す先（予定ごとの指定 → 設定の既定 → iPhone の既定。spec §89.5）
+    /// 「Apple Calendarに保存」の移す先（spec §89.5・Q100）。予定ごとの指定があればそれ。なければ、設定の保存先が Apple ならそれ
+    /// （設定の既定 → iPhone の既定）、TimyCue のみ・まだ決まっていないなら iPhone の既定。移す先は Apple カレンダーだけ
     var moveToAppleTarget: SaveTargetResolution? {
         guard canMoveToAppleCalendar else { return nil }
-        return saveTargets.resolve(eventCalendarID: content.calendarID)
+        return saveTargets.resolveMoveTarget(eventCalendarID: content.calendarID)
     }
 
     /// 移す先が使えないときに、ボタンを押せなくして出す理由（spec §89.5：移す先がなければ無効にして理由を案内する）
@@ -918,12 +989,17 @@ final class ScheduleEditorStore {
         let record = journal.move(from: id)
         // 前に Apple に作った予定（読み込んだ範囲によらず、結び付けで引く）
         let earlierID: UUID? = record.flatMap { $0.created == true && repository.containsEvent(id: $0.id) ? $0.id : nil }
-        let moved = content.makeEvent(id: earlierID ?? UUID(),
+        var moved = content.makeEvent(id: earlierID ?? UUID(),
                                       day: day,
                                       startMinute: start,
                                       durationMinutes: durationMinutes(on: day),
                                       isAllDay: original.isAllDay,
                                       source: .appleCalendar)
+        // 新しく作るときは、確かめた移す先のカレンダーをはっきり渡す（既定が TimyCue のみのときも、書く直前の確かめで止まらないように。
+        // 前に作った予定の続きは、今までどおり。S2）
+        if earlierID == nil, case .usable(let calendar, _)? = moveToAppleTarget {
+            moved.calendarID = calendar.id
+        }
         if earlierID != nil {
             // 前に作った Apple の予定を今の内容に直す。直せなくても、作り直さない（両方に残る。押し直せば、また続きから行う）
             do {
@@ -939,8 +1015,8 @@ final class ScheduleEditorStore {
             settings.overrides = nil
             // 確かめたうえで作り直すときは、前の記録を使わない。書く前に記録する（途中で終わったら、次に開いたときに続きか確かめ）
             if let record { journal.finish([record.id]) }
-            journal.begin([journalEntry(for: moved, metadata: settings, movedFrom: id)])
-            let report = repository.insertEach([moved])
+            journal.begin([journalEntry(for: moved, metadata: settings, isApple: true, movedFrom: id)])
+            let report = repository.insertEach([moved], into: .appleCalendar)
             // 結果不明：記録は残す（次に移すときは、確かめたかを聞く）
             if !report.unknown.isEmpty {
                 journal.markNoticed([moved.id])
@@ -1004,8 +1080,11 @@ final class ScheduleEditorStore {
         if let problem = error as? SaveTargetProblem {
             return .saveTarget(problem, source: (action == .moveToApple ? moveToAppleTarget : pendingSaveTarget)?.source ?? .event,
                                systemDefaultLabel: saveTargets.systemDefaultLabel, action: action,
-                               canChooseInRow: showsCalendarRow && !isLocked(.calendar))
+                               canChooseInRow: showsCalendarRow && !isLocked(.calendar),
+                               offersTimyCueOnly: action == .save && mode.allowsMultipleDays && isConnectedToApple)
         }
+        // 書く直前に、書く先の状態が変わっていた（連携が切れた直後など）。どこにも書いていない（S2）
+        if error is SaveRoutingError { return .destinationChanged(action: action) }
         if let editorError = error as? ScheduleEditorError, case .eventNotFound = editorError { return .eventMissing(action: action) }
         if error is EventRepositoryError { return .eventMissing(action: action) }
         // 書けたか・消せたか確かめられなかった（失敗とは言わない）
