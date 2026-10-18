@@ -51,7 +51,7 @@ workflows:
             | tee build/test.log
       - name: 公開版の形（検証用の印なし）でビルドできるか
         # S1b（spec §89.9）：開発用の画面（保存の失敗の再現・キャラクターの比べる画面など）は検証用の印のあるビルドだけに入る。
-        # 印なしの Release でもビルドでき、できたアプリに「開発用：」の文字が入っていないことを確かめる
+        # 印なしの Release でもビルドでき、できたアプリに開発用の画面と、失敗の再現の印を付ける処理が入っていないことを確かめる
         script: |
           set -o pipefail
           xcodebuild build \
@@ -62,21 +62,31 @@ workflows:
             -derivedDataPath build/release \
             CODE_SIGNING_ALLOWED=NO \
             > build/release-build.log 2>&1 || { tail -n 60 build/release-build.log; echo "公開版の形でビルドできませんでした"; exit 1; }
-          BIN=build/release/Build/Products/Release-iphonesimulator/TimyCue.app/TimyCue
-          [ -f "$BIN" ] || { echo "公開版の形のアプリが見つかりません（$BIN）"; exit 1; }
-          if grep -a -q "開発用：" "$BIN"; then
-            echo "公開版の形のアプリに「開発用：」の文字が入っています"
-            exit 1
-          fi
-          # 失敗の再現の画面の文字と、起動引数で印を付ける処理の鍵がないこと（失敗の再現の印を付ける処理そのものが入っていない）
-          for WORD in "保存の失敗の再現" "Apple に書けた直後にアプリを終える" "TimyCueSaveFault"; do
-            if grep -a -q "$WORD" "$BIN"; then echo "公開版の形のアプリに「$WORD」が入っています"; exit 1; fi
+          # アプリの中に入っているかを、英字の型の名前と起動引数の鍵で調べる（日本語の文字は、アプリの中では探せる形で入らないことがある。
+          # 2026-10-18 ビルド確認 #63 で、H1 の印を付けたのに「開発用：キャラクターの大きさ」が見つからなかった）。
+          # 両方の印を付けたテスト用のビルドで同じ方法で「見つかる」ことを先に確かめ、確かめ方が働いていることを示す
+          has() {   # $1 = アプリのフォルダ、$2 = 探す文字。本体と debug.dylib（Debug のとき）を探す
+            for F in "$1/TimyCue" "$1/TimyCue.debug.dylib"; do
+              [ -f "$F" ] && grep -a -q "$2" "$F" && return 0
+            done
+            return 1
+          }
+          DEBUG_APP=build/derived/Build/Products/Debug-iphonesimulator/TimyCue.app
+          RELEASE_APP=build/release/Build/Products/Release-iphonesimulator/TimyCue.app
+          [ -f "$RELEASE_APP/TimyCue" ] || { echo "公開版の形のアプリが見つかりません"; exit 1; }
+          for WORD in SaveFaultView CharacterSizeComparisonView TimyCueSaveFault; do
+            has "$DEBUG_APP" "$WORD" || { echo "確かめ方が働いていません：両方の印を付けたビルドに「$WORD」が見つかりません"; exit 1; }
           done
-          echo "公開版の形（印なし）でビルドでき、「開発用：」の文字と失敗の再現の処理は入っていません" | tee build/release-check.log
+          for WORD in SaveFaultView CharacterSizeComparisonView ClockVerificationView TimyCueSaveFault; do
+            if has "$RELEASE_APP" "$WORD"; then echo "公開版の形のアプリに「$WORD」が入っています"; exit 1; fi
+          done
+          # 参考：日本語の文字がアプリの中で探せるか（確かめには使わない）
+          { has "$DEBUG_APP" "開発用：" && echo "参考：両方の印のビルドで「開発用：」を探せる" || echo "参考：両方の印のビルドでも「開発用：」は探せない（日本語の文字では確かめられない）"; } | tee build/release-check.log
+          echo "公開版の形（印なし）でビルドでき、開発用の画面（キャラクター・時計・保存の失敗の再現）と、失敗の再現の印を付ける処理は入っていません" | tee -a build/release-check.log
       - name: TestFlight の形（H1 の検証用の印だけ）に失敗の再現が入らないか
         # 2026-10-18 S1a＋S1b TestFlight 配信の指示：TestFlight は H1 の比べる画面のために検証用の印（TIMYCUE_DEV_TOOLS）を付けるが、
         # 保存の失敗の再現（TIMYCUE_SAVE_FAULTS）は付けない。TestFlight と同じ条件（Release・TIMYCUE_DEV_TOOLS だけ）でビルドし、
-        # 失敗の再現の画面の文字と、起動引数で印を付ける処理の鍵が入っていないことを確かめる
+        # H1 の比べる画面は入り、保存の失敗の再現の画面と、起動引数で印を付ける処理は入っていないことを確かめる
         script: |
           xcodebuild build \
             -project TimyCue.xcodeproj \
@@ -87,13 +97,14 @@ workflows:
             CODE_SIGNING_ALLOWED=NO \
             SWIFT_ACTIVE_COMPILATION_CONDITIONS=TIMYCUE_DEV_TOOLS \
             > build/testflight-config-build.log 2>&1 || { tail -n 60 build/testflight-config-build.log; echo "TestFlight の形でビルドできませんでした"; exit 1; }
-          BIN=build/testflight-config/Build/Products/Release-iphonesimulator/TimyCue.app/TimyCue
-          [ -f "$BIN" ] || { echo "TestFlight の形のアプリが見つかりません（$BIN）"; exit 1; }
-          grep -a -q "開発用：キャラクターの大きさ" "$BIN" || { echo "TestFlight の形に H1 の比べる画面が入っていません（印の付け方を確かめてください）"; exit 1; }
-          for WORD in "保存の失敗の再現" "Apple に書けた直後にアプリを終える" "TimyCueSaveFault"; do
-            if grep -a -q "$WORD" "$BIN"; then echo "TestFlight の形のアプリに「$WORD」が入っています"; exit 1; fi
+          APP=build/testflight-config/Build/Products/Release-iphonesimulator/TimyCue.app
+          [ -f "$APP/TimyCue" ] || { echo "TestFlight の形のアプリが見つかりません"; exit 1; }
+          grep -a -q CharacterSizeComparisonView "$APP/TimyCue" || { echo "TestFlight の形に H1 の比べる画面が入っていません（印の付け方を確かめてください）"; exit 1; }
+          for WORD in SaveFaultView TimyCueSaveFault; do
+            if grep -a -q "$WORD" "$APP/TimyCue"; then echo "TestFlight の形のアプリに「$WORD」が入っています"; exit 1; fi
           done
-          echo "TestFlight の形（H1 の検証用の印だけ）でビルドでき、H1 の比べる画面は入り、保存の失敗の再現の画面と処理は入っていません" | tee build/testflight-config-check.log
+          { grep -a -q "開発用：" "$APP/TimyCue" && echo "参考：TestFlight の形で「開発用：」を探せる" || echo "参考：TestFlight の形で「開発用：」は探せない"; } | tee build/testflight-config-check.log
+          echo "TestFlight の形（H1 の検証用の印だけ）でビルドでき、H1 の比べる画面は入り、保存の失敗の再現の画面と、失敗の再現の印を付ける処理は入っていません" | tee -a build/testflight-config-check.log
       - name: 画面写真を撮る（見本の予定だけが入った状態）
         script: |
           set -e
