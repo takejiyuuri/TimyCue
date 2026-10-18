@@ -30,6 +30,10 @@ final class CalendarConnection {
     private(set) var systemDefaultCalendarID: String?
     /// TimyCue のローカル予定と Apple カレンダーの予定の重複候補（Q42-8・Q50）。同期のたびに見直す
     private(set) var duplicateCandidates: [DuplicateCandidate] = []
+    /// 設定を保存できなかったときの知らせ（変更は元に戻してある。spec §89.9）。失敗のたびに別の値にする
+    private(set) var settingsFailure: SettingsFailure?
+    /// 設定を保存できなかった回数。スイッチや選択の行を描き直して、戻した値を見せるのに使う
+    private(set) var settingsRevision = 0
 
     @ObservationIgnored private let eventStore: EKEventStore
     @ObservationIgnored private let switchable: SwitchableEventRepository
@@ -46,7 +50,8 @@ final class CalendarConnection {
          switchable: SwitchableEventRepository,
          localEvents: FileEventRepository?,
          metadata: EventMetadataRepository,
-         preferencesFile: JSONFile<CalendarPreferences> = JSONFile(url: JSONFile<CalendarPreferences>.appSupportURL(named: "calendar-preferences.json"), empty: CalendarPreferences()),
+         preferencesFile: JSONFile<CalendarPreferences> = JSONFile(url: JSONFile<CalendarPreferences>.appSupportURL(named: "calendar-preferences.json"),
+                                                                   empty: CalendarPreferences(), faultPoint: .settingsWrite),
          onChange: @escaping @MainActor (_ calendars: [CalendarChoice], _ saveTargets: SaveTargetRules) -> Void) {
         self.eventStore = eventStore
         self.switchable = switchable
@@ -104,9 +109,9 @@ final class CalendarConnection {
     }
 
     /// 案内を「あとで」にする
+    /// 保存できなくても知らせない（戻すだけ。次にまた案内が出る。予定の保存の途中で、設定の失敗を混ぜて見せない）
     func dismissGuidance() {
-        preferences.guidanceDismissCount = (preferences.guidanceDismissCount ?? 0) + 1
-        savePreferences()
+        updatePreferences(reportsFailure: false) { $0.guidanceDismissCount = ($0.guidanceDismissCount ?? 0) + 1 }
     }
 
     /// 「カレンダーを連携」を押したとき。ここで初めて iOS の許可のダイアログを出す（Q38）。
@@ -136,19 +141,20 @@ final class CalendarConnection {
 
     /// 新しい予定の既定の保存先を変える（Q32）。nil で iPhone の既定に戻す
     func setDefaultCalendar(_ calendarID: String?) {
-        preferences.defaultCalendarID = calendarID
-        savePreferences()
+        guard updatePreferences({ $0.defaultCalendarID = calendarID }) else { return }
         notify()
     }
 
     /// そのカレンダーを読み込むかどうか（Q33）
     func setShown(_ shown: Bool, calendarID: String) {
-        if shown {
-            preferences.hiddenCalendarIDs.remove(calendarID)
-        } else {
-            preferences.hiddenCalendarIDs.insert(calendarID)
+        let saved = updatePreferences { preferences in
+            if shown {
+                preferences.hiddenCalendarIDs.remove(calendarID)
+            } else {
+                preferences.hiddenCalendarIDs.insert(calendarID)
+            }
         }
-        savePreferences()
+        guard saved else { return }
         eventKit?.reloadCache()
         notify()
     }
@@ -160,8 +166,7 @@ final class CalendarConnection {
 
     /// 祝日カレンダーとして扱うかを手で決める。自動の判定より優先する（Q55）
     func setHoliday(_ isHoliday: Bool, calendar: CalendarChoice) {
-        preferences.setHoliday(isHoliday, calendarID: calendar.id)
-        savePreferences()
+        guard updatePreferences({ $0.setHoliday(isHoliday, calendarID: calendar.id) }) else { return }
         notify()
     }
 
@@ -185,19 +190,24 @@ final class CalendarConnection {
     }
 
     /// ホームの案内を見た（［確認］か閉じる）。今ある候補は、もうホームでは知らせない
+    /// 保存できなくても知らせない（戻すだけ。次にまた案内が出る。押した「確認」の一覧は開く）
     func markDuplicatesNotified() {
-        var notified = preferences.notifiedDuplicates ?? []
-        notified.formUnion(duplicateCandidates.map(\.id))
-        preferences.notifiedDuplicates = notified
-        savePreferences()
+        let ids = duplicateCandidates.map(\.id)
+        updatePreferences(reportsFailure: false) { preferences in
+            var notified = preferences.notifiedDuplicates ?? []
+            notified.formUnion(ids)
+            preferences.notifiedDuplicates = notified
+        }
     }
 
     /// 「両方残す」：両方を独立した予定として持ち、同じ組はもう重複候補として聞かない
     func keepBoth(_ candidate: DuplicateCandidate) {
-        var kept = preferences.keptBothDuplicates ?? []
-        kept.insert(candidate.id)
-        preferences.keptBothDuplicates = kept
-        savePreferences()
+        let saved = updatePreferences { preferences in
+            var kept = preferences.keptBothDuplicates ?? []
+            kept.insert(candidate.id)
+            preferences.keptBothDuplicates = kept
+        }
+        guard saved else { return }
         refreshDuplicates()
     }
 
@@ -208,17 +218,22 @@ final class CalendarConnection {
     }
 
     /// 「Apple Calendarの予定を使う」：ローカル予定の TimyCue の設定をできるだけ Apple の予定へ引き継いでから、
-    /// ローカル予定を削除する（隠すのではなく削除。Apple の予定を正本にする）
+    /// ローカル予定を削除する（隠すのではなく削除。Apple の予定を正本にする）。
+    /// 途中で失敗したら、両方の予定を残して投げる（設定の引き継ぎに失敗：何も変えない／ローカル予定の削除に失敗：両方に残る）。
+    /// ローカル予定を消せたあとの、その設定の削除の失敗は失敗にしない（残った設定は使われない）。
+    /// 成功でも失敗でも、最後に重複候補を作り直す（spec §89.9・2026-10-18 S1b）
     func useApple(_ candidate: DuplicateCandidate, preferLocalSettings: Bool? = nil) throws {
         guard let localEvents else { return }
+        defer { notify() }
+        // もうローカル予定がなければ、前の操作で済んでいる
+        guard localEvents.allEvents().contains(where: { $0.id == candidate.local.id }) else { return }
         let all = metadata.allMetadata()
         let merged = DuplicateCandidates.mergedMetadata(local: all[candidate.local.id],
                                                         apple: all[candidate.apple.id],
                                                         preferLocal: preferLocalSettings)
         try metadata.save(merged, for: candidate.apple.id)
         try localEvents.delete(id: candidate.local.id)
-        try metadata.delete(for: candidate.local.id)
-        notify()
+        try? metadata.delete(for: candidate.local.id)
     }
 
     /// 同期のたびに重複候補を見直す（見つけるのは Apple カレンダーとの同期のとき。Q50）
@@ -249,8 +264,28 @@ final class CalendarConnection {
         notify()
     }
 
-    private func savePreferences() {
-        try? preferencesFile.save(preferences)
+    /// 設定を変えて保存する。保存できなければ変更前の値のままにし、知らせる（変更済みと誤って見せない。読み直しより前に戻す。spec §89.9）。
+    /// 案内を閉じた印のような、ユーザーが設定として変えたのではないものは `reportsFailure: false`（戻すだけ）
+    @discardableResult
+    private func updatePreferences(reportsFailure: Bool = true, _ change: (inout CalendarPreferences) -> Void) -> Bool {
+        var next = preferences
+        change(&next)
+        do {
+            try preferencesFile.save(next)
+            preferences = next
+            return true
+        } catch {
+            settingsRevision += 1
+            if reportsFailure {
+                settingsFailure = SettingsFailure(message: "変更は反映していません。もう一度お試しください。")
+            }
+            return false
+        }
+    }
+
+    /// 設定の保存の失敗の知らせを閉じた
+    func dismissSettingsFailure() {
+        settingsFailure = nil
     }
 
     private func notify() {

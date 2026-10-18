@@ -12,6 +12,8 @@ struct SettingsTabView: View {
     /// H2 の前提作業の画面（起動引数 `-TimyCueDevScreen characterModes` ／ `clockCheck`）
     @State private var opensCharacterModes = UserDefaults.standard.string(forKey: "TimyCueDevScreen") == "characterModes"
     @State private var opensClockCheck = UserDefaults.standard.string(forKey: "TimyCueDevScreen") == "clockCheck"
+    /// S1b の保存の失敗の再現（起動引数 `-TimyCueDevScreen saveFaults`）
+    @State private var opensSaveFaults = UserDefaults.standard.string(forKey: "TimyCueDevScreen") == "saveFaults"
     #endif
 
     var body: some View {
@@ -86,6 +88,16 @@ struct SettingsTabView: View {
                             Image(systemName: "clock").foregroundStyle(Theme.Colors.accent)
                         }
                     }
+                    // S1b：保存の途中の失敗を再現する（2026-10-18 指示 10。検証用のビルドだけ）
+                    NavigationLink {
+                        SaveFaultView()
+                    } label: {
+                        Label {
+                            Text("開発用：保存の失敗の再現")
+                        } icon: {
+                            Image(systemName: "exclamationmark.triangle").foregroundStyle(Theme.Colors.accent)
+                        }
+                    }
                 }
                 #endif
             }
@@ -102,6 +114,9 @@ struct SettingsTabView: View {
             }
             .navigationDestination(isPresented: $opensClockCheck) {
                 ClockVerificationView()
+            }
+            .navigationDestination(isPresented: $opensSaveFaults) {
+                SaveFaultView()
             }
             #endif
         }
@@ -149,6 +164,8 @@ struct CalendarSettingsView: View {
                                 CalendarLabel(calendar: calendar)
                             }
                             .tint(Theme.Colors.accent)
+                            // 保存できずに戻したとき、スイッチの見た目も戻す（spec §89.9）
+                            .id(connection.settingsRevision)
                         }
                     } header: {
                         Text(group.source.isEmpty ? "カレンダー" : group.source)
@@ -186,6 +203,8 @@ struct CalendarSettingsView: View {
                     CalendarLabel(calendar: calendar).tag(calendar.id)
                 }
             }
+            // 保存できずに戻したとき、選んだ表示も戻す（spec §89.9）
+            .id(connection.settingsRevision)
         } footer: {
             VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
                 if let problem = current.problem {
@@ -280,6 +299,8 @@ struct HolidayCalendarsView: View {
                         }
                     }
                     .tint(Theme.Colors.accent)
+                    // 保存できずに戻したとき、スイッチの見た目も戻す（spec §89.9）
+                    .id(connection.settingsRevision)
                 }
             } footer: {
                 // 補足の文は 2026-10-14 決定

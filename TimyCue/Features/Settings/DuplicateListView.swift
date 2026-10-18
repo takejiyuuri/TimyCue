@@ -60,7 +60,7 @@ struct DuplicateListView: View {
         do {
             try connection.useApple(candidate, preferLocalSettings: preferLocalSettings)
         } catch {
-            failureMessage = "設定の引き継ぎか、TimyCue の予定の削除に失敗しました。予定が残っているか、カレンダーで確かめてから、もう一度お試しください。"
+            failureMessage = "設定の引き継ぎか、TimyCue の予定の削除に失敗しました。どちらの予定も残っています。もう一度お試しください。"
         }
     }
 

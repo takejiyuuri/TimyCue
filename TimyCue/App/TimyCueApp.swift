@@ -28,6 +28,9 @@ struct TimyCueApp: App {
             localEvents = files
         }
 
+        #if TIMYCUE_DEV_TOOLS
+        SaveFaultView.armFromLaunchArguments()
+        #endif
         let editor = ScheduleEditorStore(repository: switchable, metadataRepository: metadata)
         let calendar = CalendarStore(repository: switchable, metadataRepository: metadata)
         #if DEBUG

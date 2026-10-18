@@ -53,6 +53,17 @@ enum EventRepositoryError: Error, Equatable {
     case notFound(UUID)
 }
 
+/// カレンダー連携の設定を保存できなかった知らせ（spec §89.9）。失敗のたびに別の id にする（続けて失敗しても、また知らせる）
+struct SettingsFailure: Identifiable, Equatable {
+    let id = UUID()
+    let message: String
+}
+
+enum JSONFileError: Error, Equatable {
+    /// ファイルはあるのに開けなかったので、空の中身で上書きしなかった（spec §89.9）
+    case couldNotOpen(URL)
+}
+
 /// メモリの中だけに予定を持つ版。見本の予定（審査でも何か触れるように）を最初から入れておける。
 final class InMemoryEventRepository: EventRepository {
     private var events: [CalendarEvent]

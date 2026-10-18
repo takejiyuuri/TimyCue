@@ -49,6 +49,26 @@ workflows:
             CODE_SIGNING_ALLOWED=NO \
             SWIFT_ACTIVE_COMPILATION_CONDITIONS='$(inherited) TIMYCUE_DEV_TOOLS' \
             | tee build/test.log
+      - name: 公開版の形（検証用の印なし）でビルドできるか
+        # S1b（spec §89.9）：開発用の画面（保存の失敗の再現・キャラクターの比べる画面など）は検証用の印のあるビルドだけに入る。
+        # 印なしの Release でもビルドでき、できたアプリに「開発用：」の文字が入っていないことを確かめる
+        script: |
+          set -o pipefail
+          xcodebuild build \
+            -project TimyCue.xcodeproj \
+            -scheme TimyCue \
+            -configuration Release \
+            -destination "generic/platform=iOS Simulator" \
+            -derivedDataPath build/release \
+            CODE_SIGNING_ALLOWED=NO \
+            > build/release-build.log 2>&1 || { tail -n 60 build/release-build.log; echo "公開版の形でビルドできませんでした"; exit 1; }
+          BIN=build/release/Build/Products/Release-iphonesimulator/TimyCue.app/TimyCue
+          [ -f "$BIN" ] || { echo "公開版の形のアプリが見つかりません（$BIN）"; exit 1; }
+          if grep -a -q "開発用：" "$BIN"; then
+            echo "公開版の形のアプリに「開発用：」の文字が入っています"
+            exit 1
+          fi
+          echo "公開版の形（印なし）でビルドでき、「開発用：」の文字は入っていません" | tee build/release-check.log
       - name: 画面写真を撮る（見本の予定だけが入った状態）
         script: |
           set -e
@@ -126,6 +146,8 @@ workflows:
           capture editor-save-hidden -TimyCueEditorDays "0" -TimyCueSampleCalendars hiddenDefault -TimyCueEditorAutoSave YES
           capture editor-save-display-only -TimyCueEditorDays "0" -TimyCueSampleCalendars displayOnlyDefault -TimyCueEditorAutoSave YES
           capture editor-calendar-unavailable -TimyCueEditorDays "0" -TimyCueSampleCalendars hiddenDefault -TimyCueEditorRow calendar
+          # S1b：開発用の失敗の再現の画面（検証用のビルドだけ）
+          capture dev-save-faults -TimyCueTab settings -TimyCueDevScreen saveFaults
           # H1 の比べる画面（設定 ＞ 開発用：キャラクターの案）で、正式キャラクター 3 モードを「いま」の直上の定位置に（2026-10-17。§88.3・Q87・Q88）。
           # 人型 36pt・時計 40％。名前は layout-モード-時計-見本の時刻-予定の数。overdue は 9:18（出発 9:15 を 3 分過ぎ。時計は終わっているので noclock。過ぎた出発の点が人型と「いま」のあいだ）
           for SHOT in "human YES before usual" "turtle YES before usual" "rabbit YES before usual" "human NO before usual" \
@@ -217,6 +239,8 @@ workflows:
       - build/screenshots/*.png
       - build/diagnostics/*.png
       - build/test.log
+      - build/release-build.log
+      - build/release-check.log
       - build/derived/Logs/**/*.xcactivitylog
 
   # ---- 2. 署名して ipa を作り、App Store Connect（TestFlight）へ送る ----

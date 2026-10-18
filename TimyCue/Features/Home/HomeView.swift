@@ -112,6 +112,8 @@ struct HomeView: View {
                         }
                     }
             }
+            // シートの上では元の画面のアラートが出ないので、ここにも付ける（「両方残す」を保存できなかったとき。spec §89.9）
+            .settingsFailureAlert()
             .environment(connection)
         }
         .fullScreenCover(item: $newEventDay) { day in

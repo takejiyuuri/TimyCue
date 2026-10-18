@@ -53,6 +53,8 @@ struct RootTabView: View {
             }
         }
         .tint(Theme.Colors.accent)
+        // 設定（保存先・表示など）を保存できなかったら、変更は戻して知らせる（spec §89.9）
+        .settingsFailureAlert()
         .onAppear {
             openEditorForScreenshot()
             markReadyForScreenshot()
