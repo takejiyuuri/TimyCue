@@ -157,6 +157,8 @@ final class SaveTargetTests: XCTestCase {
         XCTAssertEqual(store.selectedDays, [day])
         XCTAssertTrue(store.showsCalendarRow, "今の保存先が使えないときは、選べるものがあれば行を出して選び直せる（Q110）")
         XCTAssertEqual(store.calendarRowValue, "iPhoneの既定（Default）（使えません）")
+        XCTAssertEqual(store.valueTexts(for: .calendar), ["iPhoneの既定（Default）（使えません）", "Default（使えません）", "使えません"],
+                       "行に入りきらなくても「使えません」が切れないよう、短い言い方も渡す（ビルド確認 #57 の画面写真）")
         XCTAssertNil(store.selectedSaveTargetID, "使えない保存先は選ばれていないことにする")
         XCTAssertFalse(store.saveTargetCandidates.contains(defaultCalendar), "使えないカレンダーは候補に出さない")
 

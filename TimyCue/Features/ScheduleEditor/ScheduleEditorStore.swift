@@ -196,6 +196,25 @@ final class ScheduleEditorStore {
         return saveTargets.systemDefaultLabel
     }
 
+    /// 「カレンダー」の行の値の候補（長い順）。行に入りきらなくても「（使えません）」が切れないように、短い言い方も渡す
+    /// （例「iPhoneの既定（Default）（使えません）」→「Default（使えません）」→「使えません」。ビルド確認 #57 の画面写真で切れていた）
+    var calendarRowValues: [String] {
+        let full = calendarRowValue
+        guard let resolution = pendingSaveTarget ?? moveToAppleTarget else { return [full] }
+        let shortName: String? = switch resolution {
+        case .usable(let calendar, _): calendar.title
+        case .unavailable(let problem, _): SaveTargetRules.title(of: problem)
+        }
+        var values = [full]
+        if resolution.problem != nil {
+            if let shortName { values.append("\(shortName)（使えません）") }
+            values.append("使えません")
+        } else if let shortName, shortName != full {
+            values.append(shortName)
+        }
+        return values
+    }
+
     // MARK: - 編集できない Apple カレンダーの予定（追加仕様書 §1.7）
 
     /// 編集している予定が、書き込めない Apple カレンダーのものなら、その短い理由。

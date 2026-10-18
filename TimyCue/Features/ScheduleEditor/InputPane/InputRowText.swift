@@ -37,6 +37,7 @@ extension ScheduleEditorStore {
         switch row {
         case .additionalDays: Self.additionalDaysTexts(daysListedInAdditionalRow)
         case .notifications: content.metadata.notifications.summaryCandidates
+        case .calendar: calendarRowValues
         default: [valueText(for: row)]
         }
     }
