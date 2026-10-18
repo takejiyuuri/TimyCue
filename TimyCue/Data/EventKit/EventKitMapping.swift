@@ -104,6 +104,13 @@ struct EventKitLinks: Codable, Equatable {
         keys.first { $0.value == key }?.key
     }
 
+    /// 消した予定の結び付けを外す（メモリの上。ファイルに書けなくても、消した予定を二度消さない・取り違えない。
+    /// 書けないまま終わったら、次に開いたときに古い結び付けが残るが、Apple 側で消えた予定の 2 回の確かめで外れる）
+    mutating func forgetDeleted(_ ids: Set<UUID>) {
+        for id in ids { keys[id] = nil }
+        endUnset.subtract(ids)
+    }
+
     /// 予定の id と Apple カレンダーの予定の鍵を結ぶ。同じ鍵をほかの id が持っていたら、そちらの結び付きを外して、その id を返す
     /// （1 つの Apple の予定を、2 つの TimyCue の予定に結ばない。spec §89.9・2026-10-18 S1b）
     @discardableResult

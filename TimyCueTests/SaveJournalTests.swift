@@ -16,6 +16,11 @@ final class SaveJournalTests: XCTestCase {
         try? FileManager.default.removeItem(at: directory)
     }
 
+    private let home = CalendarChoice(id: "home", title: "家", sourceTitle: "iCloud", isWritable: true, color: .green)
+    private var rules: SaveTargetRules {
+        SaveTargetRules(calendars: [home], preferences: CalendarPreferences(), systemDefaultID: "home")
+    }
+
     private func journalFile() -> JSONFile<[SaveJournalEntry]> {
         JSONFile(url: directory.appendingPathComponent("save-journal.json"), empty: [])
     }
@@ -52,7 +57,10 @@ final class SaveJournalTests: XCTestCase {
         XCTAssertEqual(JournalRecovery.action(for: entry(key: "item-1"), isLinked: false, itemExists: true, canTrustAbsence: true),
                        .adopt(key: "item-1"), "記録した鍵の予定があれば、その鍵で結び付け直す（重複して作らない）")
         XCTAssertEqual(JournalRecovery.action(for: entry(key: "item-1"), isLinked: false, itemExists: false, canTrustAbsence: true),
-                       .drop, "鍵の予定がないと確かめられたら、書けていない")
+                       .askUser, "鍵は書けたあとにしか記録しない。いま引けないのは消されたのか識別子が変わったのか区別できないので、確かめてもらう")
+        XCTAssertEqual(JournalRecovery.action(for: entry(key: "item-1", movedFrom: UUID()), isLinked: false, itemExists: false,
+                                              canTrustAbsence: true),
+                       .askUser, "「Apple Calendarに保存」も、確かめずに 2 つ目を作らない")
         XCTAssertEqual(JournalRecovery.action(for: entry(key: "item-1"), isLinked: false, itemExists: false, canTrustAbsence: false),
                        .keep, "権限がないなど、確かめられないときは残す")
         var started = entry()
@@ -79,6 +87,97 @@ final class SaveJournalTests: XCTestCase {
                                         metadataRepository: InMemoryEventMetadataRepository(), journal: journal)
         store.refresh()
         XCTAssertNotNil(journal.entry(id: pending.id), "Apple とつないで結び付け直すまで、記録を消さない")
+    }
+
+    // MARK: - 結び付けを書けていないとき
+
+    @MainActor
+    func testEntryIsKeptWhileLinksAreUnsaved() throws {
+        let apple = LinkedRepository()
+        apple.hasUnsavedLinks = true
+        let journal = SaveJournal(file: journalFile())
+        let store = ScheduleEditorStore(repository: apple, metadataRepository: InMemoryEventMetadataRepository(), journal: journal)
+        store.setCalendars(rules)
+        store.startNew(on: day)
+        store.content.title = "A社"
+        store.setStartMinute(600)
+
+        XCTAssertNoThrow(try store.save(), "結び付けを書けなくても、予定は書けているので成功")
+        XCTAssertNil(store.failure)
+        XCTAssertEqual(journal.entries.count, 1, "結び付けを書けるまで、記録を残す（途中で終わったら、次に開いたときに鍵で結び付け直す）")
+        XCTAssertEqual(journal.entries.first?.created, true)
+        XCTAssertEqual(journal.entries.first?.metadataSaved, true)
+
+        apple.hasUnsavedLinks = false
+        store.refresh()
+        XCTAssertTrue(journal.entries.isEmpty, "結び付けを書けたら、記録を消す")
+    }
+
+    @MainActor
+    func testMoveRecordIsKeptWhileLinksAreUnsaved() throws {
+        let localEvent = CalendarEvent(day: day, startMinute: 600, title: "歯医者")
+        let local = InMemoryEventRepository(events: [localEvent])
+        let apple = LinkedRepository()
+        apple.hasUnsavedLinks = true
+        let journal = SaveJournal(file: journalFile())
+        let store = ScheduleEditorStore(repository: CombinedEventRepository(primary: apple, local: local),
+                                        metadataRepository: InMemoryEventMetadataRepository(), journal: journal)
+        store.setCalendars(rules)
+        try store.startEditing(eventID: localEvent.id)
+        let moved = try store.moveToAppleCalendar()
+        XCTAssertTrue(local.allEvents().isEmpty)
+        XCTAssertNotNil(journal.entry(id: moved.id), "結び付けを書けるまで、移した予定の記録を残す")
+    }
+
+    // MARK: - 削除のあとの結び付け
+
+    func testDeletedEventIsForgottenAndAStaleLinkIsClearedByTheTwoChecks() {
+        let deleted = UUID()
+        let others = [UUID(), UUID(), UUID()]
+        var onDisk = EventKitLinks()
+        onDisk.keys = [deleted: "A", others[0]: "B", others[1]: "C", others[2]: "D"]
+        onDisk.endUnset = [deleted]
+
+        // 消したあと、結び付けのファイルに書けなかった：メモリの上では外す（二度消さない・取り違えない）
+        var inMemory = onDisk
+        inMemory.forgetDeleted([deleted])
+        XCTAssertNil(inMemory.keys[deleted])
+        XCTAssertFalse(inMemory.endUnset.contains(deleted))
+        XCTAssertEqual(inMemory.keys.count, 3, "ほかの予定の結び付けは変えない")
+
+        // そのままアプリが終わった：古いファイルの結び付けは、Apple 側で消えた予定の 2 回の確かめで外れる（消した予定は戻らない）
+        var restarted = onDisk
+        let start = Date()
+        XCTAssertTrue(restarted.confirmMissing(["A"], checked: ["A", "B", "C", "D"], now: start, minimumInterval: 300).isEmpty,
+                      "1 回見つからないだけでは外さない（今の決まりのまま）")
+        let confirmed = restarted.confirmMissing(["A"], checked: ["A", "B", "C", "D"], now: start.addingTimeInterval(400),
+                                                 minimumInterval: 300)
+        XCTAssertEqual(confirmed, ["A"])
+        XCTAssertEqual(restarted.removeVanished(confirmed), [deleted])
+    }
+
+    // MARK: - 保存できなかった設定（編集）
+
+    @MainActor
+    func testUnsavedSettingsSurviveRestart() throws {
+        let pendingURL = directory.appendingPathComponent("pending-metadata.json")
+        let event = CalendarEvent(day: day, startMinute: 600, title: "A社")
+        let repository = InMemoryEventRepository(events: [event])
+        let metadata = FlakyMetadataRepository()
+        metadata.failsOnSave = true
+        let store = ScheduleEditorStore(repository: repository, metadataRepository: metadata,
+                                        journal: SaveJournal(file: journalFile(), pendingFile: JSONFile(url: pendingURL, empty: [:])))
+        try store.startEditing(eventID: event.id)
+        store.content.metadata.arrivalTargetMinutes = 40
+        try store.save()
+        XCTAssertEqual(store.failure?.title, "変更を保存しました")
+
+        // アプリが終わって、次に開いた（設定を保存できるようになっている）
+        metadata.failsOnSave = false
+        _ = ScheduleEditorStore(repository: repository, metadataRepository: metadata,
+                                journal: SaveJournal(file: journalFile(), pendingFile: JSONFile(url: pendingURL, empty: [:])))
+        XCTAssertEqual(metadata.allMetadata()[event.id]?.arrivalTargetMinutes, 40, "「あとで自動でもう一度保存します」を、再起動のあとも守る")
+        XCTAssertTrue(SaveJournal(file: journalFile(), pendingFile: JSONFile(url: pendingURL, empty: [:])).pendingMetadata.isEmpty)
     }
 
     // MARK: - 端末の中の保存の復旧（連携していないとき）
@@ -168,4 +267,37 @@ final class SaveJournalTests: XCTestCase {
         try store.save()
         XCTAssertTrue(journal.entries.isEmpty, "結び付けと設定まで済んだら、記録を消す")
     }
+}
+
+/// Apple の予定の結び付けを持つ保存先の代わり（テスト用）。結び付けを書けていない状態を決められる
+private final class LinkedRepository: EventRepository {
+    private let base = InMemoryEventRepository()
+    var hasUnsavedLinks = false
+    var managesAppleLinks: Bool { true }
+
+    func allEvents() -> [CalendarEvent] { base.allEvents() }
+    func insert(_ events: [CalendarEvent]) throws { try base.insert(events) }
+    func update(_ event: CalendarEvent) throws { try base.update(event) }
+    func delete(id: UUID) throws { try base.delete(id: id) }
+}
+
+/// 保存を決めて失敗させられる、TimyCue の設定の保存先（テスト用）
+private final class FlakyMetadataRepository: EventMetadataRepository {
+    struct Failure: Error {}
+    private let base = InMemoryEventMetadataRepository()
+    var failsOnSave = false
+
+    func allMetadata() -> [UUID: TimyCueEventMetadata] { base.allMetadata() }
+
+    func save(_ metadata: TimyCueEventMetadata, for eventID: UUID) throws {
+        if failsOnSave { throw Failure() }
+        try base.save(metadata, for: eventID)
+    }
+
+    func saveAll(_ entries: [UUID: TimyCueEventMetadata]) throws {
+        if failsOnSave { throw Failure() }
+        try base.saveAll(entries)
+    }
+
+    func delete(for eventID: UUID) throws { try base.delete(for: eventID) }
 }

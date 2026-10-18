@@ -56,8 +56,12 @@ final class ScheduleEditorStore {
     private(set) var isFinished = false
     /// 新規・コピーで、日ごとに使う予定の id（押し直しても同じ id で書く。端末の中の保存では同じ予定を 2 件にしない）
     @ObservationIgnored private var plannedEventIDs: [CalendarDay: UUID] = [:]
-    /// 予定は書けたのに保存できなかった TimyCue の設定（到着目標など）。次に保存・読み直すときに、もう一度保存する
-    @ObservationIgnored private var pendingMetadata: [UUID: TimyCueEventMetadata] = [:]
+    /// 予定は書けたのに保存できなかった TimyCue の設定（到着目標など）。次に保存・読み直すときに、もう一度保存する。
+    /// 保存の途中の記録と同じところに置く（アプリが終わっても、次に開いたときに保存し直す）
+    private var pendingMetadata: [UUID: TimyCueEventMetadata] {
+        get { journal.pendingMetadata }
+        set { journal.setPendingMetadata(newValue) }
+    }
     /// 保存の途中の記録（新しい予定と「Apple Calendarに保存」。アプリが途中で終わっても次に開いたときに続きができるよう、
     /// 書く前に記録し、済んだら消す。「Apple Calendarに保存」がどこまで済んだかもここに残す。spec §89.9）
     @ObservationIgnored private let journal: SaveJournal
@@ -962,7 +966,8 @@ final class ScheduleEditorStore {
             journal.markNoticed([moved.id])
             throw stopMove(.moveIncomplete(settingsCopied: true), moved: moved)
         }
-        journal.finish([moved.id])
+        // 結び付けをファイルに書けていなければ、記録を残す（次に開いたときに鍵で結び付け直す。元の予定はもうないので、そのあと消す）
+        if !repository.hasUnsavedLinks { journal.finish([moved.id]) }
         // 元の予定は消せた。その設定の削除に失敗しても、失敗にはしない（残った設定は使われない）
         try? metadataRepository.delete(for: id)
         pendingMetadata[id] = nil

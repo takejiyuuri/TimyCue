@@ -43,10 +43,15 @@ struct SaveJournalEntry: Codable, Equatable, Identifiable {
 final class SaveJournal {
     private let file: JSONFile<[SaveJournalEntry]>?
     private(set) var entries: [SaveJournalEntry]
+    /// 予定は保存できたのに、まだ保存できていない TimyCue の設定（予定の id → 設定）。アプリが終わっても、次に開いたときに保存し直す
+    private let pendingFile: JSONFile<[UUID: TimyCueEventMetadata]>?
+    private(set) var pendingMetadata: [UUID: TimyCueEventMetadata]
 
-    init(file: JSONFile<[SaveJournalEntry]>?) {
+    init(file: JSONFile<[SaveJournalEntry]>?, pendingFile: JSONFile<[UUID: TimyCueEventMetadata]>? = nil) {
         self.file = file
+        self.pendingFile = pendingFile
         entries = file?.load() ?? []
+        pendingMetadata = pendingFile?.load() ?? [:]
     }
 
     /// メモリの中だけ（見本の予定・テスト）
@@ -61,7 +66,15 @@ final class SaveJournal {
         var values = URLResourceValues()
         values.isExcludedFromBackup = true
         try? folder.setResourceValues(values)
-        return SaveJournal(file: JSONFile(url: folder.appendingPathComponent("save-journal.json"), empty: []))
+        return SaveJournal(file: JSONFile(url: folder.appendingPathComponent("save-journal.json"), empty: []),
+                           pendingFile: JSONFile(url: folder.appendingPathComponent("pending-metadata.json"), empty: [:]))
+    }
+
+    /// まだ保存できていない設定を置き換える（変わったときだけ書く）
+    func setPendingMetadata(_ value: [UUID: TimyCueEventMetadata]) {
+        guard value != pendingMetadata else { return }
+        pendingMetadata = value
+        try? pendingFile?.save(value)
     }
 
     /// 設定を保存できた（ids のうち記録にあるもの）
@@ -144,7 +157,7 @@ enum JournalRecovery {
         case linked
         /// 記録した鍵の予定がある：その鍵で結び付け直し、設定を当てて記録を消す
         case adopt(key: String)
-        /// 書けていないと確かめた：記録を消す
+        /// 何も書いていない（書き始めていない）・記録した鍵の予定がないと確かめた新しい予定でない：記録を消す
         case drop
         /// 書けたか分からない：自動では書き直さず、確かめてもらう
         case askUser
@@ -166,7 +179,8 @@ enum JournalRecovery {
         }
         switch itemExists {
         case true?: return .adopt(key: key)
-        case false?: return canTrustAbsence ? .drop : .keep
+        // 鍵は書けたあとにしか記録しないので、書けたのは確か。いま引けないのは、消されたのか識別子が変わったのか区別できないので、確かめてもらう
+        case false?: return canTrustAbsence ? .askUser : .keep
         case nil: return .keep
         }
     }

@@ -264,7 +264,7 @@ final class CalendarConnection {
                                                  preferences: { [weak self] in self?.preferences ?? CalendarPreferences() },
                                                  journal: journal)
         // 前回の保存の途中で終わっていたら、読み込みを始める前に結び付け直す（spec §89.9）
-        noteRecovery(askUser: repository.recover(), localEvents: localEvents)
+        noteRecovery(askUser: repository.recover(), localEvents: localEvents, linksSaved: !repository.hasUnsavedLinks)
         // 予定は裏で読むので、読み終わったら画面を描き直す
         repository.onLoaded = { [weak self] in self?.notify() }
         eventKit = repository
@@ -318,10 +318,12 @@ final class CalendarConnection {
 
     /// 確かめてもらうことを知らせに書く。「Apple Calendarに保存」が途中までで、元の予定も残っているものも書く。
     /// 元の予定がもうない「Apple Calendarに保存」の記録は、済んでいるので消す
-    private func noteRecovery(askUser: [SaveJournalEntry], localEvents: FileEventRepository) {
+    private func noteRecovery(askUser: [SaveJournalEntry], localEvents: FileEventRepository, linksSaved: Bool) {
         let localIDs = Set(localEvents.allEvents().map(\.id))
         let moves = journal.entries.filter { $0.movedFromLocalID != nil }
-        journal.finish(Set(moves.filter { !localIDs.contains($0.movedFromLocalID!) }.map(\.id)))
+        // 元の予定がもうない記録は済んでいるので消す。ただし Apple に作った記録は、結び付けをファイルに書けたときだけ
+        // （書けなければ、次に開いたときにもう一度結び付け直す）
+        journal.finish(Set(moves.filter { !localIDs.contains($0.movedFromLocalID!) && ($0.created != true || linksSaved) }.map(\.id)))
         // 同じことを起動のたびに知らせない（その場で知らせたもの・前に知らせたものは出さない）
         var lines: [String] = []
         var noticed = Set<UUID>()

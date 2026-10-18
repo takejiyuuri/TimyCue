@@ -523,10 +523,9 @@ final class EventKitEventRepository: EventRepository {
             case .unknown: throw WriteCheckError.unconfirmed
             }
         }
-        for removedID in removed {
-            setKey(nil, for: removedID)
-            links.endUnset.remove(removedID)
-        }
+        let forgotten = Set(removed)
+        links.forgetDeleted(forgotten)
+        idByKey = idByKey.filter { !forgotten.contains($0.value) }
         persistLinks(fault: .appleLinksAfterDelete)
         cache.removeAll { removed.contains($0.id) }
     }
@@ -582,6 +581,8 @@ final class EventKitEventRepository: EventRepository {
     /// 結び付いた記録：まだ保存していない設定を当てる（繰り返しならシリーズ共通の設定にも）。当てられなければ、次に開いたときにもう一度。
     /// 結び付けをファイルに書けていなければ、記録は残す（次に開いたときに、もう一度結び付け直す）
     private func settle(_ entry: SaveJournalEntry, finished: inout Set<UUID>) {
+        // 「Apple Calendarに保存」：Apple に作れたと確かめたので、設定を当てられたかによらず印を付ける（作り直さない）
+        if entry.movedFromLocalID != nil { journal.markCreated([entry.id]) }
         if entry.metadataSaved != true, var settings = entry.metadata {
             settings.overrides = nil
             var all = [entry.id: settings]
@@ -589,11 +590,7 @@ final class EventKitEventRepository: EventRepository {
             guard (try? metadata.saveAll(all)) != nil else { return }
             journal.markMetadataSaved([entry.id])
         }
-        if entry.movedFromLocalID == nil {
-            if !linksDirty { finished.insert(entry.id) }
-        } else {
-            journal.markCreated([entry.id])
-        }
+        if entry.movedFromLocalID == nil, !linksDirty { finished.insert(entry.id) }
     }
 
     /// 確かめられない記録を残しておく長さ（30 日。実装上の暫定値で、仕様の値ではない）
