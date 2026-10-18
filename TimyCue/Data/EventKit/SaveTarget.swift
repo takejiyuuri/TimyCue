@@ -111,7 +111,7 @@ struct SaveTargetRules: Equatable {
 
     /// 新しい予定の「カレンダー」の行の選択肢：「TimyCue のみ」と、使える Apple カレンダー（spec §89.2・§89.3・Q97）
     var newEventChoices: [SaveChoice] {
-        [.timyCueOnly] + candidates.map { SaveChoice.calendar($0.id) }
+        [SaveChoice.timyCueOnly] + candidates.map { SaveChoice.calendar($0.id) }
     }
 
     /// 保存先を決める。予定ごとの選び → 設定の既定（種類）の順。

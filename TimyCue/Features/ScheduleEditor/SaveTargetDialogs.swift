@@ -1,0 +1,70 @@
+import SwiftUI
+
+/// 作成画面で、保存の前に保存先を選んでもらう 2 つの確かめ（spec §89.4・Q99・Q111-4。S3）。作成画面の本体を短く保つため、別にする。
+/// 文言は仮
+struct SaveTargetDialogs: ViewModifier {
+    @Environment(ScheduleEditorStore.self) private var store
+    @Environment(CalendarConnection.self) private var connection
+    /// 新しい予定の保存先がまだ決まっていないので、初めて保存する前に聞いている
+    @Binding var asksFirstSaveTarget: Bool
+    /// 保存先が使えないので、保存の前に選び直してもらっている
+    @Binding var asksSaveTargetAgain: Bool
+    /// 保存する（作成画面の保存と同じ。閉じる・失敗を知らせるのも作成画面）
+    let onSave: () -> Void
+
+    func body(content: Content) -> some View {
+        content
+            // 移行で保存先がまだ決まっていない今の利用者には、連携中に初めて保存するときだけ聞く（Q111-4）。
+            // 選んだ保存先は、この予定にもこれからの新しい予定にも使う（本文で明示する。spec §89.4 のはっきり確かめた操作）
+            .confirmationDialog("新しい予定の保存先を選んでください", isPresented: $asksFirstSaveTarget, titleVisibility: .visible) {
+                ForEach(store.firstSaveTargetOptions, id: \.self) { option in
+                    Button(store.defaultTargetLabel(option)) { chooseFirstSaveTarget(option) }
+                }
+                if store.hasMoreFirstSaveTargets {
+                    // 行で選んだものは、この予定だけに使う
+                    Button("ほかのカレンダーを選ぶ") { store.openCalendarRow() }
+                }
+                Button("やめる", role: .cancel) {}
+            } message: {
+                Text("選んだ保存先は、これからの新しい予定にも使います（設定 ＞ カレンダー連携 で変えられます）。「TimyCue のみ」はこのiPhoneに保存し、Appleカレンダーやほかの端末とは同期しません。")
+            }
+            // 保存先が使えないときは、保存の前に知らせて選び直してもらう（spec §89.4・E-10）。選んだ保存先はこの予定だけに使い、
+            // 設定の既定は変えない（Q99）。「表示をONにして保存」は表示 OFF のときだけ（表示のみの解除は勧めない）
+            .confirmationDialog("保存先のカレンダーを使えません", isPresented: $asksSaveTargetAgain, titleVisibility: .visible,
+                                presenting: store.saveTargetPrompt) { prompt in
+                ForEach(store.saveTargetPromptChoices, id: \.self) { choice in
+                    Button(store.promptButtonTitle(choice)) {
+                        store.chooseSaveTarget(choice)
+                        onSave()
+                    }
+                }
+                if store.hasMoreSaveTargets {
+                    Button("ほかのカレンダーを選ぶ") { store.openCalendarRow() }
+                }
+                if let hiddenCalendarID = prompt.hiddenCalendarID {
+                    Button(showButtonTitle(prompt)) {
+                        // 表示の設定を保存できなければ、知らせて予定は保存しない
+                        if connection.setShown(true, calendarID: hiddenCalendarID) { onSave() }
+                    }
+                }
+                Button("やめる", role: .cancel) {}
+            } message: { prompt in
+                Text(prompt.message)
+            }
+    }
+
+    /// 「「○○」の表示をONにして保存」
+    private func showButtonTitle(_ prompt: SaveTargetPrompt) -> String {
+        "「\(prompt.calendarTitle)」の表示をONにして保存"
+    }
+
+    /// 初めての確かめで既定の保存先を選んだ：設定に保存できたら、その保存先でこの予定も保存する（作成画面の決まりは先に新しくなる）。
+    /// 保存できなければ予定は保存せず、この予定の選びだけ残す（設定の失敗の知らせが出る。もう一度保存を押すとその保存先で保存する）
+    private func chooseFirstSaveTarget(_ option: DefaultSaveTarget) {
+        if connection.setDefaultSaveTarget(option) {
+            onSave()
+        } else if let choice = store.eventChoice(for: option) {
+            store.chooseSaveTarget(choice)
+        }
+    }
+}

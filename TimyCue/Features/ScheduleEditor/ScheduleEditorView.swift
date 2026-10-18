@@ -13,7 +13,6 @@ struct ScheduleEditorView: View {
 
     @Environment(ScheduleEditorStore.self) private var store
     @Environment(CalendarStore.self) private var calendarStore
-    @Environment(CalendarConnection.self) private var connection
     @Environment(\.dismiss) private var dismiss
 
     @FocusState private var focusedRow: InputRow?
@@ -68,44 +67,11 @@ struct ScheduleEditorView: View {
                 Text("保存できた日の予定は、保存してあります。保存していない日の入力は消えます。")
             }
         }
-        // 保存のたびの許可の案内（Q38 の保存時の再案内）はやめた（Q105）。保存先が実際に使えないときだけ、下の選び直しを出す。
-        // 新しい予定の保存先がまだ決まっていない今の利用者には、連携中に初めて保存するときだけ聞く（Q111-4）。
-        // 選んだ保存先は、この予定にもこれからの新しい予定にも使う（本文で明示する。spec §89.4 のはっきり確かめた操作。文言は仮）
-        .confirmationDialog("新しい予定の保存先を選んでください", isPresented: $asksFirstSaveTarget, titleVisibility: .visible) {
-            ForEach(store.firstSaveTargetOptions, id: \.self) { option in
-                Button(store.defaultTargetLabel(option)) { chooseFirstSaveTarget(option) }
-            }
-            if store.hasMoreFirstSaveTargets {
-                // 行で選んだものは、この予定だけに使う
-                Button("ほかのカレンダーを選ぶ") { store.openCalendarRow() }
-            }
-            Button("やめる", role: .cancel) {}
-        } message: {
-            Text("選んだ保存先は、これからの新しい予定にも使います（設定 ＞ カレンダー連携 で変えられます）。「TimyCue のみ」はこのiPhoneに保存し、Appleカレンダーやほかの端末とは同期しません。")
-        }
-        // 保存先が使えないときは、保存の前に知らせて選び直してもらう（spec §89.4・E-10）。選んだ保存先はこの予定だけに使い、
-        // 設定の既定は変えない（Q99）。「表示をONにして保存」は表示 OFF のときだけ（表示のみの解除は勧めない）。文言は仮
-        .confirmationDialog("保存先のカレンダーを使えません", isPresented: $asksSaveTargetAgain, titleVisibility: .visible,
-                            presenting: store.saveTargetPrompt) { prompt in
-            ForEach(store.saveTargetPromptChoices, id: \.self) { choice in
-                Button(store.promptButtonTitle(choice)) {
-                    store.chooseSaveTarget(choice)
-                    performSave()
-                }
-            }
-            if store.hasMoreSaveTargets {
-                Button("ほかのカレンダーを選ぶ") { store.openCalendarRow() }
-            }
-            if let hiddenCalendarID = prompt.hiddenCalendarID {
-                Button("「\(prompt.calendarTitle)」の表示をONにして保存") {
-                    // 表示の設定を保存できなければ、知らせて予定は保存しない
-                    if connection.setShown(true, calendarID: hiddenCalendarID) { performSave() }
-                }
-            }
-            Button("やめる", role: .cancel) {}
-        } message: { prompt in
-            Text(prompt.message)
-        }
+        // 保存のたびの許可の案内（Q38 の保存時の再案内）はやめた（Q105）。保存先がまだ決まっていないときの初めての確かめと、
+        // 保存先が実際に使えないときの保存の前の選び直しだけを出す（SaveTargetDialogs）
+        .modifier(SaveTargetDialogs(asksFirstSaveTarget: $asksFirstSaveTarget,
+                                    asksSaveTargetAgain: $asksSaveTargetAgain,
+                                    onSave: { performSave() }))
         // 繰り返し予定は、保存するときに 1 回だけ範囲を聞く（Q44）
         .confirmationDialog("繰り返し予定の変更", isPresented: $asksSaveScope, titleVisibility: .visible) {
             ForEach(RecurrenceScope.allCases, id: \.self) { scope in
@@ -208,16 +174,6 @@ struct ScheduleEditorView: View {
             return
         }
         performSave()
-    }
-
-    /// 初めての確かめで既定の保存先を選んだ：設定に保存できたら、その保存先でこの予定も保存する（作成画面の決まりは先に新しくなる）。
-    /// 保存できなければ予定は保存せず、この予定の選びだけ残す（設定の失敗の知らせが出る。もう一度保存を押すとその保存先で保存する）
-    private func chooseFirstSaveTarget(_ option: DefaultSaveTarget) {
-        if connection.setDefaultSaveTarget(option) {
-            performSave()
-        } else if let choice = store.eventChoice(for: option) {
-            store.chooseSaveTarget(choice)
-        }
     }
 
     /// 保存して元の画面へ戻る（Q22）。足りないものがあれば store が該当の行を開いて知らせ、閉じない（§46）。
