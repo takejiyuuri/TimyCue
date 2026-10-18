@@ -74,7 +74,7 @@ struct RootTabView: View {
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active else { return }
             calendarStore.updateToday()
-            // 保存先の移行の先送りのやり直し（spec §89.8）
+            // 保存先の移行の先送りのやり直しと、iPhone の許可の読み直し（spec §89.6・§89.8）
             connection.handleBecameActive()
         }
         .onReceive(NotificationCenter.default.publisher(for: .NSCalendarDayChanged).receive(on: DispatchQueue.main)) { _ in
