@@ -5,7 +5,9 @@ import SwiftUI
 /// Apple カレンダーとつなぐ状態（仕様 §68・§79・§80・Q31〜Q36）。
 /// 許可は初回に全部求めず、TimyCue で初めてカレンダー連携が必要になったときに求める（Q31）。
 /// つないだあとの状態の確認・変更は 設定 ＞ カレンダー連携 で行う。
-/// 許可しなくても、TimyCue で作った予定は端末の中に保存して使える（§80）
+/// 許可しなくても、TimyCue で作った予定は端末の中に保存して使える（§80）。
+/// Apple カレンダー連携（全体）は TimyCue の設定で ON/OFF できる（spec §89.6。S6）。連携しているのは、連携 ON でフルアクセスがあるときだけ。
+/// OFF にしても iPhone の許可や iCloud の設定は変えず、Apple 側の予定も消さない
 @MainActor
 @Observable
 final class CalendarConnection {
@@ -20,15 +22,16 @@ final class CalendarConnection {
         case restricted
     }
 
+    /// iOS のカレンダーの許可から見た状態（連携の ON/OFF は含まない。連携しているかは isLinked）
     private(set) var state: State
     /// iOS のカレンダーの許可の状態そのもの（設定トップに「接続済み」「一部許可」などと出すため）
     private(set) var authorization: EKAuthorizationStatus
-    /// 見えるカレンダー（つないでいるときだけ）
+    /// 見えるカレンダー（連携しているときだけ）
     private(set) var calendars: [CalendarChoice] = []
     private(set) var preferences: CalendarPreferences
-    /// iPhone の「新規イベントのデフォルトカレンダー」
+    /// iPhone の「新規イベントのデフォルトカレンダー」（連携しているときだけ）
     private(set) var systemDefaultCalendarID: String?
-    /// TimyCue のローカル予定と Apple カレンダーの予定の重複候補（Q42-8・Q50）。同期のたびに見直す
+    /// TimyCue のローカル予定と Apple カレンダーの予定の重複候補（Q42-8・Q50）。同期のたびに見直す。連携 OFF のあいだは空（Q102・Q104）
     private(set) var duplicateCandidates: [DuplicateCandidate] = []
     /// 設定を保存できなかったときの知らせ（変更は元に戻してある。spec §89.9）。失敗のたびに別の値にする
     private(set) var settingsFailure: SettingsFailure?
@@ -44,19 +47,28 @@ final class CalendarConnection {
     @ObservationIgnored private let preferencesFile: JSONFile<CalendarPreferences>
     /// 保存の途中の記録（作成画面と同じもの。spec §89.9）
     @ObservationIgnored private let journal: SaveJournal
-    @ObservationIgnored private var eventKit: EventKitEventRepository?
-    /// カレンダーの一覧（書き込めないものも含む。表示のみは手で直した分を当てたもの）と、保存先の決まりを知らせる
-    @ObservationIgnored private let onChange: @MainActor ([CalendarChoice], SaveTargetRules) -> Void
+    /// Apple カレンダーの保存先。連携を OFF にしても捨てずに止めておき、ON に戻したら使い直す（メモリの上の結び付けを失わない）
+    @ObservationIgnored private var eventKit: AppleCalendarRepository?
+    /// Apple カレンダーの保存先を使っている（止めていない）
+    @ObservationIgnored private var usesEventKit = false
+    /// カレンダーの一覧（書き込めないものも含む。表示のみは手で直した分を当てたもの）と、保存先の決まりを知らせる。
+    /// 決まりが nil なら連携していない（作成画面は、新しい予定をこの iPhone の中へ保存する）
+    @ObservationIgnored private let onChange: @MainActor ([CalendarChoice], SaveTargetRules?) -> Void
     /// 保存先の移行の済んだ記録（UserDefaults。spec §89.8）。本物の保存先で動くときだけ渡す（見本の予定・今のテストは移行しない）
     @ObservationIgnored private let saveTargetRecords: SaveTargetRecordStore?
     /// 起動の時点で設定のファイルがあったか（移行の材料。使った跡）
     @ObservationIgnored private var preferencesFileExistedAtLaunch = false
     /// 材料のファイルを開けなかったので、移行を先送りしている（メモリの中だけ「保存の前に確かめる」。ファイルには仮の種類を書かない）
     @ObservationIgnored private var migrationDeferred = false
+    /// iOS のカレンダーの許可の状態を読む（テストでは決めた値にする）
+    @ObservationIgnored private let authorizationStatus: () -> EKAuthorizationStatus
+    /// Apple カレンダーの保存先を作る（テストでは EventKit の代わりの保存先にする。nil なら EventKit）
+    @ObservationIgnored private let makeAppleRepository: ((@escaping () -> CalendarPreferences, SaveJournal) -> AppleCalendarRepository)?
 
     /// localEvents が nil のとき（DEBUG の見本の予定で動かしているとき）は、つながない。
     /// 開発用・見本の予定を Apple カレンダーへ書き込まないため（Q34）。
-    /// saveTargetRecords を渡したとき（アプリの本物の保存先）は、読み込みの直後に保存先の移行を一度だけ行う（spec §89.8）
+    /// saveTargetRecords を渡したとき（アプリの本物の保存先）は、読み込みの直後に保存先の移行を一度だけ行う（spec §89.8）。
+    /// 連携を OFF にして起動したときは、Apple カレンダーの保存先を作らず、カレンダーも予定も読まない（spec §89.6）
     init(eventStore: EKEventStore,
          switchable: SwitchableEventRepository,
          localEvents: FileEventRepository?,
@@ -65,7 +77,9 @@ final class CalendarConnection {
                                                                    empty: CalendarPreferences(), faultPoint: .settingsWrite),
          journal: SaveJournal = .inMemory(),
          saveTargetRecords: SaveTargetRecordStore? = nil,
-         onChange: @escaping @MainActor (_ calendars: [CalendarChoice], _ saveTargets: SaveTargetRules) -> Void) {
+         authorizationStatus: @escaping () -> EKAuthorizationStatus = { EKEventStore.authorizationStatus(for: .event) },
+         makeAppleRepository: ((@escaping () -> CalendarPreferences, SaveJournal) -> AppleCalendarRepository)? = nil,
+         onChange: @escaping @MainActor (_ calendars: [CalendarChoice], _ saveTargets: SaveTargetRules?) -> Void) {
         self.eventStore = eventStore
         self.switchable = switchable
         self.localEvents = localEvents
@@ -73,18 +87,20 @@ final class CalendarConnection {
         self.preferencesFile = preferencesFile
         self.journal = journal
         self.saveTargetRecords = saveTargetRecords
+        self.authorizationStatus = authorizationStatus
+        self.makeAppleRepository = makeAppleRepository
         self.onChange = onChange
         let existed = FileManager.default.fileExists(atPath: preferencesFile.url.path)
         preferences = preferencesFile.load()
         // 初期化が済むまでは self のプロパティを読めないので、いったん手元に置く
-        let status = EKEventStore.authorizationStatus(for: .event)
+        let status = authorizationStatus()
         authorization = status
         state = Self.state(for: status)
         preferencesFileExistedAtLaunch = existed
         // 保存先の移行は、保存の途中の記録の復旧と Apple カレンダーの読み込みより前に行う
         migrateSaveTargetIfNeeded()
         recoverLocalSaves()
-        if state == .connected { useEventKit() }
+        if isLinked { useEventKit() }
     }
 
     static func state(for status: EKAuthorizationStatus) -> State {
@@ -97,19 +113,32 @@ final class CalendarConnection {
         }
     }
 
-    /// 設定トップの「カレンダー連携」の右に出す今の状態（v1.2「設定画面」）
-    var statusLabel: String { Self.statusLabel(for: authorization) }
+    // MARK: - 連携の状態（spec §89.6・Q101・Q102・Q115）
 
-    static func statusLabel(for status: EKAuthorizationStatus) -> String {
-        switch status {
-        case .fullAccess, .authorized: "接続済み"
-        case .writeOnly: "一部許可"
-        case .denied: "許可が必要"
-        case .restricted: "利用できません"
-        case .notDetermined: "未接続"
-        @unknown default: "未接続"
-        }
+    /// Apple カレンダー連携（全体）が ON か（TimyCue の設定。初めは ON）
+    var isLinkEnabled: Bool { preferences.isAppleLinkEnabled }
+
+    /// カレンダーのフルアクセスがある
+    var hasFullAccess: Bool { state == .connected }
+
+    /// 連携している（連携 ON で、フルアクセスがある）。連携していないあいだは、Apple カレンダーを読まず、書かない
+    var isLinked: Bool { hasFullAccess && isLinkEnabled }
+
+    /// 連携の状態（わざと OFF にした・まだ連携していない・許可がない、を分ける）
+    var linkStatus: AppleLinkStatus {
+        AppleLinkStatus.resolve(authorization: authorization, linkEnabled: isLinkEnabled)
     }
+
+    /// 設定トップの「カレンダー連携」の右に出す今の状態（v1.2「設定画面」。連携 OFF は「OFF」）
+    var statusLabel: String { linkStatus.statusLabel(authorization: authorization) }
+
+    /// iPhone の許可の状態の言い方
+    static func statusLabel(for status: EKAuthorizationStatus) -> String {
+        AppleLinkStatus.permissionLabel(for: status)
+    }
+
+    /// Home に連携のカードを出すか。まだ連携していない・許可がないときだけ（Q42-8・Q115）。わざと OFF にしたときは出さない（Q102）
+    var showsSetupCard: Bool { linkStatus.showsSetupCard }
 
     // MARK: - 案内（Q38）
 
@@ -117,9 +146,9 @@ final class CalendarConnection {
     var isLive: Bool { localEvents != nil }
 
     /// 初回の案内（「カレンダーを連携すると、予定から出発時刻を計算できます」と「カレンダーを連携」）を出すか。
-    /// まだ許可を求めておらず、案内を一度も「あとで」にしていないとき（Q38）
+    /// まだ許可を求めておらず（連携 OFF のときは出さない）、案内を一度も「あとで」にしていないとき（Q38）
     var showsFirstGuidance: Bool {
-        isLive && state == .notAsked && (preferences.guidanceDismissCount ?? 0) == 0
+        isLive && linkStatus == .notLinked && (preferences.guidanceDismissCount ?? 0) == 0
     }
 
     // 初回の案内を「あとで」にしたあと、新しい予定を保存するときにもう一度案内する決まり（Q38）は、2026-10-18 の Q105 でやめた
@@ -141,19 +170,34 @@ final class CalendarConnection {
         } catch {
             state = .denied
         }
-        authorization = EKEventStore.authorizationStatus(for: .event)
-        if state == .connected { useEventKit() }
+        authorization = authorizationStatus()
+        // 連携した直後は、前に付けた「見つからない」の記録をやり直す
+        if isLinked { useEventKit(resettingMissing: true) }
     }
 
-    /// アプリが前面に戻ったとき（RootTabView）。保存先の移行を先送りしていたら、やり直す（spec §89.8）
+    /// アプリが前面に戻ったとき（RootTabView）。保存先の移行を先送りしていたら、やり直す（spec §89.8）。
+    /// iPhone の許可が変わっていたら、Apple カレンダーを使い始める・止める（spec §89.6）
     func handleBecameActive() {
         guard isLive else { return }
-        if retryDeferredMigration() { notify() }
+        var changed = retryDeferredMigration()
+        let status = authorizationStatus()
+        if status != authorization {
+            authorization = status
+            state = Self.state(for: status)
+            changed = true
+        }
+        if isLinked && !usesEventKit {
+            useEventKit(resettingMissing: true)
+        } else if !isLinked && usesEventKit {
+            stopUsingEventKit()
+        } else if changed {
+            notify()
+        }
     }
 
-    /// Apple カレンダー側が変わったとき（§68）。読み直す
+    /// Apple カレンダー側が変わったとき（§68）。読み直す。連携していないあいだは Apple カレンダーに触れない
     func calendarDidChange() {
-        guard state == .connected, let eventKit else { return }
+        guard isLinked, usesEventKit, let eventKit else { return }
         calendars = eventKit.calendars()
         systemDefaultCalendarID = eventKit.systemDefaultCalendarID
         eventKit.reloadCache()
@@ -161,6 +205,27 @@ final class CalendarConnection {
     }
 
     // MARK: - 設定 ＞ カレンダー連携
+
+    /// Apple カレンダー連携（全体）を ON/OFF する（spec §89.6・Q101）。OFF にするたびの確認は出さない。
+    /// OFF：Apple カレンダーの保存先を止め（書けていない結び付けを先に書く）、TimyCue のみの予定だけを見せる。Apple 側の予定・
+    /// 結び付け・TimyCue の設定・保存先の設定・表示の設定は消さない。ON：許可を読み直し、フルアクセスがあれば最新を取り直す
+    /// （OFF の前の「見つからない」の記録はやり直す。表示の設定は勝手に ON にしない。Q103）。保存できなければ戻して知らせ、false を返す
+    @discardableResult
+    func setAppleLinkEnabled(_ enabled: Bool) -> Bool {
+        guard enabled != isLinkEnabled else { return true }
+        guard updatePreferences({ $0.appleLinkEnabled = enabled }) else { return false }
+        if enabled {
+            refreshAuthorization()
+            if isLinked {
+                useEventKit(resettingMissing: true)
+            } else {
+                notify()
+            }
+        } else {
+            stopUsingEventKit()
+        }
+        return true
+    }
 
     /// 新しい予定の既定の保存先を変える（spec §89.2・§89.4。設定画面での変更と、初めて保存する前の確かめではっきり選んだとき）。
     /// 「TimyCue のみ」にしても、前に選んでいた Apple カレンダー（defaultCalendarID）は消さずに覚えておく。
@@ -200,7 +265,7 @@ final class CalendarConnection {
             }
         }
         guard saved else { return false }
-        eventKit?.reloadCache()
+        if usesEventKit { eventKit?.reloadCache() }
         notify()
         return true
     }
@@ -267,9 +332,9 @@ final class CalendarConnection {
     /// ローカル予定を削除する（隠すのではなく削除。Apple の予定を正本にする）。
     /// 途中で失敗したら、両方の予定を残して投げる（設定の引き継ぎに失敗：何も変えない／ローカル予定の削除に失敗：両方に残る）。
     /// ローカル予定を消せたあとの、その設定の削除の失敗は失敗にしない（残った設定は使われない）。
-    /// 成功でも失敗でも、最後に重複候補を作り直す（spec §89.9・2026-10-18 S1b）
+    /// 成功でも失敗でも、最後に重複候補を作り直す（spec §89.9・2026-10-18 S1b）。連携を OFF にしているあいだは何もしない（spec §89.6）
     func useApple(_ candidate: DuplicateCandidate, preferLocalSettings: Bool? = nil) throws {
-        guard let localEvents else { return }
+        guard let localEvents, isLinkEnabled else { return }
         defer { notify() }
         // もうローカル予定がなければ、前の操作で済んでいる
         guard localEvents.allEvents().contains(where: { $0.id == candidate.local.id }) else { return }
@@ -283,9 +348,10 @@ final class CalendarConnection {
     }
 
     /// 同期のたびに重複候補を見直す（見つけるのは Apple カレンダーとの同期のとき。Q50）。
-    /// 連携中に「TimyCue のみ」で保存した予定は外す。「Apple Calendarに保存」が途中で止まった元の予定は候補にする（Q104）
+    /// 連携中に「TimyCue のみ」で保存した予定は外す。「Apple Calendarに保存」が途中で止まった元の予定は候補にする（Q104）。
+    /// 連携 OFF のあいだは Apple カレンダーに触れず、候補は空（spec §89.6・§89.7）
     private func refreshDuplicates() {
-        guard state == .connected, let eventKit, let localEvents else {
+        guard isLinked, usesEventKit, let eventKit, let localEvents else {
             duplicateCandidates = []
             return
         }
@@ -299,21 +365,66 @@ final class CalendarConnection {
     // MARK: - 内部
 
     /// 保存先を、Apple カレンダーとつなぐ前から TimyCue の中にあった予定と Apple カレンダーの両方にする。
-    /// TimyCue の中の予定は Apple カレンダーへ移さない・複製しない（Q34）
-    private func useEventKit() {
+    /// TimyCue の中の予定は Apple カレンダーへ移さない・複製しない（Q34）。
+    /// 止めてあった Apple カレンダーの保存先があれば使い直す（ON に戻したとき）。resettingMissing なら「見つからない」の記録をやり直す
+    /// （使っている途中で使い始めたとき：OFF→ON・連携した直後・許可が戻ったとき。起動のときはやり直さない）
+    private func useEventKit(resettingMissing: Bool = false) {
         guard let localEvents else { return }
-        let repository = EventKitEventRepository(store: eventStore, metadata: metadata,
-                                                 preferences: { [weak self] in self?.preferences ?? CalendarPreferences() },
-                                                 journal: journal)
-        // 前回の保存の途中で終わっていたら、読み込みを始める前に結び付け直す（spec §89.9）
-        noteRecovery(askUser: repository.recover(), localEvents: localEvents, linksSaved: !repository.hasUnsavedLinks)
+        if usesEventKit {
+            notify()
+            return
+        }
+        let repository: AppleCalendarRepository
+        if let paused = eventKit {
+            paused.resume()
+            repository = paused
+        } else {
+            repository = makeRepository()
+            eventKit = repository
+        }
+        if resettingMissing { repository.resetMissingRecords() }
+        // 前回の保存の途中で終わっていたら、読み込みを始める前に結び付け直す（spec §89.9）。
+        // 連携 OFF のあいだ残しておいた Apple の記録も、ここで片付け、確かめてもらうことを知らせる
+        noteRecovery(askUser: repository.recover(now: Date()), localEvents: localEvents, linksSaved: !repository.hasUnsavedLinks)
         // 予定は裏で読むので、読み終わったら画面を描き直す
         repository.onLoaded = { [weak self] in self?.notify() }
-        eventKit = repository
         calendars = repository.calendars()
         systemDefaultCalendarID = repository.systemDefaultCalendarID
         switchable.use(CombinedEventRepository(primary: repository, local: localEvents))
+        usesEventKit = true
         notify()
+    }
+
+    /// Apple カレンダーの保存先を止める（連携 OFF・許可が外れた）。止めた保存先は捨てない。
+    /// 予定の保存先はこの iPhone の中だけにし、カレンダー・重複候補を空にする（設定の値は消さない）
+    private func stopUsingEventKit() {
+        if let eventKit {
+            eventKit.pause()
+            eventKit.onLoaded = nil
+        }
+        if let localEvents { switchable.use(localEvents) }
+        calendars = []
+        systemDefaultCalendarID = nil
+        duplicateCandidates = []
+        usesEventKit = false
+        notify()
+    }
+
+    private func makeRepository() -> AppleCalendarRepository {
+        if let makeAppleRepository {
+            return makeAppleRepository({ [weak self] in self?.preferences ?? CalendarPreferences() }, journal)
+        }
+        return EventKitEventRepository(store: eventStore, metadata: metadata,
+                                       preferences: { [weak self] in self?.preferences ?? CalendarPreferences() },
+                                       journal: journal)
+    }
+
+    /// iOS のカレンダーの許可を読み直す（本物の保存先のときだけ）
+    private func refreshAuthorization() {
+        guard isLive else { return }
+        let status = authorizationStatus()
+        authorization = status
+        state = Self.state(for: status)
     }
 
     /// 設定を変えて保存する。保存できなければ変更前の値のままにし、知らせる（変更済みと誤って見せない。読み直しより前に戻す。spec §89.9）。
@@ -484,6 +595,7 @@ final class CalendarConnection {
         recoveryNotice = nil
     }
 
+    /// 画面へ知らせる。連携していないときは保存先の決まりを渡さない（作成画面は、新しい予定をこの iPhone の中へ保存する）
     private func notify() {
         refreshDuplicates()
         // 祝日カレンダーは、手で直した分を当ててから渡す（Q55）
@@ -492,6 +604,6 @@ final class CalendarConnection {
             copy.isHolidays = preferences.isHolidayCalendar(calendar)
             return copy
         }
-        onChange(resolved, saveTargets)
+        onChange(resolved, isLinked ? saveTargets : nil)
     }
 }

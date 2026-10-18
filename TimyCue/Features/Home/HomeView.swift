@@ -54,7 +54,9 @@ struct HomeView: View {
                             .foregroundStyle(Theme.Colors.textSecondary)
                     }
 
-                    if connection.state != .connected {
+                    // まだ連携していない・許可がないときだけ、連携のカードを出す（Q42-8・Q115）。
+                    // 利用者が連携をわざと OFF にしたときは、連携を促すカード・帯を出さない（予定がなければ［予定を登録］。Q102）
+                    if connection.showsSetupCard {
                         setupCard
                     } else if state.event == nil {
                         registerButton

@@ -159,6 +159,12 @@ struct EventKitLinks: Codable, Equatable {
         return confirmed
     }
 
+    /// 「見つからない」の記録をやり直す（連携を ON に戻したとき。OFF の前に付けた記録で、時間をあけた 2 回の確かめを済ませたことにしない。
+    /// spec §89.6・Q103）。消えた予定の確かめは、ON に戻したあとの読み込みから数え直す
+    mutating func resetMissing() {
+        missingSince = nil
+    }
+
     /// Apple カレンダー側で削除が確かめられた予定・回の結びつきを外し、消す TimyCue の情報の id を返す（追加仕様書 §1.5）。
     /// 予定の識別子なら、その予定（繰り返しなら全部の回とシリーズ共通の設定）。回の鍵なら、その回だけ
     mutating func removeVanished(_ vanished: Set<String>) -> Set<UUID> {

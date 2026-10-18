@@ -129,17 +129,18 @@ struct SettingsTabView: View {
     }
 }
 
-/// 設定 ＞ カレンダー連携（Q31〜Q33）：つないでいるかの確認と変更、新しい予定の既定の保存先、読み込むカレンダーの ON/OFF
+/// 設定 ＞ カレンダー連携（Q31〜Q33・spec §89.1・§89.6）：いちばん上に Apple カレンダー連携の ON/OFF（許可がなければ連携の入口）、
+/// 連携しているときは重複候補・新しい予定の既定の保存先・表示のみのカレンダー・表示するカレンダー。
+/// 連携していないとき（連携 OFF・許可なし）は、それらの欄を隠し（値は消さない）、選べない「新しい予定の保存先　TimyCue のみ（このiPhone）」を出す
 struct CalendarSettingsView: View {
     @Environment(CalendarConnection.self) private var connection
-    @Environment(\.openURL) private var openURL
 
     var body: some View {
         List {
-            Section("Apple カレンダー") {
-                statusRow
-            }
-            if connection.state == .connected {
+            CalendarLinkSection()
+            if !connection.isLinked {
+                UnlinkedSaveTargetSection()
+            } else {
                 // あとから確かめられるように、重複候補の数を残しておく（Q50）
                 Section {
                     NavigationLink {
@@ -177,7 +178,8 @@ struct CalendarSettingsView: View {
                         Text(group.source.isEmpty ? "カレンダー" : group.source)
                     } footer: {
                         if group.source == groupedCalendars.last?.source {
-                            Text("ON のカレンダーの予定を TimyCue に出します。iCloud・Google・Exchange なども、iPhone のカレンダーに入っていれば選べます。")
+                            // 表示の ON/OFF と保存先を分けて説明する（表示を OFF にしただけで保存が止まったと誤解させない。spec §89.1・E-2。文言は仮）
+                            Text("ON のカレンダーの予定を TimyCue に出します。iCloud・Google・Exchange なども、iPhone のカレンダーに入っていれば選べます。表示の ON/OFF は、TimyCue に出すかどうかの設定です。表示を OFF にしたカレンダーは、新しい予定の保存先に選べません。Apple カレンダーへの保存をやめたいときは、保存先を「\(SaveTargetRules.timyCueOnlyLabel)」にしてください。")
                         }
                     }
                 }
@@ -186,22 +188,34 @@ struct CalendarSettingsView: View {
         .navigationTitle("カレンダー連携")
     }
 
-    /// 新しい予定の保存先（spec §89.2・§89.4・§89.11）。選べるのは使えるカレンダーだけ。
-    /// 今の保存先が使えないときは、その 1 行を「（使えません：理由）」で出し、注意の行を出し続ける（勝手に切り替えない）
+    /// 選択の行の印（画面の中だけ。カレンダーの id と重ならない文字）
+    private static let timyCueOnlyTag = "#timycue-only"
+    private static let notChosenTag = "#not-chosen"
+
+    /// 新しい予定の保存先（spec §89.2・§89.4・§89.11）。選べるのは「TimyCue のみ（このiPhone）」と使えるカレンダーだけ。
+    /// 今の保存先が使えないときは、その 1 行を「（使えません：理由）」で出し、注意の行を出し続ける（勝手に切り替えない）。
+    /// まだ決まっていないときは「未選択」の 1 行（選べない）を出す。ここで選ぶと、これからの新しい予定の既定になる
     private var saveTargetSection: some View {
         let rules = connection.saveTargets
-        let currentID = connection.preferences.defaultCalendarID
-        let current = rules.resolve(eventCalendarID: nil)
-        let systemDefault = SaveTargetRules(calendars: rules.calendars, preferences: Self.withoutDefault(rules.preferences),
-                                            systemDefaultID: rules.systemDefaultID).resolve(eventCalendarID: nil)
+        let current = rules.resolve(choice: nil)
+        let systemDefault = rules.systemDefaultResolution
+        let selection = Self.selectionTag(rules.preferences)
         return Section {
             Picker("新しい予定の保存先", selection: Binding(
-                get: { currentID ?? "" },
-                set: { connection.setDefaultCalendar($0.isEmpty ? nil : $0) })) {
+                get: { selection },
+                set: { tag in
+                    // 「未選択」の行は選べない（選んでも何もしない）
+                    guard tag != Self.notChosenTag else { return }
+                    _ = connection.setDefaultSaveTarget(Self.target(for: tag))
+                })) {
+                if current == .notChosen {
+                    Text(SaveTargetRules.notChosenLabel).tag(Self.notChosenTag)
+                }
                 if let problem = current.problem {
                     Text(Self.unavailableOptionText(rules: rules, resolution: current, problem: problem))
-                        .tag(currentID ?? "")
+                        .tag(selection)
                 }
+                Text(SaveTargetRules.timyCueOnlyLabel).tag(Self.timyCueOnlyTag)
                 if systemDefault.problem == nil {
                     Text(rules.systemDefaultLabel).tag("")
                 }
@@ -213,20 +227,36 @@ struct CalendarSettingsView: View {
             .id(connection.settingsRevision)
         } footer: {
             VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
-                if let problem = current.problem {
+                switch current {
+                case .timyCueOnly:
+                    Text(SaveTargetRules.timyCueOnlyNote)
+                case .notChosen:
+                    Text("まだ決まっていません。次に予定を保存するときに選びます。ここで選ぶこともできます。")
+                case .usable(let calendar, _):
+                    Text("新しい予定は Apple カレンダーの「\(calendar.title)」に保存します。")
+                case .unavailable(let problem, _):
                     Text(Self.unavailableNotice(problem))
                         .foregroundStyle(Theme.Colors.textPrimary)
+                    Text("「\(SaveTargetRules.timyCueOnlyLabel)」も選べます。")
                 }
-                Text("表示を OFF にしたカレンダー・表示のみのカレンダー・書き込めないカレンダーには保存しません。予定を作るときに、選べる保存先が 2 つ以上あれば、その予定だけ保存先を変えられます。")
+                Text("表示を OFF にしたカレンダー・表示のみのカレンダー・書き込めないカレンダーには保存しません。予定を作るときに、「カレンダー」の行でその予定だけ保存先を変えられます。")
             }
         }
     }
 
-    /// 設定の既定を外した設定（iPhone の既定だけを確かめるため）
-    private static func withoutDefault(_ preferences: CalendarPreferences) -> CalendarPreferences {
-        var copy = preferences
-        copy.defaultCalendarID = nil
-        return copy
+    /// 今の設定の選択の行の印：TimyCue のみ・未選択は画面だけの印、Apple は保存先のカレンダーの id（iPhone の既定は空）
+    private static func selectionTag(_ preferences: CalendarPreferences) -> String {
+        switch preferences.saveTargetKind {
+        case .timyCueOnly?: timyCueOnlyTag
+        case .askBeforeSaving?: notChosenTag
+        case .appleCalendar?, nil: preferences.defaultCalendarID ?? ""
+        }
+    }
+
+    /// 選んだ行の印から、既定の保存先へ
+    private static func target(for tag: String) -> DefaultSaveTarget {
+        if tag == timyCueOnlyTag { return .timyCueOnly }
+        return tag.isEmpty ? .systemDefault : .calendar(tag)
     }
 
     /// 今の保存先が使えないときに、選べない 1 行として出す文（例「仕事（使えません：表示 OFF）」）
@@ -243,34 +273,6 @@ struct CalendarSettingsView: View {
         case .readOnly(let title): "保存先の「\(title)」には予定を書き込めません。別の保存先を選んでください。"
         case .notFound: "保存先にしていたカレンダーが見つかりません。別の保存先を選んでください。"
         case .noSystemDefault: "iPhone の既定のカレンダーが見つかりません。別の保存先を選んでください。"
-        }
-    }
-
-    @ViewBuilder
-    private var statusRow: some View {
-        switch connection.state {
-        case .connected:
-            Label("つないでいます", systemImage: "checkmark.circle.fill")
-                .foregroundStyle(Theme.Colors.textPrimary)
-        case .notAsked:
-            Button("カレンダーを連携") {
-                Task { await connection.connect() }
-            }
-        case .denied:
-            VStack(alignment: .leading, spacing: Theme.Spacing.s) {
-                Text(connection.authorization == .writeOnly
-                     ? "予定の追加だけが許可されています。Apple カレンダーの予定を読み込むには、iPhone の設定でカレンダーを「フルアクセス」にしてください。それまで予定は TimyCue の中に保存します。"
-                     : "カレンダーへのアクセスが許可されていません。iPhone の設定から許可してください。それまで予定は TimyCue の中に保存します。")
-                    .font(.footnote)
-                    .foregroundStyle(Theme.Colors.textSecondary)
-                Button("設定アプリで許可する") {
-                    if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
-                }
-            }
-        case .restricted:
-            Text("この端末では Apple カレンダーを使えません。予定は TimyCue の中に保存しています。")
-                .font(.footnote)
-                .foregroundStyle(Theme.Colors.textSecondary)
         }
     }
 

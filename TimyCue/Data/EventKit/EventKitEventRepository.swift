@@ -8,8 +8,9 @@ import Foundation
 /// 読み込む期間は決めず、表示に必要な範囲をそのつど読む（Q35）。読み込むカレンダーは設定で選べる（Q33）。
 ///
 /// Apple カレンダーからの読み込みは時間がかかるので、画面の処理（メインスレッド）では行わない。
-/// 裏で読み、読み終わったら onLoaded で知らせる（画面の処理で読むと、予定の多い人で画面が固まり、iOS に止められた）
-final class EventKitEventRepository: EventRepository {
+/// 裏で読み、読み終わったら onLoaded で知らせる（画面の処理で読むと、予定の多い人で画面が固まり、iOS に止められた）。
+/// Apple カレンダー連携を OFF にしたら止め（読み込みも書き込みもしない）、ON に戻したら使い直す（spec §89.6。S6）
+final class EventKitEventRepository: AppleCalendarRepository {
     private let store: EKEventStore
     private let linksFile: JSONFile<EventKitLinks>
     private var links: EventKitLinks
@@ -30,6 +31,8 @@ final class EventKitEventRepository: EventRepository {
     private var linksDirty = false
     /// 書き込みの回数。書く前に始めた裏の読み込みの結果は古いので、取り込まずに読み直す（消した予定が戻って見えないように）
     private var writeGeneration = 0
+    /// 連携を OFF にして止めている（読み込みも書き込みもしない。spec §89.6）
+    private var isPaused = false
     /// 裏で読むための列。順に処理するので、結果も頼んだ順に届く
     private let fetchQueue = DispatchQueue(label: "io.github.takejiyuuri.timycue.eventkit", qos: .userInitiated)
 
@@ -79,6 +82,7 @@ final class EventKitEventRepository: EventRepository {
 
     /// その期間の予定がまだなら、足りない部分だけを裏で読む。読み終わったら onLoaded
     func ensureLoaded(from start: CalendarDay, to end: CalendarDay) {
+        guard !isPaused else { return }
         let wanted = min(start, end)...max(start, end)
         let missing = EventKitMapping.missingRanges(wanted: wanted, requested: requestedRange)
         guard !missing.isEmpty else { return }
@@ -88,6 +92,7 @@ final class EventKitEventRepository: EventRepository {
 
     /// Apple カレンダー側が変わったとき・読み込むカレンダーを変えたときに、頼んだ範囲を裏で読み直す
     func reloadCache() {
+        guard !isPaused else { return }
         guard let range = requestedRange else { cache = []; return }
         load([range], replacingAll: true, checksDeleted: true)
     }
@@ -95,6 +100,7 @@ final class EventKitEventRepository: EventRepository {
     /// 裏で読み、読み終わったら画面の処理の中で取り込む。
     /// checksDeleted のときは、結び付けてある予定が Apple カレンダー側で消えていないかも見る（追加仕様書 §1.5）
     private func load(_ ranges: [ClosedRange<CalendarDay>], replacingAll: Bool, checksDeleted: Bool = false) {
+        guard !isPaused else { return }
         let hidden = preferences().hiddenCalendarIDs
         let store = store
         let calendar = calendar
@@ -109,6 +115,8 @@ final class EventKitEventRepository: EventRepository {
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
                     guard let self else { return }
+                    // 読み始めたあとに連携を OFF にしたら、この結果は取り込まない（見つからない予定の確かめも、読み直しもしない。spec §89.6）
+                    guard !self.isPaused else { return }
                     // 読み始めたあとに書き込みがあったら、この結果は古い。取り込まずに読み直す（spec §89.9）
                     guard generation == self.writeGeneration else {
                         // 全部を読み直す読み込みは、今の範囲で読み直す（そのあいだに足した範囲を消さない）
@@ -336,6 +344,8 @@ final class EventKitEventRepository: EventRepository {
     /// 書いたあとに失敗が届いたら、確定していない変更を捨ててから、実際に書けたかを確かめる
     /// （書けていれば成功として結び付ける。確かめられなければ結果不明として止め、書き直さない）
     func insertEach(_ events: [CalendarEvent]) -> InsertReport {
+        // 連携を OFF にして止めているあいだは書かない（spec §89.6）
+        guard !isPaused else { return InsertReport(notSaved: events, error: SaveRoutingError.destinationChanged) }
         persistLinksIfNeeded()
         let targets: [EKCalendar]
         do {
@@ -438,6 +448,7 @@ final class EventKitEventRepository: EventRepository {
     /// 予定を直す。繰り返し予定は、この予定のみ／これ以降／すべて の範囲で直す（Q44）。
     /// 「この予定のみ」では繰り返しの決まりは変えない。「すべて」は、系列の初めの回に、この回で動かした分だけ同じように当てる
     func update(_ event: CalendarEvent, scope: RecurrenceScope) throws {
+        guard !isPaused else { throw SaveRoutingError.destinationChanged }
         persistLinksIfNeeded()
         guard let occurrence = find(event.id) else { throw EventRepositoryError.notFound(event.id) }
         // その予定だけ保存先を変えるときは、何かを書き換える前に移す先を確かめる。使えなければ何も変えずに止める（spec §89.3・§89.4）
@@ -498,6 +509,7 @@ final class EventKitEventRepository: EventRepository {
     /// 失敗が届いたら、確定していない変更を捨ててから、まだ引けるかを確かめる（消えていれば消せたとして続ける。まだあれば失敗。
     /// 確かめられなければ結果不明）。消したあと結び付けのファイルに書けなくても、失敗にしない（spec §89.9・2026-10-18 S1b）
     func delete(id: UUID, scope: RecurrenceScope) throws {
+        guard !isPaused else { throw SaveRoutingError.destinationChanged }
         persistLinksIfNeeded()
         guard let occurrence = find(id) else { throw EventRepositoryError.notFound(id) }
         let wasRecurring = occurrence.hasRecurrenceRules
@@ -538,6 +550,33 @@ final class EventKitEventRepository: EventRepository {
         idByKey = idByKey.filter { !forgotten.contains($0.value) }
         persistLinks(fault: .appleLinksAfterDelete)
         cache.removeAll { removed.contains($0.id) }
+    }
+
+    // MARK: - 連携の ON/OFF（spec §89.6。S6）
+
+    /// 連携を OFF にしたとき：書けていない結び付けを先に書き、読み込みと書き込みを止め、読んだ予定と読んだ範囲を捨てる
+    /// （ON に戻したら最新を取り直す）。結び付け・終了未設定の印・「見つからない」の記録・保存の途中の記録は消さない。
+    /// 読み始めていた裏の読み込みの結果は取り込まない
+    func pause() {
+        persistLinksIfNeeded()
+        writeGeneration += 1
+        cache = []
+        requestedRange = nil
+        isPaused = true
+    }
+
+    /// 連携を ON に戻したとき：使い直す。最初の読み込みで、消えた予定をもう一度確かめる
+    func resume() {
+        isPaused = false
+        checkedDeletedOnce = false
+        persistLinksIfNeeded()
+    }
+
+    /// 「見つからない」の記録をやり直す（OFF の前に付けた記録で、ON に戻した直後に予定を消さない。spec §89.6・Q103）
+    func resetMissingRecords() {
+        let before = links
+        links.resetMissing()
+        if links != before { persistLinks() }
     }
 
     /// 予定は書けたのに、結び付けをまだファイルに書けていない
