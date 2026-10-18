@@ -1,8 +1,8 @@
-#if TIMYCUE_DEV_TOOLS
+#if TIMYCUE_SAVE_FAULTS
 import SwiftUI
 
-// 保存の途中の失敗を再現する開発用の画面（spec §89.9・2026-10-18 S1b 指示 10）。検証用のビルド（TIMYCUE_DEV_TOOLS）だけに入り、
-// 公開版には入らない。印を付けた場所で、次の 1 回だけ失敗する（1 回失敗すると印は外れる）
+// 保存の途中の失敗を再現する開発用の画面（spec §89.9・2026-10-18 S1b 指示 10）。失敗の再現の印（TIMYCUE_SAVE_FAULTS）を付けた
+// ビルド確認のビルドだけに入り、TestFlight と公開版には入らない。印を付けた場所で、次の 1 回だけ失敗する（1 回失敗すると印は外れる）
 
 /// 「設定 ＞ 開発用：保存の失敗の再現」
 struct SaveFaultView: View {

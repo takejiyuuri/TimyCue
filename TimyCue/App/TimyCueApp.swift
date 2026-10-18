@@ -32,7 +32,7 @@ struct TimyCueApp: App {
             journal = .onDevice()
         }
 
-        #if TIMYCUE_DEV_TOOLS
+        #if TIMYCUE_SAVE_FAULTS
         SaveFaultView.armFromLaunchArguments()
         #endif
         let editor = ScheduleEditorStore(repository: switchable, metadataRepository: metadata, journal: journal)

@@ -353,7 +353,7 @@ final class EventKitEventRepository: EventRepository {
             try store.save(ekEvent, span: event.repeatRule.isRepeating ? .futureEvents : .thisEvent, commit: true)
             // 書けた直後に、Apple の予定の鍵を記録する（このあとアプリが終わっても、次に開いたときにこの鍵で結び付け直す）
             journal.recordKey(Self.linkKey(for: ekEvent), for: event.id)
-            #if TIMYCUE_DEV_TOOLS
+            #if TIMYCUE_SAVE_FAULTS
             // Apple に書けた直後にアプリを終える（次に開いたときの復旧を確かめる）
             if SaveFaults.consume(.terminateAfterAppleWrite) { exit(0) }
             #endif

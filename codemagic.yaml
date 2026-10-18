@@ -47,7 +47,7 @@ workflows:
             -destination "id=$SIM_UDID" \
             -derivedDataPath build/derived \
             CODE_SIGNING_ALLOWED=NO \
-            SWIFT_ACTIVE_COMPILATION_CONDITIONS='$(inherited) TIMYCUE_DEV_TOOLS' \
+            SWIFT_ACTIVE_COMPILATION_CONDITIONS='$(inherited) TIMYCUE_DEV_TOOLS TIMYCUE_SAVE_FAULTS' \
             | tee build/test.log
       - name: 公開版の形（検証用の印なし）でビルドできるか
         # S1b（spec §89.9）：開発用の画面（保存の失敗の再現・キャラクターの比べる画面など）は検証用の印のあるビルドだけに入る。
@@ -68,7 +68,32 @@ workflows:
             echo "公開版の形のアプリに「開発用：」の文字が入っています"
             exit 1
           fi
-          echo "公開版の形（印なし）でビルドでき、「開発用：」の文字は入っていません" | tee build/release-check.log
+          # 失敗の再現の画面の文字と、起動引数で印を付ける処理の鍵がないこと（失敗の再現の印を付ける処理そのものが入っていない）
+          for WORD in "保存の失敗の再現" "Apple に書けた直後にアプリを終える" "TimyCueSaveFault"; do
+            if grep -a -q "$WORD" "$BIN"; then echo "公開版の形のアプリに「$WORD」が入っています"; exit 1; fi
+          done
+          echo "公開版の形（印なし）でビルドでき、「開発用：」の文字と失敗の再現の処理は入っていません" | tee build/release-check.log
+      - name: TestFlight の形（H1 の検証用の印だけ）に失敗の再現が入らないか
+        # 2026-10-18 S1a＋S1b TestFlight 配信の指示：TestFlight は H1 の比べる画面のために検証用の印（TIMYCUE_DEV_TOOLS）を付けるが、
+        # 保存の失敗の再現（TIMYCUE_SAVE_FAULTS）は付けない。TestFlight と同じ条件（Release・TIMYCUE_DEV_TOOLS だけ）でビルドし、
+        # 失敗の再現の画面の文字と、起動引数で印を付ける処理の鍵が入っていないことを確かめる
+        script: |
+          xcodebuild build \
+            -project TimyCue.xcodeproj \
+            -scheme TimyCue \
+            -configuration Release \
+            -destination "generic/platform=iOS Simulator" \
+            -derivedDataPath build/testflight-config \
+            CODE_SIGNING_ALLOWED=NO \
+            SWIFT_ACTIVE_COMPILATION_CONDITIONS=TIMYCUE_DEV_TOOLS \
+            > build/testflight-config-build.log 2>&1 || { tail -n 60 build/testflight-config-build.log; echo "TestFlight の形でビルドできませんでした"; exit 1; }
+          BIN=build/testflight-config/Build/Products/Release-iphonesimulator/TimyCue.app/TimyCue
+          [ -f "$BIN" ] || { echo "TestFlight の形のアプリが見つかりません（$BIN）"; exit 1; }
+          grep -a -q "開発用：キャラクターの大きさ" "$BIN" || { echo "TestFlight の形に H1 の比べる画面が入っていません（印の付け方を確かめてください）"; exit 1; }
+          for WORD in "保存の失敗の再現" "Apple に書けた直後にアプリを終える" "TimyCueSaveFault"; do
+            if grep -a -q "$WORD" "$BIN"; then echo "TestFlight の形のアプリに「$WORD」が入っています"; exit 1; fi
+          done
+          echo "TestFlight の形（H1 の検証用の印だけ）でビルドでき、H1 の比べる画面は入り、保存の失敗の再現の画面と処理は入っていません" | tee build/testflight-config-check.log
       - name: 画面写真を撮る（見本の予定だけが入った状態）
         script: |
           set -e
@@ -152,6 +177,9 @@ workflows:
           # 2 日目で失敗：保存した日と保存していない日を分けて出し、保存していない日だけが残る。結果不明：自動で再保存しないと出す
           capture editor-save-partial -TimyCueEditorDays "0,1,2" -TimyCueEditorAutoSave YES -TimyCueSaveFault multiDaySecondDay
           capture editor-save-unknown -TimyCueEditorDays "0,1,2" -TimyCueEditorAutoSave YES -TimyCueSaveFault unknownResult
+          # S1a＋S1b の TestFlight の前の確かめ：本物の保存先（見本の予定でない。この iPhone の中のファイルと保存の途中の記録）で起動し、
+          # 保存の途中の記録の読み込み・復旧が起動を妨げないこと（シミュレータではカレンダーの許可がないので、端末の中の保存）
+          capture launch-real-data -TimyCueTab home -TimyCueRealData YES
           # H1 の比べる画面（設定 ＞ 開発用：キャラクターの案）で、正式キャラクター 3 モードを「いま」の直上の定位置に（2026-10-17。§88.3・Q87・Q88）。
           # 人型 36pt・時計 40％。名前は layout-モード-時計-見本の時刻-予定の数。overdue は 9:18（出発 9:15 を 3 分過ぎ。時計は終わっているので noclock。過ぎた出発の点が人型と「いま」のあいだ）
           for SHOT in "human YES before usual" "turtle YES before usual" "rabbit YES before usual" "human NO before usual" \
@@ -245,6 +273,8 @@ workflows:
       - build/test.log
       - build/release-build.log
       - build/release-check.log
+      - build/testflight-config-build.log
+      - build/testflight-config-check.log
       - build/derived/Logs/**/*.xcactivitylog
 
   # ---- 2. 署名して ipa を作り、App Store Connect（TestFlight）へ送る ----

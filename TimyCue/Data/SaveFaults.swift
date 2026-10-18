@@ -1,7 +1,10 @@
 import Foundation
 
-/// 保存の途中の失敗を再現する場所（spec §89.9・2026-10-18 S1b 指示 10）。検証用のビルド（TIMYCUE_DEV_TOOLS）の
-/// 「設定 ＞ 開発用：保存の失敗の再現」で印を付けると、次の 1 回だけそこで失敗する。公開版では何もしない
+/// 保存の途中の失敗を再現する場所（spec §89.9・2026-10-18 S1b 指示 10）。失敗の再現の印（TIMYCUE_SAVE_FAULTS）を付けたビルドの
+/// 「設定 ＞ 開発用：保存の失敗の再現」で印を付けると、次の 1 回だけそこで失敗する。
+/// この印はビルド確認（シミュレータのテスト・画面写真）だけに付け、TestFlight と公開版には付けない。印のないビルドでは、
+/// 印を付ける処理・画面・起動引数の読み取りがなく（コンパイルされない）、check は何もせず、consume はいつも false
+/// （2026-10-18 S1a＋S1b TestFlight 配信の指示：本番の構成で失敗の再現を動かさない・通常の TestFlight の操作で途中の失敗を起こさない）
 enum SaveFault: String, CaseIterable, Identifiable {
     /// Apple カレンダーへ書く前
     case appleBeforeWrite
@@ -36,7 +39,7 @@ struct SaveFaultInjected: Error, Equatable {
 
 /// 失敗の印を付けて・外して・使う。公開版では印を付けられず、check は何もしない
 enum SaveFaults {
-    #if TIMYCUE_DEV_TOOLS
+    #if TIMYCUE_SAVE_FAULTS
     private static var armed: Set<SaveFault> = []
 
     static var armedFaults: Set<SaveFault> { armed }
@@ -48,7 +51,7 @@ enum SaveFaults {
 
     /// 印が付いていれば、その印を外して 1 回だけ失敗させる。公開版・印がないときは何もしない
     static func check(_ fault: SaveFault?) throws {
-        #if TIMYCUE_DEV_TOOLS
+        #if TIMYCUE_SAVE_FAULTS
         guard let fault, armed.remove(fault) != nil else { return }
         throw SaveFaultInjected(fault: fault)
         #endif
@@ -56,7 +59,7 @@ enum SaveFaults {
 
     /// 印が付いていれば、その印を外して true（失敗させずに、呼ぶ側で振る舞いを変えるとき）。公開版では false
     static func consume(_ fault: SaveFault) -> Bool {
-        #if TIMYCUE_DEV_TOOLS
+        #if TIMYCUE_SAVE_FAULTS
         return armed.remove(fault) != nil
         #else
         return false

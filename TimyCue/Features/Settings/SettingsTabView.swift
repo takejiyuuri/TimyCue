@@ -12,6 +12,8 @@ struct SettingsTabView: View {
     /// H2 の前提作業の画面（起動引数 `-TimyCueDevScreen characterModes` ／ `clockCheck`）
     @State private var opensCharacterModes = UserDefaults.standard.string(forKey: "TimyCueDevScreen") == "characterModes"
     @State private var opensClockCheck = UserDefaults.standard.string(forKey: "TimyCueDevScreen") == "clockCheck"
+    #endif
+    #if TIMYCUE_SAVE_FAULTS
     /// S1b の保存の失敗の再現（起動引数 `-TimyCueDevScreen saveFaults`）
     @State private var opensSaveFaults = UserDefaults.standard.string(forKey: "TimyCueDevScreen") == "saveFaults"
     #endif
@@ -88,7 +90,8 @@ struct SettingsTabView: View {
                             Image(systemName: "clock").foregroundStyle(Theme.Colors.accent)
                         }
                     }
-                    // S1b：保存の途中の失敗を再現する（2026-10-18 指示 10。検証用のビルドだけ）
+                    // S1b：保存の途中の失敗を再現する（2026-10-18 指示 10）。失敗の再現の印を付けたビルド確認のビルドだけ（TestFlight には入れない）
+                    #if TIMYCUE_SAVE_FAULTS
                     NavigationLink {
                         SaveFaultView()
                     } label: {
@@ -98,6 +101,7 @@ struct SettingsTabView: View {
                             Image(systemName: "exclamationmark.triangle").foregroundStyle(Theme.Colors.accent)
                         }
                     }
+                    #endif
                 }
                 #endif
             }
@@ -115,6 +119,8 @@ struct SettingsTabView: View {
             .navigationDestination(isPresented: $opensClockCheck) {
                 ClockVerificationView()
             }
+            #endif
+            #if TIMYCUE_SAVE_FAULTS
             .navigationDestination(isPresented: $opensSaveFaults) {
                 SaveFaultView()
             }
