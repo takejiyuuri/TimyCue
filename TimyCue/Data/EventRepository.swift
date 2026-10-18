@@ -87,6 +87,8 @@ struct SettingsFailure: Identifiable, Equatable {
 enum JSONFileError: Error, Equatable {
     /// ファイルはあるのに開けなかったので、空の中身で上書きしなかった（spec §89.9）
     case couldNotOpen(URL)
+    /// 中身が読めないファイルを別名で残せなかったので、上書きしなかった
+    case unreadableNotKept(URL)
 }
 
 /// メモリの中だけに予定を持つ版。見本の予定（審査でも何か触れるように）を最初から入れておける。

@@ -2,17 +2,21 @@ import Foundation
 
 /// 端末の中に JSON で保存するファイル 1 つ。読めなければ空から始める（仕様 §80：壊れてもアプリ全体を止めない）。
 /// 書くときは一時ファイルに書いてから置き換える（途中で終わっても前のファイルが壊れない）。
-/// 中身が読めない（壊れた・形が合わない）ファイルは、空として上書きする前に別名で残す。ファイルそのものを開けない
-/// （端末のロック中など）ときは、空で上書きしないよう、そのあいだの保存を失敗にする（spec §89.9・2026-10-18 S1b）
+/// 中身が読めない（壊れた・形が合わない）ファイルは、空として上書きする前に別名で残す。同じ中身の写しが前の起動でもう残してあれば、
+/// 新しく作らずにそれを使う（起動のたびに写しを増やさない。最初の写しを残す）。写しを残せなければ、そのあいだの保存を失敗にする。
+/// ファイルそのものを開けない（端末のロック中など。一時的）ときは、写しは作らず、空で上書きしないよう、そのあいだの保存を失敗にする。
+/// 原本も写しも消さない（spec §89.9・2026-10-18 S1b、2026-10-18 TestFlight の前の直し）
 final class JSONFile<Value: Codable> {
     let url: URL
     private let empty: Value
     /// 保存のときに失敗を再現する場所（検証用のビルドだけ。spec §89.9）
     var faultPoint: SaveFault?
-    /// 中身が読めなかったので別名で残したファイル
+    /// 中身が読めなかったので別名で残したファイル（前の起動で残した同じ中身の写しがあれば、それ）
     private(set) var unreadableBackup: URL?
-    /// ファイルはあるのに開けなかった。このあいだは上書きしない
+    /// ファイルはあるのに開けなかった（一時的）。このあいだは上書きしない
     private(set) var couldNotOpen = false
+    /// 中身が読めないのに、別名で残せなかった。このあいだは上書きしない（壊れた中身を失わないため）
+    private(set) var couldNotKeepUnreadable = false
 
     init(url: URL, empty: Value, faultPoint: SaveFault? = nil) {
         self.url = url
@@ -35,30 +39,65 @@ final class JSONFile<Value: Codable> {
         }
         couldNotOpen = false
         do {
-            return try JSONDecoder().decode(Value.self, from: data)
+            let value = try JSONDecoder().decode(Value.self, from: data)
+            couldNotKeepUnreadable = false
+            return value
         } catch {
-            backUpUnreadable()
+            keepUnreadable(data)
             return empty
         }
     }
 
     func save(_ value: Value) throws {
         try SaveFaults.check(faultPoint)
-        // 開けなかったファイルを空の中身で上書きしない（中身を失わないため）
+        // 開けなかったファイル・別名で残せなかった壊れたファイルを、上書きしない（中身を失わないため）
         guard !couldNotOpen else { throw JSONFileError.couldNotOpen(url) }
+        guard !couldNotKeepUnreadable else { throw JSONFileError.unreadableNotKept(url) }
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         let data = try JSONEncoder().encode(value)
         try data.write(to: url, options: .atomic)
     }
 
-    /// 中身が読めなかったファイルを、日時を付けた別名で残す（あとで調べたり戻したりできるように）
-    private func backUpUnreadable() {
-        let stamp = Self.backupStamp.string(from: Date())
-        let backup = url.deletingLastPathComponent().appendingPathComponent("\(url.lastPathComponent).unreadable-\(stamp)")
-        if (try? FileManager.default.copyItem(at: url, to: backup)) != nil {
+    /// 中身が読めなかったファイルを、日時を付けた別名で残す（あとで調べたり戻したりできるように）。
+    /// 同じ中身の写しが前の起動でもう残してあれば、新しく作らずにそれを使う。写しは上書きしない（同じ名前があれば番号を足す）
+    private func keepUnreadable(_ data: Data) {
+        if let existing = existingBackup(matching: data) {
+            unreadableBackup = existing
+            couldNotKeepUnreadable = false
+            return
+        }
+        let folder = url.deletingLastPathComponent()
+        let name = "\(url.lastPathComponent)\(Self.backupMarker)\(Self.backupStamp.string(from: Date()))"
+        var backup = folder.appendingPathComponent(name)
+        var number = 2
+        while FileManager.default.fileExists(atPath: backup.path) {
+            backup = folder.appendingPathComponent("\(name)-\(number)")
+            number += 1
+        }
+        do {
+            try data.write(to: backup, options: .withoutOverwriting)
             unreadableBackup = backup
+            couldNotKeepUnreadable = false
+        } catch {
+            unreadableBackup = nil
+            couldNotKeepUnreadable = true
         }
     }
+
+    /// 前に残した写しのうち、同じ中身のもの（いちばん古いもの）
+    private func existingBackup(matching data: Data) -> URL? {
+        let folder = url.deletingLastPathComponent()
+        let prefix = url.lastPathComponent + Self.backupMarker
+        guard let names = try? FileManager.default.contentsOfDirectory(atPath: folder.path) else { return nil }
+        for name in names.sorted() where name.hasPrefix(prefix) {
+            let candidate = folder.appendingPathComponent(name)
+            if let kept = try? Data(contentsOf: candidate), kept == data { return candidate }
+        }
+        return nil
+    }
+
+    /// 写しの名前の印（「＜名前＞.unreadable-日時」）
+    private static var backupMarker: String { ".unreadable-" }
 
     private static var backupStamp: DateFormatter {
         let formatter = DateFormatter()

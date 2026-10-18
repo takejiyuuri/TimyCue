@@ -91,6 +91,46 @@ final class LocalSaveSafetyTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: backup), Data("壊れた中身".utf8), "残したファイルは消えない")
     }
 
+    /// 写しの数（「events.json.unreadable-…」）
+    private func backups(of name: String) throws -> [String] {
+        try FileManager.default.contentsOfDirectory(atPath: directory.path).filter { $0.hasPrefix(name + ".unreadable-") }
+    }
+
+    func testAnUnreadableFileIsKeptOnlyOnceAcrossLaunches() throws {
+        let url = directory.appendingPathComponent("events.json")
+        try Data("壊れた中身".utf8).write(to: url)
+        let first = JSONFile<[CalendarEvent]>(url: url, empty: [])
+        _ = FileEventRepository(file: first)
+        // 保存しないまま、もう一度起動した
+        let second = JSONFile<[CalendarEvent]>(url: url, empty: [])
+        _ = FileEventRepository(file: second)
+        let third = JSONFile<[CalendarEvent]>(url: url, empty: [])
+        _ = FileEventRepository(file: third)
+
+        XCTAssertEqual(try backups(of: "events.json").count, 1, "同じ壊れた中身では、起動のたびに写しを増やさない")
+        XCTAssertEqual(second.unreadableBackup, first.unreadableBackup, "最初の写しを使う")
+        XCTAssertEqual(third.unreadableBackup, first.unreadableBackup)
+        XCTAssertEqual(try Data(contentsOf: url), Data("壊れた中身".utf8), "原本は消さない")
+    }
+
+    func testNewUnreadableContentGetsAnotherCopyAndTheFirstIsKept() throws {
+        let url = directory.appendingPathComponent("events.json")
+        try Data("壊れた中身 1".utf8).write(to: url)
+        let first = JSONFile<[CalendarEvent]>(url: url, empty: [])
+        _ = first.load()
+        let firstBackup = try XCTUnwrap(first.unreadableBackup)
+
+        try Data("壊れた中身 2".utf8).write(to: url)
+        let second = JSONFile<[CalendarEvent]>(url: url, empty: [])
+        _ = second.load()
+        let secondBackup = try XCTUnwrap(second.unreadableBackup)
+
+        XCTAssertNotEqual(firstBackup, secondBackup, "違う壊れた中身は、別の写しに残す（同じ秒でも上書きしない）")
+        XCTAssertEqual(try Data(contentsOf: firstBackup), Data("壊れた中身 1".utf8), "前の写しは消さない")
+        XCTAssertEqual(try Data(contentsOf: secondBackup), Data("壊れた中身 2".utf8))
+        XCTAssertEqual(try backups(of: "events.json").count, 2)
+    }
+
     func testAFileThatCannotBeOpenedIsNotOverwritten() throws {
         // ファイルの場所にフォルダがある（あるのに開けない）
         let url = directory.appendingPathComponent("events.json")
@@ -98,6 +138,8 @@ final class LocalSaveSafetyTests: XCTestCase {
         let file = JSONFile<[CalendarEvent]>(url: url, empty: [])
         let repository = FileEventRepository(file: file)
         XCTAssertTrue(file.couldNotOpen)
+        XCTAssertNil(file.unreadableBackup, "一時的に開けないのは、壊れているのとは分ける（写しを作らない）")
+        XCTAssertTrue(try backups(of: "events.json").isEmpty)
         XCTAssertThrowsError(try repository.insert([CalendarEvent(day: day, startMinute: 600, title: "A社")])) { error in
             XCTAssertEqual(error as? JSONFileError, .couldNotOpen(url), "開けなかったファイルを空の中身で上書きしない")
         }
