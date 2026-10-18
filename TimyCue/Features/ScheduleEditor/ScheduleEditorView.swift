@@ -90,6 +90,23 @@ struct ScheduleEditorView: View {
         } message: {
             Text("Apple Calendarに予定を作り、到着目標などの設定も引き継ぎます。TimyCue の中の予定は削除します。")
         }
+        // 保存・移す・削除に失敗したら、閉じずに理由と次の操作を出す（spec §89.9）。設定画面へ直接移るボタンは置かない（Q110）
+        .alert(store.failure?.title ?? "",
+               isPresented: Binding(get: { store.failure != nil }, set: { if !$0 { store.dismissFailure() } }),
+               presenting: store.failure) { _ in
+            Button("OK", role: .cancel) { store.dismissFailure() }
+        } message: { failure in
+            Text(failure.message)
+        }
+        .task {
+            #if DEBUG
+            // Codemagic の画面写真用：起動引数 -TimyCueEditorAutoSave YES で、開いてすぐ保存を押す（保存の失敗の知らせを撮る）
+            if UserDefaults.standard.bool(forKey: "TimyCueEditorAutoSave") {
+                try? await Task.sleep(for: .milliseconds(600))
+                save()
+            }
+            #endif
+        }
         // 削除も同じ 3 択（§64・Q44）
         .confirmationDialog(store.isEditingRecurringEvent ? "繰り返し予定の削除" : "この予定を削除しますか？",
                             isPresented: $confirmsDelete, titleVisibility: .visible) {
@@ -148,7 +165,8 @@ struct ScheduleEditorView: View {
         performSave()
     }
 
-    /// 保存して元の画面へ戻る（Q22）。足りないものがあれば store が該当の行を開いて知らせ、閉じない（§46）
+    /// 保存して元の画面へ戻る（Q22）。足りないものがあれば store が該当の行を開いて知らせ、閉じない（§46）。
+    /// 保存に失敗したときも閉じない。理由は store.failure をアラートで出す（spec §89.9）
     private func performSave(scope: RecurrenceScope = .thisEvent) {
         let saved: [CalendarEvent]
         do {

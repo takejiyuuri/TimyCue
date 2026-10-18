@@ -37,8 +37,8 @@ final class CalendarConnection {
     @ObservationIgnored private let metadata: EventMetadataRepository
     @ObservationIgnored private let preferencesFile: JSONFile<CalendarPreferences>
     @ObservationIgnored private var eventKit: EventKitEventRepository?
-    /// カレンダーの一覧（書き込めないものも含む）と、既定の保存先を知らせる
-    @ObservationIgnored private let onChange: @MainActor ([CalendarChoice], String?) -> Void
+    /// カレンダーの一覧（書き込めないものも含む。表示のみは手で直した分を当てたもの）と、保存先の決まりを知らせる
+    @ObservationIgnored private let onChange: @MainActor ([CalendarChoice], SaveTargetRules) -> Void
 
     /// localEvents が nil のとき（DEBUG の見本の予定で動かしているとき）は、つながない。
     /// 開発用・見本の予定を Apple カレンダーへ書き込まないため（Q34）
@@ -47,7 +47,7 @@ final class CalendarConnection {
          localEvents: FileEventRepository?,
          metadata: EventMetadataRepository,
          preferencesFile: JSONFile<CalendarPreferences> = JSONFile(url: JSONFile<CalendarPreferences>.appSupportURL(named: "calendar-preferences.json"), empty: CalendarPreferences()),
-         onChange: @escaping @MainActor (_ calendars: [CalendarChoice], _ defaultCalendarID: String?) -> Void) {
+         onChange: @escaping @MainActor (_ calendars: [CalendarChoice], _ saveTargets: SaveTargetRules) -> Void) {
         self.eventStore = eventStore
         self.switchable = switchable
         self.localEvents = localEvents
@@ -128,28 +128,8 @@ final class CalendarConnection {
         guard state == .connected, let eventKit else { return }
         calendars = eventKit.calendars()
         systemDefaultCalendarID = eventKit.systemDefaultCalendarID
-        checkDefaultCalendar()
         eventKit.reloadCache()
         notify()
-    }
-
-    // MARK: - 既定の保存先が使えなくなったとき（v1.2「Apple Calendar」）
-
-    /// 既定の保存先から iPhone の既定へ切り替えたことを、まだ知らせていないか
-    var showsSaveTargetNotice: Bool {
-        preferences.pendingFallbackNotice == true
-    }
-
-    var saveTargetNoticeMessage: String {
-        let name = writableCalendars.first { $0.id == defaultSaveCalendarID }.map { "「\($0.title)」" } ?? ""
-        return "既定の保存先にしていたカレンダーが使えなくなったため、新しい予定は iPhone の既定のカレンダー\(name)に保存します。保存先は 設定 ＞ カレンダー連携 で変えられます。"
-    }
-
-    /// 知らせ終わった。同じことでは二度と知らせない
-    func dismissSaveTargetNotice() {
-        guard preferences.pendingFallbackNotice != nil else { return }
-        preferences.pendingFallbackNotice = nil
-        savePreferences()
     }
 
     // MARK: - 設定 ＞ カレンダー連携
@@ -190,15 +170,10 @@ final class CalendarConnection {
         calendars.filter { preferences.isHolidayCalendar($0) }
     }
 
-    /// 書き込めるカレンダー（予定の保存先にできるもの）
-    var writableCalendars: [CalendarChoice] {
-        calendars.filter(\.isWritable)
-    }
-
-    /// 新しい予定の保存先（設定の既定 → iPhone の既定）
-    var defaultSaveCalendarID: String? {
-        CalendarPreferences.saveTarget(eventCalendarID: nil, preferences: preferences,
-                                       systemDefaultID: systemDefaultCalendarID, writable: writableCalendars)
+    /// 新しい予定の保存先の決まり（spec §89.2・§89.4）。使えるのは、表示 ON・書き込める・表示のみでない・今も見えるカレンダーだけ。
+    /// 使えなくなっても、設定の既定を消したり、iPhone の既定へ勝手に切り替えたりしない（v1.2 の自動の切り替えは廃止）
+    var saveTargets: SaveTargetRules {
+        SaveTargetRules(calendars: calendars, preferences: preferences, systemDefaultID: systemDefaultCalendarID)
     }
 
     // MARK: - 重複候補（Q42-8・Q50）
@@ -270,16 +245,8 @@ final class CalendarConnection {
         eventKit = repository
         calendars = repository.calendars()
         systemDefaultCalendarID = repository.systemDefaultCalendarID
-        checkDefaultCalendar()
         switchable.use(CombinedEventRepository(primary: repository, local: localEvents))
         notify()
-    }
-
-    /// 既定の保存先がまだ書き込めるか確かめ、使えなければ iPhone の既定へ戻して、知らせる印を付ける
-    private func checkDefaultCalendar() {
-        if preferences.dropUnavailableDefault(writable: writableCalendars) {
-            savePreferences()
-        }
     }
 
     private func savePreferences() {
@@ -294,6 +261,6 @@ final class CalendarConnection {
             copy.isHolidays = preferences.isHolidayCalendar(calendar)
             return copy
         }
-        onChange(resolved, defaultSaveCalendarID)
+        onChange(resolved, saveTargets)
     }
 }

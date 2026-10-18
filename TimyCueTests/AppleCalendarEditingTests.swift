@@ -13,8 +13,8 @@ final class AppleCalendarEditingTests: XCTestCase {
         let repository = InMemoryEventRepository(events: [event])
         let metadata = InMemoryEventMetadataRepository()
         let store = ScheduleEditorStore(repository: repository, metadataRepository: metadata)
-        store.setCalendars([home, holidays], defaultCalendarID: "home")
-        XCTAssertEqual(store.writableCalendars, [home], "保存先に選べるのは書き込めるカレンダーだけ")
+        store.setCalendars(SaveTargetRules(calendars: [home, holidays], systemDefaultID: "home"))
+        XCTAssertEqual(store.saveTargetCandidates, [home], "保存先に選べるのは書き込めるカレンダーだけ")
 
         try store.startEditing(eventID: event.id)
         XCTAssertTrue(store.areAppleFieldsLocked)
@@ -46,7 +46,7 @@ final class AppleCalendarEditingTests: XCTestCase {
         let event = CalendarEvent(day: day, startMinute: 600, title: "A社", source: .appleCalendar, calendarID: "home")
         let store = ScheduleEditorStore(repository: InMemoryEventRepository(events: [event]),
                                         metadataRepository: InMemoryEventMetadataRepository())
-        store.setCalendars([home, holidays], defaultCalendarID: "home")
+        store.setCalendars(SaveTargetRules(calendars: [home, holidays], systemDefaultID: "home"))
         try store.startEditing(eventID: event.id)
         XCTAssertFalse(store.areAppleFieldsLocked)
         XCTAssertFalse(store.isLocked(.title))
@@ -105,8 +105,9 @@ final class AppleCalendarEditingTests: XCTestCase {
 
         try store.startEditing(eventID: localEvent.id)
         XCTAssertFalse(store.canMoveToAppleCalendar, "つないでいないときは出さない")
-        store.setCalendars([home], defaultCalendarID: "home")
+        store.setCalendars(SaveTargetRules(calendars: [home], systemDefaultID: "home"))
         XCTAssertTrue(store.canMoveToAppleCalendar, "つないだあとも、自動では移さず、編集画面で選んだときだけ")
+        XCTAssertNil(store.moveToAppleUnavailableReason, "移す先（iPhone の既定の「家」）が使える")
 
         store.content.metadata.arrivalTargetMinutes = 20
         let moved = try store.moveToAppleCalendar()

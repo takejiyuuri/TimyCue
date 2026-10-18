@@ -121,6 +121,11 @@ workflows:
           capture event-detail -TimyCueTab calendar -TimyCueDetailOfFirstEventToday YES
           # 3 分割の予定編集（新規。今日・1 週後・2 週後を選んだ状態）
           capture editor -TimyCueEditorDays "0,7,14"
+          # S1a（spec §89.4・§89.9）：保存先が使えないとき。見本のカレンダーを作成画面に渡すだけで、Apple カレンダーにはつながず何も書かない。
+          # iPhone の既定（Default）の表示を OFF・表示のみにして保存を押すと、閉じずに理由のアラートが出る。カレンダーの行は「使えません」と選べる候補だけ
+          capture editor-save-hidden -TimyCueEditorDays "0" -TimyCueSampleCalendars hiddenDefault -TimyCueEditorAutoSave YES
+          capture editor-save-display-only -TimyCueEditorDays "0" -TimyCueSampleCalendars displayOnlyDefault -TimyCueEditorAutoSave YES
+          capture editor-calendar-unavailable -TimyCueEditorDays "0" -TimyCueSampleCalendars hiddenDefault -TimyCueEditorRow calendar
           # H1 の比べる画面（設定 ＞ 開発用：キャラクターの案）で、正式キャラクター 3 モードを「いま」の直上の定位置に（2026-10-17。§88.3・Q87・Q88）。
           # 人型 36pt・時計 40％。名前は layout-モード-時計-見本の時刻-予定の数。overdue は 9:18（出発 9:15 を 3 分過ぎ。時計は終わっているので noclock。過ぎた出発の点が人型と「いま」のあいだ）
           for SHOT in "human YES before usual" "turtle YES before usual" "rabbit YES before usual" "human NO before usual" \

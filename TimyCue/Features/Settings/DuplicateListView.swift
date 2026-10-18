@@ -6,6 +6,8 @@ struct DuplicateListView: View {
     @Environment(CalendarConnection.self) private var connection
     /// 両方に付いた TimyCue の設定がぶつかるとき、どちらを使うか聞いている組
     @State private var conflicting: DuplicateCandidate?
+    /// 「Apple Calendarの予定を使う」に失敗したときの知らせ（spec §89.9）
+    @State private var failureMessage: String?
 
     var body: some View {
         List {
@@ -33,9 +35,15 @@ struct DuplicateListView: View {
                             isPresented: Binding(get: { conflicting != nil }, set: { if !$0 { conflicting = nil } }),
                             titleVisibility: .visible,
                             presenting: conflicting) { candidate in
-            Button("TimyCue の予定の設定") { try? connection.useApple(candidate, preferLocalSettings: true) }
-            Button("Apple カレンダーの予定の設定") { try? connection.useApple(candidate, preferLocalSettings: false) }
+            Button("TimyCue の予定の設定") { perform(candidate, preferLocalSettings: true) }
+            Button("Apple カレンダーの予定の設定") { perform(candidate, preferLocalSettings: false) }
             Button("やめる", role: .cancel) {}
+        }
+        .alert("Apple Calendarの予定を使えませんでした",
+               isPresented: Binding(get: { failureMessage != nil }, set: { if !$0 { failureMessage = nil } })) {
+            Button("OK", role: .cancel) { failureMessage = nil }
+        } message: {
+            Text(failureMessage ?? "")
         }
     }
 
@@ -43,7 +51,16 @@ struct DuplicateListView: View {
         if connection.settingsConflict(candidate) {
             conflicting = candidate
         } else {
-            try? connection.useApple(candidate)
+            perform(candidate, preferLocalSettings: nil)
+        }
+    }
+
+    /// 失敗したら、成功したように見せず、理由と次の操作を出す（spec §89.9。文言は仮）
+    private func perform(_ candidate: DuplicateCandidate, preferLocalSettings: Bool?) {
+        do {
+            try connection.useApple(candidate, preferLocalSettings: preferLocalSettings)
+        } catch {
+            failureMessage = "設定の引き継ぎか、TimyCue の予定の削除に失敗しました。予定が残っているか、カレンダーで確かめてから、もう一度お試しください。"
         }
     }
 

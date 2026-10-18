@@ -53,14 +53,6 @@ struct RootTabView: View {
             }
         }
         .tint(Theme.Colors.accent)
-        // 既定の保存先が使えなくなって iPhone の既定へ切り替えたことを、一度だけ知らせる（v1.2「Apple Calendar」）
-        .alert("保存先のカレンダーを切り替えました",
-               isPresented: Binding(get: { connection.showsSaveTargetNotice },
-                                    set: { if !$0 { connection.dismissSaveTargetNotice() } })) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(connection.saveTargetNoticeMessage)
-        }
         .onAppear {
             openEditorForScreenshot()
             markReadyForScreenshot()
@@ -118,6 +110,8 @@ struct RootTabView: View {
         days.dropFirst().forEach(editorStore.addDay)
         editorStore.setStartMinute(14 * 60, on: first)
         editorStore.content.title = "見本の打合せ"
+        // 起動引数 -TimyCueEditorRow calendar で「カレンダー」の行を開いておく（保存先の画面写真）
+        if UserDefaults.standard.string(forKey: "TimyCueEditorRow") == "calendar" { editorStore.toggleRow(.calendar) }
         showsEditorForScreenshot = true
         #endif
     }

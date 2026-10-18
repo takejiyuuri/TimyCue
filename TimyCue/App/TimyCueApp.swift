@@ -30,6 +30,9 @@ struct TimyCueApp: App {
 
         let editor = ScheduleEditorStore(repository: switchable, metadataRepository: metadata)
         let calendar = CalendarStore(repository: switchable, metadataRepository: metadata)
+        #if DEBUG
+        if Self.usesSampleData, let rules = Self.sampleSaveTargets() { editor.setCalendars(rules) }
+        #endif
         _editorStore = State(initialValue: editor)
         _calendarStore = State(initialValue: calendar)
         // 出発時刻の計算（第 5 段階）。見本の予定で動かすとき（画面写真・自動テスト）は、現在地も地図も使わない
@@ -40,13 +43,36 @@ struct TimyCueApp: App {
             switchable: switchable,
             localEvents: localEvents,
             metadata: metadata,
-            onChange: { calendars, defaultCalendarID in
+            onChange: { calendars, saveTargets in
                 calendar.setCalendars(calendars)
                 calendar.reload()
                 editor.refresh()
-                editor.setCalendars(calendars, defaultCalendarID: defaultCalendarID)
+                editor.setCalendars(saveTargets)
             }))
     }
+
+    #if DEBUG
+    /// Codemagic の画面写真用：起動引数 -TimyCueSampleCalendars で、見本のカレンダーを作成画面に渡す。
+    /// Apple カレンダーにはつながず、何も書き込まない（見本の予定はメモリの中だけ）。
+    /// hiddenDefault：iPhone の既定（Default）の表示を OFF／displayOnlyDefault：iPhone の既定を手で表示のみ
+    private static func sampleSaveTargets() -> SaveTargetRules? {
+        guard let kind = UserDefaults.standard.string(forKey: "TimyCueSampleCalendars") else { return nil }
+        let calendars = [
+            CalendarChoice(id: "sample-default", title: "Default", sourceTitle: "iCloud", isWritable: true, color: .orange),
+            CalendarChoice(id: "sample-home", title: "家", sourceTitle: "iCloud", isWritable: true, color: .green),
+            CalendarChoice(id: "sample-work", title: "仕事", sourceTitle: "Google", isWritable: true, color: .saxeBlue),
+            CalendarChoice(id: "sample-holidays", title: "日本の祝日", sourceTitle: "購読", isWritable: false, color: .lavender,
+                           isHolidays: true),
+        ]
+        var preferences = CalendarPreferences()
+        switch kind {
+        case "hiddenDefault": preferences.hiddenCalendarIDs = ["sample-default"]
+        case "displayOnlyDefault": preferences.setHoliday(true, calendarID: "sample-default")
+        default: break
+        }
+        return SaveTargetRules(calendars: calendars, preferences: preferences, systemDefaultID: "sample-default")
+    }
+    #endif
 
     private static var usesSampleData: Bool {
         #if DEBUG

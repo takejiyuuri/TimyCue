@@ -8,57 +8,51 @@ final class CalendarLinkSettingsTests: XCTestCase {
     private let work = CalendarChoice(id: "work", title: "仕事", sourceTitle: "Google", isWritable: true, color: .saxeBlue)
     private let holidays = CalendarChoice(id: "jp", title: "日本の祝日", sourceTitle: "その他", isWritable: false, color: .green)
 
-    // MARK: - 保存先（Q32）
+    // MARK: - 保存先（Q32。2026-10-17・2026-10-18 に spec §89 で変更）
 
     func testSaveTargetOrder() {
-        let writable = [home, work]
         var preferences = CalendarPreferences()
-        XCTAssertEqual(CalendarPreferences.saveTarget(eventCalendarID: nil, preferences: preferences,
-                                                      systemDefaultID: "home", writable: writable), "home",
-                       "初めは iPhone の「新規イベントのデフォルトカレンダー」")
+        func resolve(_ eventCalendarID: String?) -> SaveTargetResolution {
+            SaveTargetRules(calendars: [home, work, holidays], preferences: preferences, systemDefaultID: "home")
+                .resolve(eventCalendarID: eventCalendarID)
+        }
+        XCTAssertEqual(resolve(nil), .usable(home, source: .systemDefault), "初めは iPhone の「新規イベントのデフォルトカレンダー」")
         preferences.defaultCalendarID = "work"
-        XCTAssertEqual(CalendarPreferences.saveTarget(eventCalendarID: nil, preferences: preferences,
-                                                      systemDefaultID: "home", writable: writable), "work",
-                       "TimyCue の設定で既定の保存先を変えられる")
-        XCTAssertEqual(CalendarPreferences.saveTarget(eventCalendarID: "home", preferences: preferences,
-                                                      systemDefaultID: "home", writable: writable), "home",
-                       "その予定だけの保存先がいちばん優先")
-        XCTAssertEqual(CalendarPreferences.saveTarget(eventCalendarID: "jp", preferences: CalendarPreferences(),
-                                                      systemDefaultID: nil, writable: writable), "home",
-                       "書き込めないカレンダーには保存しない")
+        XCTAssertEqual(resolve(nil), .usable(work, source: .settingsDefault), "TimyCue の設定で既定の保存先を変えられる")
+        XCTAssertEqual(resolve("home"), .usable(home, source: .event), "その予定だけの保存先がいちばん優先")
+        XCTAssertEqual(resolve("jp"), .unavailable(.readOnly(calendarTitle: "日本の祝日"), source: .event),
+                       "書き込めないカレンダーには保存しない。ほかのカレンダーへも勝手に移らない")
     }
 
-    // MARK: - 既定の保存先が使えなくなったとき（v1.2「Apple Calendar」）
+    // MARK: - 既定の保存先が使えなくなったとき（v1.2 の自動の切り替えは 2026-10-17 に廃止。spec §89.4）
 
-    func testUnavailableDefaultFallsBackToIPhoneDefaultAndNoticeOnce() {
+    func testUnavailableDefaultIsNotSwitchedToTheIPhoneDefault() {
         var preferences = CalendarPreferences()
         preferences.defaultCalendarID = "gone"
-        XCTAssertTrue(preferences.dropUnavailableDefault(writable: [home, work]), "削除された既定の保存先は使わない")
-        XCTAssertNil(preferences.defaultCalendarID, "iPhone の既定へ戻す")
-        XCTAssertEqual(preferences.pendingFallbackNotice, true, "切り替えたことを知らせる")
-        XCTAssertEqual(CalendarPreferences.saveTarget(eventCalendarID: nil, preferences: preferences,
-                                                      systemDefaultID: "work", writable: [home, work]), "work")
-
-        preferences.pendingFallbackNotice = nil
-        XCTAssertFalse(preferences.dropUnavailableDefault(writable: [home, work]), "同じことで二度は知らせない")
-        XCTAssertNil(preferences.pendingFallbackNotice)
+        let rules = SaveTargetRules(calendars: [home, work], preferences: preferences, systemDefaultID: "work")
+        XCTAssertEqual(rules.resolve(eventCalendarID: nil), .unavailable(.notFound, source: .settingsDefault),
+                       "削除された既定の保存先へは保存しない。iPhone の既定へも勝手に切り替えない")
+        XCTAssertEqual(rules.preferences.defaultCalendarID, "gone", "既定の値は消さない（S2 の移行の手がかり）")
+        XCTAssertNil(rules.preferences.pendingFallbackNotice, "切り替えの知らせの印も付けない")
     }
 
-    func testReadOnlyDefaultAlsoFallsBack() {
+    func testReadOnlyDefaultIsReportedNotReplaced() {
         var preferences = CalendarPreferences()
         preferences.defaultCalendarID = "jp"
-        XCTAssertTrue(preferences.dropUnavailableDefault(writable: [home]), "書き込めなくなったカレンダーも既定の保存先にしない")
-        XCTAssertNil(preferences.defaultCalendarID)
+        let rules = SaveTargetRules(calendars: [home, holidays], preferences: preferences, systemDefaultID: "home")
+        XCTAssertEqual(rules.resolve(eventCalendarID: nil), .unavailable(.readOnly(calendarTitle: "日本の祝日"), source: .settingsDefault),
+                       "書き込めなくなったカレンダーは、理由を出して止める")
     }
 
     func testAvailableDefaultIsKept() {
         var preferences = CalendarPreferences()
         preferences.defaultCalendarID = "work"
-        XCTAssertFalse(preferences.dropUnavailableDefault(writable: [home, work]))
+        XCTAssertEqual(SaveTargetRules(calendars: [home, work], preferences: preferences, systemDefaultID: "home")
+            .resolve(eventCalendarID: nil), .usable(work, source: .settingsDefault))
+        XCTAssertEqual(SaveTargetRules(calendars: [], preferences: preferences, systemDefaultID: nil)
+            .resolve(eventCalendarID: nil), .unavailable(.notFound, source: .settingsDefault),
+                       "カレンダーが 1 つも見えないときも、既定を消さず、別へ移らない")
         XCTAssertEqual(preferences.defaultCalendarID, "work")
-        XCTAssertFalse(preferences.dropUnavailableDefault(writable: []), "カレンダーが 1 つも見えないときは消えたと決めつけない")
-        XCTAssertEqual(preferences.defaultCalendarID, "work")
-        XCTAssertNil(preferences.pendingFallbackNotice)
     }
 
     // MARK: - 設定トップの状態（v1.2「設定画面」）
@@ -73,15 +67,19 @@ final class CalendarLinkSettingsTests: XCTestCase {
     }
 
     @MainActor
-    func testCalendarRowOnlyWithTwoOrMoreWritableCalendars() {
+    func testCalendarRowOnlyWithTwoOrMoreUsableCalendars() {
         let store = ScheduleEditorStore(repository: InMemoryEventRepository(), metadataRepository: InMemoryEventMetadataRepository())
         store.startNew(on: day)
         XCTAssertFalse(store.visibleRows.contains(.calendar), "つないでいないときは出さない")
-        store.setCalendars([home], defaultCalendarID: "home")
-        XCTAssertFalse(store.visibleRows.contains(.calendar), "書き込めるカレンダーが 1 つだけなら出さない（Q32）")
-        store.setCalendars([home, work], defaultCalendarID: "home")
+        store.setCalendars(SaveTargetRules(calendars: [home, holidays], systemDefaultID: "home"))
+        XCTAssertFalse(store.visibleRows.contains(.calendar), "使える保存先が 1 つだけなら出さない（Q32。表示のみ・書き込めないものは数えない）")
+        var hidden = CalendarPreferences()
+        hidden.hiddenCalendarIDs = ["work"]
+        store.setCalendars(SaveTargetRules(calendars: [home, work], preferences: hidden, systemDefaultID: "home"))
+        XCTAssertFalse(store.visibleRows.contains(.calendar), "表示 OFF のカレンダーも数えない")
+        store.setCalendars(SaveTargetRules(calendars: [home, work], systemDefaultID: "home"))
         XCTAssertTrue(store.visibleRows.contains(.calendar), "2 つ以上なら出す")
-        XCTAssertEqual(store.valueText(for: .calendar), "家", "初めは既定の保存先")
+        XCTAssertEqual(store.valueText(for: .calendar), "iPhoneの既定（家）", "初めは既定の保存先。実際の名前を添える（Q106）")
         store.content.calendarID = "work"
         XCTAssertEqual(store.valueText(for: .calendar), "仕事", "その予定だけ保存先を変えられる")
         store.content.title = "A社"

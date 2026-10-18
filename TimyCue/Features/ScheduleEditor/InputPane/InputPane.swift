@@ -64,7 +64,7 @@ struct InputPane: View {
                         }
                     }
                     if store.canMoveToAppleCalendar {
-                        MoveToAppleButton(onMove: onMoveToApple)
+                        MoveToAppleButton(unavailableReason: store.moveToAppleUnavailableReason, onMove: onMoveToApple)
                     }
                     // 書き込めないカレンダーの予定は消せない（§1.7）
                     if case .edit = store.mode, !store.areAppleFieldsLocked {
@@ -237,10 +237,10 @@ private struct InlineEditor: View {
                 }
             }
         case .calendar:
-            // その予定だけ保存先を変える（Q32）
-            ChipRow(options: store.writableCalendars,
+            // その予定だけ保存先を変える（Q32）。選べるのは使えるカレンダーだけ（spec §89.2・§89.3）。ここで選んでも設定の既定は変えない（Q99）
+            ChipRow(options: store.saveTargetCandidates,
                     label: \.title,
-                    isSelected: { $0.id == (store.content.calendarID ?? store.defaultCalendarID) },
+                    isSelected: { $0.id == store.selectedSaveTargetID },
                     onTap: { store.content.calendarID = $0.id })
         case .additionalDays:
             AdditionalDaysEditor()
@@ -535,6 +535,8 @@ private struct ChipRow<Option: Hashable>: View {
 /// 編集のときだけ、右の入力のいちばん下に独立して出す「予定を削除」。誤操作を防ぐため固定ヘッダーには置かない（§64・Q25）
 /// TimyCue の中の予定を Apple カレンダーへ移す（追加仕様書 §1.12）。下の説明文は仮（未確定）
 private struct MoveToAppleButton: View {
+    /// 移す先が使えないときの理由。あればボタンを押せなくして出す（spec §89.5）
+    let unavailableReason: String?
     let onMove: () -> Void
 
     var body: some View {
@@ -546,9 +548,15 @@ private struct MoveToAppleButton: View {
             }
             .buttonStyle(.bordered)
             .tint(Theme.Colors.accent)
+            .disabled(unavailableReason != nil)
             Text("この予定は TimyCue の中だけにあります")
                 .font(EditorMetrics.lockNoticeFont)
                 .foregroundStyle(Theme.Colors.textSecondary)
+            if let unavailableReason {
+                Text(unavailableReason)
+                    .font(EditorMetrics.lockNoticeFont)
+                    .foregroundStyle(Theme.Colors.textPrimary)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, Theme.Spacing.m)

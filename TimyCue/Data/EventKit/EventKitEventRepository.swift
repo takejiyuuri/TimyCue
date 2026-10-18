@@ -298,16 +298,16 @@ final class EventKitEventRepository: EventRepository {
 
     // MARK: - 書き込み
 
+    /// 新しい予定を書く。書く前に、その場で読み直したカレンダーと設定で、全部の予定の保存先を確かめる。
+    /// 1 件でも使えない保存先（表示 OFF・表示のみ・書き込めない・見つからない）があれば、何も書かずに理由で止める。
+    /// 別のカレンダーへ勝手に移らない（spec §89.4）
     func insert(_ events: [CalendarEvent]) throws {
-        let writable = calendars().filter(\.isWritable)
-        for event in events {
-            guard let targetID = CalendarPreferences.saveTarget(eventCalendarID: event.calendarID,
-                                                                preferences: preferences(),
-                                                                systemDefaultID: systemDefaultCalendarID,
-                                                                writable: writable),
-                  let target = store.calendar(withIdentifier: targetID) else {
-                throw EventKitRepositoryError.noCalendar
-            }
+        let choices = try saveTargetRules().usableTargets(for: events.map(\.calendarID))
+        let targets = try choices.map { choice -> EKCalendar in
+            guard let target = store.calendar(withIdentifier: choice.id) else { throw SaveTargetProblem.notFound }
+            return target
+        }
+        for (event, target) in zip(events, targets) {
             let ekEvent = EKEvent(eventStore: store)
             ekEvent.calendar = target
             Self.apply(EventKitMapping.record(from: event, calendar: calendar), to: ekEvent, includeRecurrence: true)
@@ -330,6 +330,8 @@ final class EventKitEventRepository: EventRepository {
     /// 「この予定のみ」では繰り返しの決まりは変えない。「すべて」は、系列の初めの回に、この回で動かした分だけ同じように当てる
     func update(_ event: CalendarEvent, scope: RecurrenceScope) throws {
         guard let occurrence = find(event.id) else { throw EventRepositoryError.notFound(event.id) }
+        // その予定だけ保存先を変えるときは、何かを書き換える前に移す先を確かめる。使えなければ何も変えずに止める（spec §89.3・§89.4）
+        let moveTarget = try calendarToMove(occurrence, to: event.calendarID)
         let record = EventKitMapping.record(from: event, calendar: calendar)
         let oldDay = cache.first { $0.id == event.id }?.day
         let wasRecurring = occurrence.hasRecurrenceRules
@@ -337,7 +339,7 @@ final class EventKitEventRepository: EventRepository {
         if !wasRecurring || scope == .thisEvent {
             // 繰り返しでない予定に繰り返しを付けるのもここ（範囲は聞かない）
             Self.apply(record, to: occurrence, includeRecurrence: !wasRecurring)
-            moveCalendarIfNeeded(occurrence, to: event.calendarID)
+            if let moveTarget { occurrence.calendar = moveTarget }
             try store.save(occurrence, span: wasRecurring ? .thisEvent : .futureEvents, commit: true)
             setKey(Self.linkKey(for: occurrence), for: event.id)
         } else {
@@ -357,7 +359,7 @@ final class EventKitEventRepository: EventRepository {
                 target = occurrence
                 occurrenceDate = record.startDate
             }
-            moveCalendarIfNeeded(target, to: event.calendarID)
+            if let moveTarget { target.calendar = moveTarget }
             try store.save(target, span: .futureEvents, commit: true)
             setKey(EventKitMapping.linkKey(itemIdentifier: target.calendarItemIdentifier,
                                            occurrenceDate: target.hasRecurrenceRules ? occurrenceDate : nil),
@@ -463,12 +465,18 @@ final class EventKitEventRepository: EventRepository {
                                 occurrenceDate: ekEvent.hasRecurrenceRules ? ekEvent.occurrenceDate : nil)
     }
 
-    /// その予定だけ保存先を変えた（Q32）
-    private func moveCalendarIfNeeded(_ ekEvent: EKEvent, to calendarID: String?) {
-        if let calendarID, calendarID != ekEvent.calendar?.calendarIdentifier,
-           let target = store.calendar(withIdentifier: calendarID), target.allowsContentModifications {
-            ekEvent.calendar = target
-        }
+    /// 保存先の決まり。その場で読み直したカレンダーと設定で確かめる（spec §89.2・§89.4）
+    private func saveTargetRules() -> SaveTargetRules {
+        SaveTargetRules(calendars: calendars(), preferences: preferences(), systemDefaultID: systemDefaultCalendarID)
+    }
+
+    /// その予定だけ保存先を変える（Q32）ときの移す先。変えないなら nil。
+    /// 移す先が使えない（表示 OFF・表示のみ・書き込めない・見つからない）ときは、黙ってほかの変更だけを保存せず、理由で止める
+    private func calendarToMove(_ ekEvent: EKEvent, to calendarID: String?) throws -> EKCalendar? {
+        guard let calendarID, calendarID != ekEvent.calendar?.calendarIdentifier else { return nil }
+        if let problem = saveTargetRules().problem(with: calendarID) { throw problem }
+        guard let target = store.calendar(withIdentifier: calendarID) else { throw SaveTargetProblem.notFound }
+        return target
     }
 
     private static func record(of ekEvent: EKEvent, store: EKEventStore) -> ExternalEventRecord {
@@ -507,9 +515,4 @@ final class EventKitEventRepository: EventRepository {
               let components = rgb.components, components.count >= 3 else { return .orange }
         return EventColor.nearest(red: Double(components[0]), green: Double(components[1]), blue: Double(components[2]))
     }
-}
-
-enum EventKitRepositoryError: Error {
-    /// 新しい予定を入れる Apple カレンダーがない
-    case noCalendar
 }

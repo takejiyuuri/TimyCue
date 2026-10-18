@@ -128,20 +128,7 @@ struct CalendarSettingsView: View {
                                        value: connection.duplicateCandidates.isEmpty ? "なし" : "\(connection.duplicateCandidates.count)件")
                     }
                 }
-                if !connection.writableCalendars.isEmpty {
-                    Section {
-                        Picker("新しい予定の保存先", selection: Binding(
-                            get: { connection.preferences.defaultCalendarID ?? "" },
-                            set: { connection.setDefaultCalendar($0.isEmpty ? nil : $0) })) {
-                            Text("iPhone の既定").tag("")
-                            ForEach(connection.writableCalendars) { calendar in
-                                CalendarLabel(calendar: calendar).tag(calendar.id)
-                            }
-                        }
-                    } footer: {
-                        Text("予定を作るときに、書き込めるカレンダーが 2 つ以上あれば、その予定だけ保存先を変えられます。")
-                    }
-                }
+                saveTargetSection
                 // 祝日カレンダー（Q55）：ふだんは自動の判定のまま。必要なときだけ手で直す
                 Section {
                     NavigationLink {
@@ -174,6 +161,64 @@ struct CalendarSettingsView: View {
             }
         }
         .navigationTitle("カレンダー連携")
+    }
+
+    /// 新しい予定の保存先（spec §89.2・§89.4・§89.11）。選べるのは使えるカレンダーだけ。
+    /// 今の保存先が使えないときは、その 1 行を「（使えません：理由）」で出し、注意の行を出し続ける（勝手に切り替えない）
+    private var saveTargetSection: some View {
+        let rules = connection.saveTargets
+        let currentID = connection.preferences.defaultCalendarID
+        let current = rules.resolve(eventCalendarID: nil)
+        let systemDefault = SaveTargetRules(calendars: rules.calendars, preferences: Self.withoutDefault(rules.preferences),
+                                            systemDefaultID: rules.systemDefaultID).resolve(eventCalendarID: nil)
+        return Section {
+            Picker("新しい予定の保存先", selection: Binding(
+                get: { currentID ?? "" },
+                set: { connection.setDefaultCalendar($0.isEmpty ? nil : $0) })) {
+                if let problem = current.problem {
+                    Text(Self.unavailableOptionText(rules: rules, resolution: current, problem: problem))
+                        .tag(currentID ?? "")
+                }
+                if systemDefault.problem == nil {
+                    Text(rules.systemDefaultLabel).tag("")
+                }
+                ForEach(rules.candidates) { calendar in
+                    CalendarLabel(calendar: calendar).tag(calendar.id)
+                }
+            }
+        } footer: {
+            VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
+                if let problem = current.problem {
+                    Text(Self.unavailableNotice(problem))
+                        .foregroundStyle(Theme.Colors.textPrimary)
+                }
+                Text("表示を OFF にしたカレンダー・表示のみのカレンダー・書き込めないカレンダーには保存しません。予定を作るときに、選べる保存先が 2 つ以上あれば、その予定だけ保存先を変えられます。")
+            }
+        }
+    }
+
+    /// 設定の既定を外した設定（iPhone の既定だけを確かめるため）
+    private static func withoutDefault(_ preferences: CalendarPreferences) -> CalendarPreferences {
+        var copy = preferences
+        copy.defaultCalendarID = nil
+        return copy
+    }
+
+    /// 今の保存先が使えないときに、選べない 1 行として出す文（例「仕事（使えません：表示 OFF）」）
+    private static func unavailableOptionText(rules: SaveTargetRules, resolution: SaveTargetResolution,
+                                              problem: SaveTargetProblem) -> String {
+        "\(rules.name(for: resolution))（使えません：\(SaveTargetRules.shortReason(problem))）"
+    }
+
+    /// 今の保存先が使えないときの注意の行（文言は仮）
+    private static func unavailableNotice(_ problem: SaveTargetProblem) -> String {
+        switch problem {
+        case .hidden(let title): "保存先の「\(title)」は表示を OFF にしています。表示を ON にするか、別の保存先を選んでください。"
+        case .displayOnly(let title): "保存先の「\(title)」は表示のみのカレンダーです。別の保存先を選んでください。"
+        case .readOnly(let title): "保存先の「\(title)」には予定を書き込めません。別の保存先を選んでください。"
+        case .notFound: "保存先にしていたカレンダーが見つかりません。別の保存先を選んでください。"
+        case .noSystemDefault: "iPhone の既定のカレンダーが見つかりません。別の保存先を選んでください。"
+        }
     }
 
     @ViewBuilder

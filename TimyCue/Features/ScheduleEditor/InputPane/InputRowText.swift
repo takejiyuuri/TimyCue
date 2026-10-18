@@ -20,8 +20,7 @@ extension ScheduleEditorStore {
         case .color:
             return info.color.displayName
         case .calendar:
-            let id = content.calendarID ?? defaultCalendarID
-            return writableCalendars.first { $0.id == id }?.title ?? "既定"
+            return calendarRowValue
         case .additionalDays:
             return Self.additionalDaysTexts(daysListedInAdditionalRow).first ?? "なし"
         }

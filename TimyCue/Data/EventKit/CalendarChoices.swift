@@ -31,7 +31,8 @@ struct CalendarPreferences: Codable, Equatable {
     var hiddenCalendarIDs: Set<String> = []
     /// 「カレンダーを連携」の案内を「あとで」にした回数（Q38）。古いファイルにはないので省略できる
     var guidanceDismissCount: Int?
-    /// 既定の保存先が使えなくなって iPhone の既定へ切り替えたことを、まだ知らせていない（v1.2。一度だけ知らせる）。
+    /// 古い版（v1.2 の自動の切り替え）が付けた「保存先のカレンダーを切り替えました」をまだ知らせていない印。
+    /// 自動の切り替えは廃止したので、もう知らせない。S2 の移行の手がかりに使うまで、読むだけで消さない（spec §89.4・2026-10-18 Q110）。
     /// 古いファイルにはないので省略できる
     var pendingFallbackNotice: Bool?
     /// 重複候補で「両方残す」を選んだ組（もう聞かない。Q50）。古いファイルにはないので省略できる
@@ -56,27 +57,5 @@ struct CalendarPreferences: Codable, Equatable {
 
     func isShown(_ calendarID: String) -> Bool {
         !hiddenCalendarIDs.contains(calendarID)
-    }
-
-    /// TimyCue の既定の保存先が、削除・書き込み不可などで使えなくなっていたら、iPhone の既定へ戻す（v1.2「Apple Calendar」）。
-    /// 戻したときだけ true を返し、知らせる印を付ける。戻したあとは既定を持たないので、同じことで二度は知らせない。
-    /// 書き込めるカレンダーが 1 つも見えないとき（読み込みの途中など）は、消えたと決めつけない
-    mutating func dropUnavailableDefault(writable: [CalendarChoice]) -> Bool {
-        guard let id = defaultCalendarID, !writable.isEmpty, !writable.contains(where: { $0.id == id }) else { return false }
-        defaultCalendarID = nil
-        pendingFallbackNotice = true
-        return true
-    }
-
-    /// 書き込めるカレンダーの中から、保存先を決める。予定ごとの指定 → 設定の既定 → iPhone の既定 の順（Q32）
-    static func saveTarget(eventCalendarID: String?,
-                           preferences: CalendarPreferences,
-                           systemDefaultID: String?,
-                           writable: [CalendarChoice]) -> String? {
-        let writableIDs = Set(writable.map(\.id))
-        for candidate in [eventCalendarID, preferences.defaultCalendarID, systemDefaultID] {
-            if let candidate, writableIDs.contains(candidate) { return candidate }
-        }
-        return writable.first?.id
     }
 }
