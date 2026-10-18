@@ -299,6 +299,7 @@ final class TimyCueOnlySaveTests: XCTestCase {
                                localEvents: reopened, metadata: metadata,
                                preferencesFile: JSONFile(url: directory.appendingPathComponent("prefs.json"), empty: CalendarPreferences()),
                                journal: SaveJournal(file: JSONFile(url: journalURL, empty: [])),
+                               authorizationStatus: { .notDetermined },
                                onChange: { _, _ in })
         XCTAssertEqual(metadata.allMetadata()[saved[0].id]?.arrivalTargetMinutes, 25)
         XCTAssertTrue(SaveJournal(file: JSONFile(url: journalURL, empty: [])).entries.isEmpty, "済んだ記録は消す")

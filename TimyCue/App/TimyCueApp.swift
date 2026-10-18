@@ -22,7 +22,21 @@ struct TimyCueApp: App {
         let preferencesFile: JSONFile<CalendarPreferences>
         let saveTargetRecords: SaveTargetRecordStore?
         if Self.usesSampleData {
+            #if DEBUG
+            var samples = SampleEvents.make()
+            // Codemagic の画面写真用：起動引数 -TimyCueSampleAppleEvent YES で、書き込めない Apple カレンダー（見本の「チーム」）の
+            // 見本の予定を足す（既存の予定の所属の画面写真。メモリの中だけ。Apple カレンダーにはつながない）
+            if UserDefaults.standard.bool(forKey: "TimyCueSampleAppleEvent") {
+                let event = CalendarEvent(day: CalendarDay(Date()), startMinute: 15 * 60, durationMinutes: 30, title: "チーム定例（見本）",
+                                          source: .appleCalendar, calendarID: "sample-shared")
+                var info = TimyCueEventMetadata()
+                info.color = .mint
+                samples.events.append(event)
+                samples.metadata[event.id] = info
+            }
+            #else
             let samples = SampleEvents.make()
+            #endif
             metadata = InMemoryEventMetadataRepository(metadata: samples.metadata)
             switchable = SwitchableEventRepository(InMemoryEventRepository(events: samples.events))
             localEvents = nil
@@ -48,15 +62,13 @@ struct TimyCueApp: App {
         #endif
         let editor = ScheduleEditorStore(repository: switchable, metadataRepository: metadata, journal: journal)
         let calendar = CalendarStore(repository: switchable, metadataRepository: metadata)
-        #if DEBUG
-        if Self.usesSampleData, let rules = Self.sampleSaveTargets() { editor.setCalendars(rules) }
-        #endif
         _editorStore = State(initialValue: editor)
         _calendarStore = State(initialValue: calendar)
         // 出発時刻の計算（第 5 段階）。見本の予定で動かすとき（画面写真・自動テスト）は、現在地も地図も使わない
         _departures = State(initialValue: DepartureStore(isEnabled: !Self.usesSampleData,
                                                          location: LocationProvider(isEnabled: !Self.usesSampleData)))
-        _connection = State(initialValue: CalendarConnection(
+        // 連携しているときだけ、保存先の決まりを作成画面へ渡す（nil は連携していない。新しい予定はこの iPhone の中へ。spec §89.6）
+        let connection = CalendarConnection(
             eventStore: EKEventStore(),
             switchable: switchable,
             localEvents: localEvents,
@@ -69,29 +81,54 @@ struct TimyCueApp: App {
                 calendar.reload()
                 editor.refresh()
                 editor.setCalendars(saveTargets)
-            }))
+            })
+        #if DEBUG
+        if Self.usesSampleData, let link = Self.sampleLink() { connection.useSampleLink(link) }
+        #endif
+        _connection = State(initialValue: connection)
     }
 
     #if DEBUG
-    /// Codemagic の画面写真用：起動引数 -TimyCueSampleCalendars で、見本のカレンダーを作成画面に渡す。
-    /// Apple カレンダーにはつながず、何も書き込まない（見本の予定はメモリの中だけ）。
-    /// hiddenDefault：iPhone の既定（Default）の表示を OFF／displayOnlyDefault：iPhone の既定を手で表示のみ
-    private static func sampleSaveTargets() -> SaveTargetRules? {
-        guard let kind = UserDefaults.standard.string(forKey: "TimyCueSampleCalendars") else { return nil }
+    /// Codemagic の画面写真用：起動引数 -TimyCueSampleCalendars と -TimyCueSampleLink で、見本のカレンダーと見本の連携を渡す。
+    /// Apple カレンダーにはつながず、何も書き込まない（見本の予定・設定はメモリの中だけ）。
+    /// -TimyCueSampleCalendars：hiddenDefault（iPhone の既定 Default の表示を OFF）／displayOnlyDefault（Default を手で表示のみ）／
+    /// appleDefault（保存先は Apple の iPhone の既定）／timyCueOnlyDefault（保存先は TimyCue のみ）／askDefault（保存先がまだ決まっていない）。
+    /// -TimyCueSampleLink：off（フルアクセスのまま連携 OFF）／offDenied（許可なしで連携 OFF）。どちらもなければ連携中
+    private static func sampleLink() -> CalendarConnection.SampleLink? {
+        let defaults = UserDefaults.standard
+        let kind = defaults.string(forKey: "TimyCueSampleCalendars")
+        let link = defaults.string(forKey: "TimyCueSampleLink")
+        guard kind != nil || link != nil else { return nil }
         let calendars = [
             CalendarChoice(id: "sample-default", title: "Default", sourceTitle: "iCloud", isWritable: true, color: .orange),
             CalendarChoice(id: "sample-home", title: "家", sourceTitle: "iCloud", isWritable: true, color: .green),
             CalendarChoice(id: "sample-work", title: "仕事", sourceTitle: "Google", isWritable: true, color: .saxeBlue),
+            // 書き込めない共有のカレンダー（保存先の候補には出ない）
+            CalendarChoice(id: "sample-shared", title: "チーム", sourceTitle: "Google", isWritable: false, color: .mint),
             CalendarChoice(id: "sample-holidays", title: "日本の祝日", sourceTitle: "購読", isWritable: false, color: .lavender,
                            isHolidays: true),
         ]
         var preferences = CalendarPreferences()
-        switch kind {
+        preferences.saveTargetKind = .appleCalendar
+        switch kind ?? "" {
         case "hiddenDefault": preferences.hiddenCalendarIDs = ["sample-default"]
         case "displayOnlyDefault": preferences.setHoliday(true, calendarID: "sample-default")
+        case "timyCueOnlyDefault": preferences.saveTargetKind = .timyCueOnly
+        case "askDefault": preferences.saveTargetKind = .askBeforeSaving
         default: break
         }
-        return SaveTargetRules(calendars: calendars, preferences: preferences, systemDefaultID: "sample-default")
+        var authorization = EKAuthorizationStatus.fullAccess
+        switch link ?? "" {
+        case "off":
+            preferences.appleLinkEnabled = false
+        case "offDenied":
+            preferences.appleLinkEnabled = false
+            authorization = .denied
+        default:
+            break
+        }
+        return CalendarConnection.SampleLink(calendars: calendars, systemDefaultID: "sample-default",
+                                             preferences: preferences, authorization: authorization)
     }
     #endif
 

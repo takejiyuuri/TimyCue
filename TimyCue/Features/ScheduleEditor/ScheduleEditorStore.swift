@@ -1006,7 +1006,7 @@ final class ScheduleEditorStore {
         // 移す先が使えなければ、何も作らず、元の予定も消さずに止める（spec §89.5）
         if case .unavailable(let problem, let source)? = moveToAppleTarget {
             failure = .saveTarget(problem, source: source, systemDefaultLabel: saveTargets.systemDefaultLabel,
-                                  action: .moveToApple, canChooseInRow: showsCalendarRow)
+                                  action: .moveToApple, canChooseInRow: canChooseInCalendarRow)
             throw problem
         }
         do {

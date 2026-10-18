@@ -17,6 +17,10 @@ struct SettingsTabView: View {
     /// S1b の保存の失敗の再現（起動引数 `-TimyCueDevScreen saveFaults`）
     @State private var opensSaveFaults = UserDefaults.standard.string(forKey: "TimyCueDevScreen") == "saveFaults"
     #endif
+    #if DEBUG
+    /// Codemagic の画面写真用：起動引数 `-TimyCueSettingsScreen calendar` で、カレンダー連携の画面を開いた状態で始める
+    @State private var opensCalendarSettings = UserDefaults.standard.string(forKey: "TimyCueSettingsScreen") == "calendar"
+    #endif
 
     var body: some View {
         NavigationStack {
@@ -123,6 +127,11 @@ struct SettingsTabView: View {
             #if TIMYCUE_SAVE_FAULTS
             .navigationDestination(isPresented: $opensSaveFaults) {
                 SaveFaultView()
+            }
+            #endif
+            #if DEBUG
+            .navigationDestination(isPresented: $opensCalendarSettings) {
+                CalendarSettingsView()
             }
             #endif
         }

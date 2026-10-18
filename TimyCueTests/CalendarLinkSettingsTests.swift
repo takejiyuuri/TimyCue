@@ -161,6 +161,7 @@ final class CalendarLinkSettingsTests: XCTestCase {
             localEvents: local,
             metadata: InMemoryEventMetadataRepository(),
             preferencesFile: JSONFile(url: directory.appendingPathComponent("prefs.json"), empty: CalendarPreferences()),
+            authorizationStatus: { .notDetermined },
             onChange: { _, _ in })
         guard connection.state == .notAsked else { throw XCTSkip("このシミュレータではカレンダーの許可がもう決まっている") }
 

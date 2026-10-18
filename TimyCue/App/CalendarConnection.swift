@@ -595,6 +595,28 @@ final class CalendarConnection {
         recoveryNotice = nil
     }
 
+    #if DEBUG
+    /// Codemagic の画面写真用の見本の連携（DEBUG のときだけ）。見本のカレンダー・iPhone の既定・設定・許可の状態
+    struct SampleLink {
+        var calendars: [CalendarChoice]
+        var systemDefaultID: String?
+        var preferences: CalendarPreferences
+        var authorization: EKAuthorizationStatus
+    }
+
+    /// 見本の予定で動いているときだけ、見本の連携をメモリの中に入れて画面へ知らせる（DEBUG のときだけ）。
+    /// 設定のファイルにも Apple カレンダーにも触れない。連携 OFF・許可なしの見本では、カレンダーを空にする
+    func useSampleLink(_ link: SampleLink) {
+        guard !isLive else { return }
+        authorization = link.authorization
+        state = Self.state(for: link.authorization)
+        preferences = link.preferences
+        calendars = isLinked ? link.calendars : []
+        systemDefaultCalendarID = isLinked ? link.systemDefaultID : nil
+        notify()
+    }
+    #endif
+
     /// 画面へ知らせる。連携していないときは保存先の決まりを渡さない（作成画面は、新しい予定をこの iPhone の中へ保存する）
     private func notify() {
         refreshDuplicates()

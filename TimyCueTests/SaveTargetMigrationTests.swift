@@ -68,6 +68,8 @@ final class SaveTargetMigrationTests: XCTestCase {
                                   metadata: InMemoryEventMetadataRepository(),
                                   preferencesFile: JSONFile(url: url ?? preferencesURL, empty: CalendarPreferences()),
                                   saveTargetRecords: SaveTargetRecordStore(defaults: defaults),
+                                  // シミュレータの許可の状態によらないように（移行は許可の状態を材料にしない）
+                                  authorizationStatus: { .notDetermined },
                                   onChange: { _, _ in })
     }
 

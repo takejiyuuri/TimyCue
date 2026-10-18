@@ -15,7 +15,7 @@ struct EventContent: Equatable {
         !(locationName ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
     /// 保存先の Apple カレンダー。nil は既定の保存先（Q32）。カレンダーを選んだら、「TimyCue のみ」の選びは外す
-    var calendarID: String? {
+    var calendarID: String? = nil {
         didSet {
             if calendarID != nil { isTimyCueOnly = false }
         }

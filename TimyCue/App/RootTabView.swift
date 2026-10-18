@@ -111,10 +111,20 @@ struct RootTabView: View {
     }
 
     /// Codemagic で 3 分割画面の画面写真を撮るとき、起動引数 `-TimyCueEditorDays "0,7,14"`（今日からの日数）で、
-    /// その日を選んだ新規の 3 分割画面を開く（DEBUG のときだけ）
+    /// その日を選んだ新規の 3 分割画面を開く。`-TimyCueEditorEdit 予定名` なら、その見本の予定の編集を開く（DEBUG のときだけ）
     private func openEditorForScreenshot() {
         #if DEBUG
-        guard let raw = UserDefaults.standard.string(forKey: "TimyCueEditorDays"), !showsEditorForScreenshot else { return }
+        guard !showsEditorForScreenshot else { return }
+        // 既存の予定の「カレンダー」の行（所属の表示。Q113）の画面写真
+        if let title = UserDefaults.standard.string(forKey: "TimyCueEditorEdit") {
+            editorStore.refresh()
+            guard let event = editorStore.events.first(where: { $0.title == title }),
+                  (try? editorStore.startEditing(eventID: event.id)) != nil else { return }
+            if UserDefaults.standard.string(forKey: "TimyCueEditorRow") == "calendar" { editorStore.toggleRow(.calendar) }
+            showsEditorForScreenshot = true
+            return
+        }
+        guard let raw = UserDefaults.standard.string(forKey: "TimyCueEditorDays") else { return }
         let today = CalendarDay(Date())
         let days = raw.split(separator: ",").compactMap { Int($0.trimmingCharacters(in: .whitespaces)) }.map { today.adding(days: $0) }
         guard let first = days.first else { return }

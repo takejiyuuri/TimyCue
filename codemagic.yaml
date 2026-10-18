@@ -76,14 +76,15 @@ workflows:
           DEBUG_APP=build/derived/Build/Products/Debug-iphonesimulator/TimyCue.app
           RELEASE_APP=build/release/Build/Products/Release-iphonesimulator/TimyCue.app
           [ -f "$RELEASE_APP/TimyCue" ] || { echo "公開版の形のアプリが見つかりません"; exit 1; }
-          WORDS="SaveFaultView CharacterSizeComparisonView ClockVerificationView TimyCueSaveFault 開発用：保存の失敗の再現 開発用：キャラクターの大きさ"
+          # TimyCueSampleLink：画面写真用の見本の連携の起動引数の鍵（S6。DEBUG だけでコンパイルする）。公開版の形に入っていないことも確かめる
+          WORDS="SaveFaultView CharacterSizeComparisonView ClockVerificationView TimyCueSaveFault TimyCueSampleLink 開発用：保存の失敗の再現 開発用：キャラクターの大きさ"
           for WORD in $WORDS; do
             has "$DEBUG_APP" "$WORD" || { echo "確かめ方が働いていません：両方の印を付けたビルドに「$WORD」が見つかりません"; exit 1; }
           done
           for WORD in $WORDS 開発用：; do
             if has "$RELEASE_APP" "$WORD"; then echo "公開版の形のアプリに「$WORD」が入っています"; exit 1; fi
           done
-          echo "両方の印のビルドで「$WORDS」が見つかることを確かめたうえで、公開版の形（印なし）ではどれも（と「開発用：」も）見つからない：開発用の画面（キャラクター・時計・保存の失敗の再現）と、失敗の再現の印を付ける処理は入っていません" | tee build/release-check.log
+          echo "両方の印のビルドで「$WORDS」が見つかることを確かめたうえで、公開版の形（印なし）ではどれも（と「開発用：」も）見つからない：開発用の画面（キャラクター・時計・保存の失敗の再現）と、失敗の再現の印を付ける処理と、画面写真用の見本の連携は入っていません" | tee build/release-check.log
       - name: TestFlight の形（H1 の検証用の印だけ）に失敗の再現が入らないか
         # 2026-10-18 S1a＋S1b TestFlight 配信の指示：TestFlight は H1 の比べる画面のために検証用の印（TIMYCUE_DEV_TOOLS）を付けるが、
         # 保存の失敗の再現（TIMYCUE_SAVE_FAULTS）は付けない。TestFlight と同じ条件（Release・TIMYCUE_DEV_TOOLS だけ）でビルドし、
@@ -104,10 +105,10 @@ workflows:
           for WORD in CharacterSizeComparisonView 開発用：キャラクターの大きさ; do
             LC_ALL=C grep -a -F -q "$WORD" "$APP/TimyCue" || { echo "TestFlight の形に H1 の比べる画面（$WORD）が入っていません（印の付け方を確かめてください）"; exit 1; }
           done
-          for WORD in SaveFaultView TimyCueSaveFault 開発用：保存の失敗の再現 "Apple に書けた直後にアプリを終える"; do
+          for WORD in SaveFaultView TimyCueSaveFault TimyCueSampleLink 開発用：保存の失敗の再現 "Apple に書けた直後にアプリを終える"; do
             if LC_ALL=C grep -a -F -q "$WORD" "$APP/TimyCue"; then echo "TestFlight の形のアプリに「$WORD」が入っています"; exit 1; fi
           done
-          echo "TestFlight の形（H1 の検証用の印だけ）でビルドでき、H1 の比べる画面は入り（型の名前と「開発用：キャラクターの大きさ」が見つかる）、保存の失敗の再現の画面と、失敗の再現の印を付ける処理は入っていません" | tee build/testflight-config-check.log
+          echo "TestFlight の形（H1 の検証用の印だけ）でビルドでき、H1 の比べる画面は入り（型の名前と「開発用：キャラクターの大きさ」が見つかる）、保存の失敗の再現の画面と、失敗の再現の印を付ける処理と、画面写真用の見本の連携は入っていません" | tee build/testflight-config-check.log
       - name: 画面写真を撮る（見本の予定だけが入った状態）
         script: |
           set -e
@@ -185,6 +186,29 @@ workflows:
           capture editor-save-hidden -TimyCueEditorDays "0" -TimyCueSampleCalendars hiddenDefault -TimyCueEditorAutoSave YES
           capture editor-save-display-only -TimyCueEditorDays "0" -TimyCueSampleCalendars displayOnlyDefault -TimyCueEditorAutoSave YES
           capture editor-calendar-unavailable -TimyCueEditorDays "0" -TimyCueSampleCalendars hiddenDefault -TimyCueEditorRow calendar
+          # S2・S3・S6（spec §89.2〜§89.6）：見本のカレンダー・見本の連携は DEBUG だけの起動引数でメモリの中に入れる。
+          # Apple カレンダーにも本物の設定のファイルにも書かない。上の 2 つ（editor-save-hidden・editor-save-display-only）は、
+          # S3 から保存の前の選び直し（下から出る選択肢）になる
+          # 作成画面の「カレンダー」の行：保存先が TimyCue のみ／Apple（iPhone の既定）
+          capture editor-calendar-timycue-only -TimyCueEditorDays "0" -TimyCueSampleCalendars timyCueOnlyDefault -TimyCueEditorRow calendar
+          capture editor-calendar-apple -TimyCueEditorDays "0" -TimyCueSampleCalendars appleDefault -TimyCueEditorRow calendar
+          # 保存先がまだ決まっていない今の利用者が、連携中に初めて保存するときの確かめ（Q111-4）
+          capture editor-ask-target -TimyCueEditorDays "0" -TimyCueSampleCalendars askDefault -TimyCueEditorAutoSave YES
+          # 既存の予定の所属（Q113）：ローカルの予定（連携中は移す先のチップ・連携していないときは鍵）と、書き込めない Apple の予定
+          capture editor-existing-local -TimyCueEditorEdit 歯医者 -TimyCueSampleCalendars appleDefault -TimyCueEditorRow calendar
+          capture editor-existing-local-unlinked -TimyCueEditorEdit 歯医者
+          capture editor-existing-apple-readonly -TimyCueSampleAppleEvent YES -TimyCueEditorEdit "チーム定例（見本）" -TimyCueSampleCalendars appleDefault
+          # 設定 ＞ カレンダー連携：連携中（保存先が Apple・TimyCue のみ・未選択・使えない）、連携 OFF（許可あり・許可なし）、まだ連携していない
+          capture settings-calendar-apple -TimyCueTab settings -TimyCueSettingsScreen calendar -TimyCueSampleCalendars appleDefault
+          capture settings-calendar-timycue-only -TimyCueTab settings -TimyCueSettingsScreen calendar -TimyCueSampleCalendars timyCueOnlyDefault
+          capture settings-calendar-ask -TimyCueTab settings -TimyCueSettingsScreen calendar -TimyCueSampleCalendars askDefault
+          capture settings-calendar-unavailable -TimyCueTab settings -TimyCueSettingsScreen calendar -TimyCueSampleCalendars hiddenDefault
+          capture settings-calendar-off -TimyCueTab settings -TimyCueSettingsScreen calendar -TimyCueSampleCalendars appleDefault -TimyCueSampleLink off
+          capture settings-calendar-off-denied -TimyCueTab settings -TimyCueSettingsScreen calendar -TimyCueSampleCalendars appleDefault -TimyCueSampleLink offDenied
+          capture settings-calendar-not-linked -TimyCueTab settings -TimyCueSettingsScreen calendar
+          # 設定トップの状態「OFF」と、連携 OFF の Home（連携のカードを出さない。Q102。上の home は、まだ連携していないのでカードあり。Q115）
+          capture settings-top-off -TimyCueTab settings -TimyCueSampleCalendars appleDefault -TimyCueSampleLink off
+          capture home-link-off -TimyCueTab home -TimyCueSampleCalendars appleDefault -TimyCueSampleLink off
           # S1b：開発用の失敗の再現の画面（検証用のビルドだけ）
           capture dev-save-faults -TimyCueTab settings -TimyCueDevScreen saveFaults
           # S1b（spec §89.9）：3 日を選んで保存し、検証用の失敗の再現で途中を失敗させる（見本の予定はメモリの中だけ。何も書かない）。
