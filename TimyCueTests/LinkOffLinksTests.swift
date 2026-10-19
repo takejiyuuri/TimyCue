@@ -93,7 +93,7 @@ final class LinkOffLinksTests: XCTestCase {
                 created.repository = repository
                 return repository
             },
-            onChange: { _, _ in })
+            onChange: { _, _, _ in })
         return Setup(connection: connection, switchable: switchable, local: local)
     }
 

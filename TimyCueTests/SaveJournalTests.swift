@@ -203,7 +203,7 @@ final class SaveJournalTests: XCTestCase {
                                             preferencesFile: JSONFile(url: directory.appendingPathComponent("prefs.json"),
                                                                       empty: CalendarPreferences()),
                                             journal: SaveJournal(file: journalFile()),
-                                            onChange: { _, _ in })
+                                            onChange: { _, _, _ in })
         XCTAssertEqual(metadata.allMetadata()[event.id]?.arrivalTargetMinutes, 25, "書けた予定に、記録した設定を当てる")
         XCTAssertTrue(SaveJournal(file: journalFile()).entries.isEmpty, "済んだ記録・書けていない記録は消す")
         XCTAssertNil(connection.recoveryNotice, "端末の中の保存は、確かめてもらうことがない")

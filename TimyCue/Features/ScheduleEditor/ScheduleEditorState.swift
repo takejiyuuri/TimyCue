@@ -98,4 +98,9 @@ enum ScheduleEditorError: Error, Equatable {
     case needsConfirmation
     /// 新しい予定の保存先がまだ決まっていない（Q111-4）。何も書かず、保存先を選んでもらう
     case needsSaveTargetChoice
+    /// 作成画面を開いているあいだに連携が外れ、画面に出していた Apple カレンダーの保存先に保存できない。
+    /// 黙って TimyCue のみへ変えず、何も書かずに確かめてもらう（2026-10-19 ユーザー指示 3）
+    case needsLinkLossConfirmation
+    /// 連携していないので、Apple カレンダーの予定を直せない・Apple Calendarに作れない。何も書いていない（2026-10-19 ユーザー指示 3）
+    case appleUnavailable
 }

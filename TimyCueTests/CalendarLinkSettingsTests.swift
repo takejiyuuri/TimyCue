@@ -162,7 +162,7 @@ final class CalendarLinkSettingsTests: XCTestCase {
             metadata: InMemoryEventMetadataRepository(),
             preferencesFile: JSONFile(url: directory.appendingPathComponent("prefs.json"), empty: CalendarPreferences()),
             authorizationStatus: { .notDetermined },
-            onChange: { _, _ in })
+            onChange: { _, _, _ in })
         guard connection.state == .notAsked else { throw XCTSkip("このシミュレータではカレンダーの許可がもう決まっている") }
 
         XCTAssertTrue(connection.showsFirstGuidance, "初回は理由と「カレンダーを連携」を案内する（開いただけで許可のダイアログは出さない）")
@@ -188,7 +188,7 @@ final class CalendarLinkSettingsTests: XCTestCase {
             localEvents: nil,
             metadata: InMemoryEventMetadataRepository(),
             preferencesFile: JSONFile(url: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString), empty: CalendarPreferences()),
-            onChange: { _, _ in })
+            onChange: { _, _, _ in })
         XCTAssertFalse(connection.isLive)
         XCTAssertFalse(connection.showsFirstGuidance, "見本の予定で動いているときは案内も出さず、つながない（Q34）")
     }

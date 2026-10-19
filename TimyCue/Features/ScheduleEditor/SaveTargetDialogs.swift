@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// 作成画面で、保存の前に保存先を選んでもらう 2 つの確かめ（spec §89.4・Q99・Q111-4。S3）。作成画面の本体を短く保つため、別にする。
-/// 文言は仮
+/// 作成画面で、保存の前に保存先を選んでもらう確かめ（spec §89.4・Q99・Q111-4。S3）。作成画面の本体を短く保つため、別にする。
+/// 開いているあいだに連携が外れたときの確かめ（2026-10-19 ユーザー指示 3）は LinkLossDialog。文言は仮
 struct SaveTargetDialogs: ViewModifier {
     @Environment(ScheduleEditorStore.self) private var store
     @Environment(CalendarConnection.self) private var connection
@@ -9,6 +9,8 @@ struct SaveTargetDialogs: ViewModifier {
     @Binding var asksFirstSaveTarget: Bool
     /// 保存先が使えないので、保存の前に選び直してもらっている
     @Binding var asksSaveTargetAgain: Bool
+    /// 開いているあいだに連携が外れ、出していた Apple の保存先に保存できないので、TimyCue のみに保存するかを聞いている
+    @Binding var asksLinkLoss: Bool
     /// 保存する（作成画面の保存と同じ。閉じる・失敗を知らせるのも作成画面）
     let onSave: () -> Void
 
@@ -51,6 +53,7 @@ struct SaveTargetDialogs: ViewModifier {
             } message: { prompt in
                 Text(prompt.message)
             }
+            .modifier(LinkLossDialog(isPresented: $asksLinkLoss, onSave: onSave))
     }
 
     /// 「「○○」の表示をONにして保存」
@@ -66,5 +69,29 @@ struct SaveTargetDialogs: ViewModifier {
         } else if let choice = store.eventChoice(for: option) {
             store.chooseSaveTarget(choice)
         }
+    }
+}
+
+/// 作成画面（新規・コピー）を開いているあいだに連携が外れ（連携 OFF・許可がなくなった）、画面に出していた Apple カレンダーの保存先に
+/// 保存できないときの、保存の前の確かめ（2026-10-19 ユーザー指示 3）。黙って TimyCue のみへ変えず、TimyCue のみに保存するかを聞く。
+/// 文言は仮
+private struct LinkLossDialog: ViewModifier {
+    @Environment(ScheduleEditorStore.self) private var store
+    @Binding var isPresented: Bool
+    let onSave: () -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .confirmationDialog("Apple カレンダーには保存できません", isPresented: $isPresented, titleVisibility: .visible,
+                                presenting: store.linkLossPrompt) { _ in
+                Button("\(SaveTargetRules.timyCueOnlyLabel)に保存") {
+                    // TimyCue のみをはっきり選んでから保存する（この予定だけ。設定の既定は変えない）
+                    store.chooseSaveTarget(.timyCueOnly)
+                    onSave()
+                }
+                Button("やめる", role: .cancel) {}
+            } message: { message in
+                Text(message)
+            }
     }
 }

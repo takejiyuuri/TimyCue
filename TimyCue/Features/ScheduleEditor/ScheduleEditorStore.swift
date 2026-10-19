@@ -44,6 +44,18 @@ final class ScheduleEditorStore {
     private(set) var isConnectedToApple = false
     /// 「別の日にコピー」を始めたときの保存先の選び（元の予定の保存先。Q97）。使えるかを開いたときの保存先として確かめる
     private(set) var copyInitialChoice: SaveChoice?
+    /// 連携の状態（連携していないときの理由を、行と確かめの文に出す。spec §89.6）
+    private(set) var appleLinkStatus: AppleLinkStatus = .notLinked
+    /// 作成画面を開いているあいだに連携が外れたとき（連携 OFF・許可がなくなった）、それまで画面に出していた Apple カレンダーの
+    /// 保存先の名前（新規・コピーは「iPhoneの既定（家）」など、Apple の予定の編集は所属のカレンダー）。新規・コピーは黙って TimyCue のみへ
+    /// 変えず、保存の前に確かめる。編集は保存しない。TimyCue のみを選ぶか、連携が戻ったら消す（2026-10-19 ユーザー指示 3）
+    private(set) var lostAppleTargetName: String?
+    /// 作成画面（新規・コピー）を開いているあいだに連携の状態が変わった。実際の保存先が見えるよう「カレンダー」の行を出したままにする
+    private(set) var linkChangedWhileEditing = false
+    /// 編集しているのが Apple カレンダーの予定か（開いたとき）と、その所属のカレンダーの名前。連携が外れて予定が読めなくなっても、
+    /// 行に所属を出し、保存しないで理由を出すため（2026-10-19 ユーザー指示 3）
+    private var editsAppleEvent = false
+    private var editedAppleCalendarTitle: String?
     /// 到着目標の全体既定値（Q70。設定画面で変えられるようにするのは後の段階）
     var defaultArrivalTargetMinutes = TimyCueEventMetadata.defaultArrivalTargetMinutes
     /// 書き込めない Apple カレンダー（共有・購読など）の id → 名前（追加仕様書 §1.7）
@@ -140,8 +152,18 @@ final class ScheduleEditorStore {
         }
     }
 
+    /// アプリの連携の知らせを受ける（CalendarConnection が知らせるたび。TimyCueApp）。rules が nil なら連携していない（連携 OFF・許可なし）。
+    /// 作成画面を開いているあいだに連携の状態が変わったら、画面に出していた保存先を保つ（黙って変えない。2026-10-19 ユーザー指示 3）。
+    /// そのあと setCalendars で保存先の決まりを入れる
+    func receiveLink(_ rules: SaveTargetRules?, status: AppleLinkStatus) {
+        let linking = rules != nil
+        if linking != isConnectedToApple { keepShownSaveTarget(linking: linking) }
+        appleLinkStatus = status
+        setCalendars(rules)
+    }
+
     /// Apple カレンダーとつないだ・設定を変えたとき（書き込めないカレンダーも含めた一覧と、表示・表示のみ・既定の保存先の設定）。
-    /// nil は連携していない（連携 OFF・許可なし。spec §89.6）
+    /// nil は連携していない（連携 OFF・許可なし。spec §89.6）。決まりを入れるだけ（開いているあいだの連携の変化の扱いは receiveLink）
     func setCalendars(_ rules: SaveTargetRules?) {
         guard let rules else {
             saveTargets = SaveTargetRules()
@@ -153,6 +175,52 @@ final class ScheduleEditorStore {
         isConnectedToApple = true
         readOnlyCalendarTitles = Dictionary(rules.calendars.filter { !$0.isWritable }.map { ($0.id, $0.title) },
                                             uniquingKeysWith: { first, _ in first })
+    }
+
+    /// 作成画面を開いているあいだに連携の状態が変わったとき、画面に出していた保存先を保つ（2026-10-19 ユーザー指示 3。呼ぶのは決まりを変える前）。
+    /// 新規・コピーで連携が外れた：Apple カレンダーを出していたら、その名前を覚えて、保存の前に TimyCue のみに保存するかを確かめる
+    /// （選んでいたカレンダーはこの予定の選びに残し、連携が戻ったらそこへ保存する）。TimyCue のみを出していたら TimyCue のみのまま。
+    /// 新規・コピーでつながった：それまで TimyCue のみ（この iPhone の中）と出していたので、黙って Apple へ変えず、TimyCue のみを
+    /// 選んだままにする（「カレンダー」の行で Apple カレンダーを選び直せる）。
+    /// Apple の予定の編集で連携が外れた：所属を出したまま、保存しないで理由を出す（連携が戻ったら元どおり）。保存が済んだあとは何もしない
+    private func keepShownSaveTarget(linking: Bool) {
+        guard !isFinished else { return }
+        if mode.isEdit {
+            guard editsAppleEvent else { return }
+            lostAppleTargetName = linking ? nil : (editedAppleCalendarTitle ?? "Apple カレンダー")
+            return
+        }
+        linkChangedWhileEditing = true
+        let before = content.saveChoice
+        if linking {
+            if lostAppleTargetName != nil {
+                lostAppleTargetName = nil
+            } else if content.saveChoice == nil {
+                content.saveChoice = .timyCueOnly
+            }
+        } else if let shown = pendingSaveTarget {
+            switch shown {
+            case .usable(let calendar, _):
+                lostAppleTargetName = saveTargets.name(for: shown)
+                content.saveChoice = .calendar(calendar.id)
+            case .unavailable:
+                lostAppleTargetName = saveTargets.name(for: shown)
+            case .timyCueOnly:
+                content.saveChoice = .timyCueOnly
+            case .notChosen:
+                break
+            }
+        }
+        // 利用者が変えたのではないので、新規では閉じるときの「保存していない変更」に数えない
+        if case .new = mode, baseline.content.saveChoice == before, content.saveChoice != before {
+            baseline.content.saveChoice = content.saveChoice
+        }
+    }
+
+    /// 連携の状態の変化の記録を消す（新規・編集・コピーを始めたとき）
+    private func resetLinkChange() {
+        lostAppleTargetName = nil
+        linkChangedWhileEditing = false
     }
 
     // MARK: - 保存先（spec §89.2〜§89.5。2026-10-17・2026-10-18 決定）
@@ -186,12 +254,14 @@ final class ScheduleEditorStore {
     /// 既存の予定（編集）：所属のカレンダーを確かめられるよう、いつも出す（変えられないときは閲覧専用）。
     /// 新規・コピー：連携中で、保存先の候補（「TimyCue のみ」と使える Apple カレンダー）が 2 種類以上あるとき。
     /// TimyCue のみしか使えなくても、今の保存先・開いたときの保存先（設定の既定・コピー元）が使えない、またはまだ決まっていないときは、
-    /// 出して選び直せるようにする。行で選んで使えるようになっても、開いたときの保存先が使えなければ出したままにする（選んだ値が見えるように）
+    /// 出して選び直せるようにする。行で選んで使えるようになっても、開いたときの保存先が使えなければ出したままにする（選んだ値が見えるように）。
+    /// 開いているあいだに連携の状態が変わったときは、実際の保存先が見えるように出したままにする（2026-10-19 ユーザー指示 3）
     var showsCalendarRow: Bool {
         switch mode {
         case .edit:
             return true
         case .new, .copy:
+            if linkChangedWhileEditing { return true }
             guard isConnectedToApple else { return false }
             if !saveTargetCandidates.isEmpty { return true }
             if case .notChosen? = pendingSaveTarget { return true }
@@ -234,10 +304,16 @@ final class ScheduleEditorStore {
         let timyCueOnly = [SaveTargetRules.timyCueOnlyLabel, SaveTargetRules.timyCueOnlyShortLabel]
         switch mode {
         case .new, .copy:
-            // 連携していなければ、この iPhone の中へ保存する
-            guard let resolution = pendingSaveTarget else { return timyCueOnly }
+            // 連携していなければ、この iPhone の中へ保存する。開いているあいだに連携が外れて、出していた Apple の保存先に
+            // 保存できないときは、その名前に「（保存できません）」を付ける（黙って TimyCue のみと出さない。2026-10-19 ユーザー指示 3）
+            guard let resolution = pendingSaveTarget else {
+                if let name = lostAppleTargetName { return ["\(name)（保存できません）", "保存できません"] }
+                return timyCueOnly
+            }
             return Self.rowValues(for: resolution, rules: saveTargets)
         case .edit:
+            // 開いているあいだに連携が外れて、編集していた Apple の予定が読めなくなった：開いたときの所属に「（保存できません）」を付ける
+            if let name = lostAppleTargetName { return ["\(name)（保存できません）", "保存できません"] }
             // TimyCue の予定は所属の「TimyCue のみ（このiPhone）」（「Apple Calendarに保存」の移す先は、ボタンの下に出す）
             guard let event = editingEvent, event.source == .appleCalendar else { return timyCueOnly }
             // 所属を変えたなら、変えた先
@@ -272,6 +348,12 @@ final class ScheduleEditorStore {
         switch mode {
         case .new, .copy:
             content.saveChoice = choice
+            // 連携が外れて保存できなくなった Apple の保存先の代わりに、TimyCue のみをはっきり選んだ（2026-10-19 ユーザー指示 3）
+            if choice == .timyCueOnly, lostAppleTargetName != nil {
+                lostAppleTargetName = nil
+                // 連携していなければ、ほかに選べるものはないので行を閉じる
+                if !isConnectedToApple, expandedRow == .calendar { expandedRow = nil }
+            }
         case .edit:
             if case .calendar(let id) = choice { content.calendarID = id }
         }
@@ -374,6 +456,9 @@ final class ScheduleEditorStore {
         baseDay = day
         setsTimesIndividually = false
         copyInitialChoice = nil
+        editsAppleEvent = false
+        editedAppleCalendarTitle = nil
+        resetLinkChange()
         resetTransientState()
         resetSaveProgress()
         if let day { selectedDays = [day] }
@@ -399,6 +484,12 @@ final class ScheduleEditorStore {
         baseDay = event.day
         setsTimesIndividually = false
         copyInitialChoice = nil
+        // 連携が外れて予定が読めなくなっても、所属を出して保存を止められるように覚えておく（2026-10-19 ユーザー指示 3）
+        editsAppleEvent = event.source == .appleCalendar
+        editedAppleCalendarTitle = event.calendarID.flatMap { id in
+            readOnlyCalendarTitles[id] ?? saveTargets.calendars.first(where: { $0.id == id })?.title
+        }
+        resetLinkChange()
         resetTransientState()
         resetSaveProgress()
         baseline = snapshot
@@ -412,8 +503,10 @@ final class ScheduleEditorStore {
         guard case .edit(let id) = mode else { throw ScheduleEditorError.copyRequiresEditMode }
         stateBeforeCopy = (snapshot, displayedDay, setsTimesIndividually, baseline)
         let duration = selectedDays.first.flatMap { durationMinutes(on: $0) } ?? commonDurationMinutes
-        let isAppleEvent = events.first(where: { $0.id == id })?.source == .appleCalendar
+        // 開いているあいだに連携が外れて元の Apple の予定が読めなくなっていても、開いたときの所属で決める
+        let isAppleEvent = events.first(where: { $0.id == id }).map { $0.source == .appleCalendar } ?? editsAppleEvent
         let choice: SaveChoice? = isAppleEvent ? content.calendarID.map(SaveChoice.calendar) : .timyCueOnly
+        let lostName = lostAppleTargetName
         mode = .copy(sourceID: id)
         content = content.copiedForNewEvent()
         content.saveChoice = choice
@@ -427,6 +520,13 @@ final class ScheduleEditorStore {
         durationOverrides = [:]
         plannedEventIDs = [:]
         savedEventsThisSession = []
+        resetLinkChange()
+        // 連携が外れて元の Apple の保存先に保存できないときは、コピーもその保存先（保存できない）と出し、保存の前に確かめる
+        // （黙って TimyCue のみにしない。2026-10-19 ユーザー指示 3）
+        if isAppleEvent, let lostName {
+            lostAppleTargetName = lostName
+            linkChangedWhileEditing = true
+        }
         resetTransientState()
         // 表示中の日はコピー元の日のまま。コピー先はカレンダーで選んでもらう
     }
@@ -445,6 +545,7 @@ final class ScheduleEditorStore {
         setsTimesIndividually = saved.setsTimesIndividually
         copyPicks = []
         copyInitialChoice = nil
+        resetLinkChange()
         resetTransientState()
         baseline = saved.baseline
         stateBeforeCopy = nil
@@ -691,6 +792,16 @@ final class ScheduleEditorStore {
         guard issues.isEmpty else {
             present(issues)
             throw ScheduleEditorError.notReady(issues)
+        }
+        // 開いているあいだに連携が外れて、画面に出していた Apple の保存先に保存できない：黙って TimyCue のみへ変えず、何も書かずに止める
+        // （画面は保存の前に確かめを出すので、ここは最後の守り。2026-10-19 ユーザー指示 3）
+        if mode.allowsMultipleDays, !isConnectedToApple, lostAppleTargetName != nil {
+            throw ScheduleEditorError.needsLinkLossConfirmation
+        }
+        // 開いているあいだに連携が外れて、編集していた Apple の予定を直せない：何も書かずに理由を出す（入力はそのまま）
+        if mode.isEdit, lostAppleTargetName != nil {
+            failure = .appleUnavailable(reason: appleLinkStatus.saveUnavailableReason, action: .save)
+            throw ScheduleEditorError.appleUnavailable
         }
         // 新しい予定の保存先がまだ決まっていない（Q111-4）：何も書かず、「カレンダー」の行を開く。
         // 画面は保存の前に確かめを出すので、ここは最後の守り（アラートは出さない）
@@ -991,6 +1102,11 @@ final class ScheduleEditorStore {
     @discardableResult
     func moveToAppleCalendar(confirmedUnknown: Bool = false) throws -> CalendarEvent {
         guard !isFinished else { throw ScheduleEditorError.alreadySaved }
+        // 確かめているあいだに連携が外れた：Apple Calendarに作らず、理由を出す（2026-10-19 ユーザー指示 3）
+        if mode.isEdit, !isConnectedToApple {
+            failure = .appleUnavailable(reason: appleLinkStatus.saveUnavailableReason, action: .moveToApple)
+            throw ScheduleEditorError.appleUnavailable
+        }
         guard !moveNeedsConfirmation || confirmedUnknown else { throw ScheduleEditorError.needsConfirmation }
         let issues = saveIssues
         guard issues.isEmpty else {

@@ -156,7 +156,7 @@ final class LocalSaveSafetyTests: XCTestCase {
                                   localEvents: local,
                                   metadata: metadata,
                                   preferencesFile: JSONFile(url: preferencesURL, empty: CalendarPreferences()),
-                                  onChange: { _, _ in })
+                                  onChange: { _, _, _ in })
     }
 
     @MainActor

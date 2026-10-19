@@ -70,9 +70,10 @@ final class CalendarLinkToggleTests: XCTestCase {
                                                 created.count += 1
                                                 return apple
                                             },
-                                            onChange: { _, rules in
+                                            onChange: { _, rules, status in
                                                 log.count += 1
                                                 log.rules = rules
+                                                log.status = status
                                             })
         return Setup(connection: connection, local: local, switchable: switchable)
     }
@@ -220,6 +221,34 @@ final class CalendarLinkToggleTests: XCTestCase {
                                            apple: CalendarEvent(day: day, startMinute: 900, title: "歯医者", source: .appleCalendar))
         XCTAssertNoThrow(try setup.connection.useApple(candidate))
         XCTAssertTrue(setup.local.allEvents().contains { $0.id == localEvent.id }, "OFF のあいだは重複候補の操作もしない")
+    }
+
+    @MainActor
+    func testTurningTheLinkOffWhileTheEditorIsOpenAsksBeforeSavingOnThisIPhone() throws {
+        try writePreferences(appleDefaultWork())
+        let apple = FakeAppleCalendar(calendars: [home, work], systemDefaultID: "home")
+        let log = ChangeLog()
+        let setup = makeConnection(apple: apple, log: log)
+        // TimyCueApp と同じつなぎ方：知らせ（決まりと連携の状態）を受けて作成画面に渡す
+        let editor = ScheduleEditorStore(repository: setup.switchable, metadataRepository: InMemoryEventMetadataRepository())
+        let linkedStatus = try XCTUnwrap(log.status)
+        XCTAssertEqual(linkedStatus, .linked)
+        editor.receiveLink(log.rules, status: linkedStatus)
+        editor.startNew(on: day)
+        editor.content.title = "A社"
+        editor.setStartMinute(600)
+        XCTAssertEqual(editor.calendarRowValue, "仕事")
+
+        XCTAssertTrue(setup.connection.setAppleLinkEnabled(false))
+        let status = try XCTUnwrap(log.status)
+        XCTAssertEqual(status, .off, "連携していない理由（OFF）も渡す")
+        editor.refresh()
+        editor.receiveLink(log.rules, status: status)
+        XCTAssertEqual(editor.calendarRowValue, "仕事（保存できません）", "開いているあいだに OFF にしても、黙って TimyCue のみにしない")
+        XCTAssertTrue(editor.linkLossPrompt?.contains("連携が OFF です") ?? false)
+        XCTAssertThrowsError(try editor.save())
+        XCTAssertEqual(apple.writes, 0)
+        XCTAssertTrue(setup.local.allEvents().isEmpty, "確かめるまで書かない")
     }
 
     // MARK: - ON に戻す
@@ -425,6 +454,7 @@ private final class AuthorizationBox {
 private final class ChangeLog {
     var count = 0
     var rules: SaveTargetRules?
+    var status: AppleLinkStatus?
 }
 
 private final class Counter {

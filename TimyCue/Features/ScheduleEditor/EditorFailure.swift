@@ -83,6 +83,20 @@ struct EditorFailure: Equatable, Identifiable {
         return EditorFailure(action: action, title: title(for: action), message: sentences.joined())
     }
 
+    /// 作成画面を開いているあいだに連携が外れて（連携 OFF・許可がなくなった）、Apple カレンダーの予定を直せない・Apple Calendarに
+    /// 作れないとき（2026-10-19 ユーザー指示 3）。何も書いていない。reason は「連携が OFF です」など（文言は仮）
+    static func appleUnavailable(reason: String, action: Action) -> EditorFailure {
+        let message = switch action {
+        case .save:
+            "Apple カレンダーと連携していないため（\(reason)）、この予定の変更は保存していません。予定は前の内容のままです。連携を戻してから、もう一度保存してください。"
+        case .moveToApple:
+            "Apple カレンダーと連携していないため（\(reason)）、Apple Calendarには作っていません。TimyCue の中の予定はそのまま残っています。"
+        case .delete:
+            "Apple カレンダーと連携していないため（\(reason)）、削除していません。予定は残っています。"
+        }
+        return EditorFailure(action: action, title: title(for: action), message: message)
+    }
+
     /// 書く直前に、保存先の状態が変わっていた（Apple カレンダー向けの予定なのに連携が切れた直後など。S2）。どこにも書いていない
     static func destinationChanged(action: Action) -> EditorFailure {
         let message = switch action {

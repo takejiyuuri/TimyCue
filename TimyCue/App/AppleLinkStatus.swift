@@ -46,6 +46,16 @@ enum AppleLinkStatus: Equatable {
         }
     }
 
+    /// Apple カレンダーに保存できない理由（連携していないとき。作成画面の行・保存の前の確かめに出す。2026-10-19 ユーザー指示 3。文言は仮）
+    var saveUnavailableReason: String {
+        switch self {
+        case .off: "連携が OFF です"
+        case .notLinked, .needsPermission: "カレンダーの許可がありません"
+        case .unavailable: "この端末では Apple カレンダーを使えません"
+        case .linked: "連携していません"
+        }
+    }
+
     /// Home に「カレンダーを連携、または予定を登録すると…」のカードを出すか。まだ連携していない・許可がないときは今の案内のまま
     /// （Q42-8・Q115）。わざと OFF にしたときは、連携を促すカード・帯を出さない（Q102）
     var showsSetupCard: Bool {

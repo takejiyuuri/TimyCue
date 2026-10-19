@@ -51,9 +51,10 @@ final class CalendarConnection {
     @ObservationIgnored private var eventKit: AppleCalendarRepository?
     /// Apple カレンダーの保存先を使っている（止めていない）
     @ObservationIgnored private var usesEventKit = false
-    /// カレンダーの一覧（書き込めないものも含む。表示のみは手で直した分を当てたもの）と、保存先の決まりを知らせる。
-    /// 決まりが nil なら連携していない（作成画面は、新しい予定をこの iPhone の中へ保存する）
-    @ObservationIgnored private let onChange: @MainActor ([CalendarChoice], SaveTargetRules?) -> Void
+    /// カレンダーの一覧（書き込めないものも含む。表示のみは手で直した分を当てたもの）と、保存先の決まりと、連携の状態を知らせる。
+    /// 決まりが nil なら連携していない（作成画面は、新しい予定をこの iPhone の中へ保存する）。連携の状態は、連携していない理由を
+    /// 作成画面に出すため（2026-10-19 ユーザー指示 3）
+    @ObservationIgnored private let onChange: @MainActor ([CalendarChoice], SaveTargetRules?, AppleLinkStatus) -> Void
     /// 保存先の移行の済んだ記録（UserDefaults。spec §89.8）。本物の保存先で動くときだけ渡す（見本の予定・今のテストは移行しない）
     @ObservationIgnored private let saveTargetRecords: SaveTargetRecordStore?
     /// 起動の時点で設定のファイルがあったか（移行の材料。使った跡）
@@ -79,7 +80,8 @@ final class CalendarConnection {
          saveTargetRecords: SaveTargetRecordStore? = nil,
          authorizationStatus: @escaping () -> EKAuthorizationStatus = { EKEventStore.authorizationStatus(for: .event) },
          makeAppleRepository: ((@escaping () -> CalendarPreferences, SaveJournal) -> AppleCalendarRepository)? = nil,
-         onChange: @escaping @MainActor (_ calendars: [CalendarChoice], _ saveTargets: SaveTargetRules?) -> Void) {
+         onChange: @escaping @MainActor (_ calendars: [CalendarChoice], _ saveTargets: SaveTargetRules?,
+                                         _ linkStatus: AppleLinkStatus) -> Void) {
         self.eventStore = eventStore
         self.switchable = switchable
         self.localEvents = localEvents
@@ -621,7 +623,8 @@ final class CalendarConnection {
         recoveryNotice = nil
     }
 
-    /// 画面へ知らせる。連携していないときは保存先の決まりを渡さない（作成画面は、新しい予定をこの iPhone の中へ保存する）
+    /// 画面へ知らせる。連携していないときは保存先の決まりを渡さない（作成画面は、新しい予定をこの iPhone の中へ保存する）。
+    /// 連携の状態も渡す（作成画面が、開いているあいだの連携の変化と、連携していない理由を出すため）
     private func notify() {
         refreshDuplicates()
         // 祝日カレンダーは、手で直した分を当ててから渡す（Q55）
@@ -630,7 +633,7 @@ final class CalendarConnection {
             copy.isHolidays = preferences.isHolidayCalendar(calendar)
             return copy
         }
-        onChange(resolved, isLinked ? saveTargets : nil)
+        onChange(resolved, isLinked ? saveTargets : nil, linkStatus)
     }
 }
 

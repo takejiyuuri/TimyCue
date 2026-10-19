@@ -26,6 +26,8 @@ struct ScheduleEditorView: View {
     @State private var asksFirstSaveTarget = false
     /// 保存先が使えないので、保存の前に選び直してもらっている（spec §89.4・E-10）
     @State private var asksSaveTargetAgain = false
+    /// 開いているあいだに連携が外れ、出していた Apple の保存先に保存できないので、TimyCue のみに保存するかを聞いている（2026-10-19 指示 3）
+    @State private var asksLinkLoss = false
 
     var body: some View {
         GeometryReader { geometry in
@@ -71,6 +73,7 @@ struct ScheduleEditorView: View {
         // 保存先が実際に使えないときの保存の前の選び直しだけを出す（SaveTargetDialogs）
         .modifier(SaveTargetDialogs(asksFirstSaveTarget: $asksFirstSaveTarget,
                                     asksSaveTargetAgain: $asksSaveTargetAgain,
+                                    asksLinkLoss: $asksLinkLoss,
                                     onSave: { performSave() }))
         // 繰り返し予定は、保存するときに 1 回だけ範囲を聞く（Q44）
         .confirmationDialog("繰り返し予定の変更", isPresented: $asksSaveScope, titleVisibility: .visible) {
@@ -158,9 +161,14 @@ struct ScheduleEditorView: View {
         .background(Theme.Colors.surface)
     }
 
-    /// 保存ボタン。新しい予定の保存先がまだ決まっていなければ先に聞き（Q111-4）、保存先が使えなければ保存の前に選び直してもらう
-    /// （spec §89.4）。足りない項目があるときは、どちらも出さずに行で知らせる（§46）
+    /// 保存ボタン。開いているあいだに連携が外れて、出していた Apple の保存先に保存できなければ、TimyCue のみに保存するかを先に聞く
+    /// （黙って変えない。2026-10-19 指示 3）。新しい予定の保存先がまだ決まっていなければ先に聞き（Q111-4）、保存先が使えなければ
+    /// 保存の前に選び直してもらう（spec §89.4）。足りない項目があるときは、どれも出さずに行で知らせる（§46）
     private func save() {
+        if store.linkLossPrompt != nil {
+            asksLinkLoss = true
+            return
+        }
         if store.needsFirstSaveTargetChoice {
             asksFirstSaveTarget = true
             return

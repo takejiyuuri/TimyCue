@@ -67,7 +67,8 @@ struct TimyCueApp: App {
         // 出発時刻の計算（第 5 段階）。見本の予定で動かすとき（画面写真・自動テスト）は、現在地も地図も使わない
         _departures = State(initialValue: DepartureStore(isEnabled: !Self.usesSampleData,
                                                          location: LocationProvider(isEnabled: !Self.usesSampleData)))
-        // 連携しているときだけ、保存先の決まりを作成画面へ渡す（nil は連携していない。新しい予定はこの iPhone の中へ。spec §89.6）
+        // 連携しているときだけ、保存先の決まりを作成画面へ渡す（nil は連携していない。新しい予定はこの iPhone の中へ。spec §89.6）。
+        // 連携の状態も渡す（作成画面を開いているあいだに連携が変わったら、画面に出していた保存先を保つ。2026-10-19 ユーザー指示 3）
         let connection = CalendarConnection(
             eventStore: EKEventStore(),
             switchable: switchable,
@@ -76,11 +77,11 @@ struct TimyCueApp: App {
             preferencesFile: preferencesFile,
             journal: journal,
             saveTargetRecords: saveTargetRecords,
-            onChange: { calendars, saveTargets in
+            onChange: { calendars, saveTargets, linkStatus in
                 calendar.setCalendars(calendars)
                 calendar.reload()
                 editor.refresh()
-                editor.setCalendars(saveTargets)
+                editor.receiveLink(saveTargets, status: linkStatus)
             })
         #if DEBUG
         if Self.usesSampleData, let link = Self.sampleLink() { connection.useSampleLink(link) }

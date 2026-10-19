@@ -25,9 +25,10 @@ extension ScheduleEditorStore {
     /// 新規・コピー（連携中）：「TimyCue のみ」と使える Apple カレンダー（Q97）。
     /// 書き込める Apple の予定の編集（連携中）：使える Apple カレンダー（今の所属を含む。Apple の予定を TimyCue のみへ移す操作は仕様にない）。
     /// ローカルの予定の編集（連携中）：「Apple Calendarに保存」の移す先（使える Apple カレンダー。移す先を確かめの画面で選ぶ形は S5）。
+    /// 新規・コピーを開いているあいだに連携が外れ、出していた Apple の保存先に保存できない：「TimyCue のみ」だけ（2026-10-19 ユーザー指示 3）。
     /// それ以外（連携していない・書き込めない予定）は選べない（閲覧専用）
     var calendarRowChoices: [SaveChoice] {
-        guard isConnectedToApple else { return [] }
+        guard isConnectedToApple else { return canChooseInCalendarRow ? [SaveChoice.timyCueOnly] : [] }
         switch mode {
         case .new, .copy:
             return saveTargets.newEventChoices
@@ -37,9 +38,10 @@ extension ScheduleEditorStore {
         }
     }
 
-    /// 行で選べるか（選べなければ鍵の印を付けて、開かない＝閲覧専用。Q113）
+    /// 行で選べるか（選べなければ鍵の印を付けて、開かない＝閲覧専用。Q113）。連携していないときは、新規・コピーを開いているあいだに
+    /// 連携が外れて、出していた Apple の保存先に保存できないときだけ（TimyCue のみを選べる。2026-10-19 ユーザー指示 3）
     var canChooseInCalendarRow: Bool {
-        guard isConnectedToApple else { return false }
+        guard isConnectedToApple else { return mode.allowsMultipleDays && lostAppleTargetName != nil }
         switch mode {
         case .new, .copy:
             return true
@@ -85,7 +87,11 @@ extension ScheduleEditorStore {
 
     /// 行を開いたときの、チップの下の説明（文言は仮。TimyCue のみは spec §89.2 の推奨の文）
     var calendarRowNote: String? {
-        guard isConnectedToApple else { return nil }
+        guard isConnectedToApple else {
+            // 開いているあいだに連携が外れて、出していた Apple の保存先に保存できない（2026-10-19 ユーザー指示 3）
+            guard mode.allowsMultipleDays, let name = lostAppleTargetName else { return nil }
+            return "保存先の「\(name)」（Apple カレンダー）には保存できません（\(appleLinkStatus.saveUnavailableReason)）。「TimyCue のみ」を選ぶと、このiPhoneに保存します。保存するときにも確かめます。"
+        }
         if calendarRowIsMoveTarget {
             return "「Apple Calendarに保存」の移す先を選びます。この予定は、このiPhoneに保存しています。"
         }
@@ -189,6 +195,17 @@ extension ScheduleEditorStore {
     /// 使える Apple カレンダーが多くて全部を並べきれない（「ほかのカレンダーを選ぶ」を出す）
     var hasMoreSaveTargets: Bool {
         saveTargetCandidates.count > EditorMetrics.saveTargetPromptCalendarLimit
+    }
+
+    // MARK: - 開いているあいだに連携が外れたときの確かめ（2026-10-19 ユーザー指示 3）
+
+    /// 新規・コピーを開いているあいだに連携が外れ（連携 OFF・許可がなくなった）、画面に出していた Apple カレンダーの保存先に
+    /// 保存できないとき、保存の前に出す確かめの本文。黙って TimyCue のみへ変えない（「TimyCue のみ（このiPhone）に保存」か「やめる」）。
+    /// 足りない項目があるときは、先に行で知らせる（§46）。文言は仮
+    var linkLossPrompt: String? {
+        guard !isFinished, mode.allowsMultipleDays, !isConnectedToApple, saveIssues.isEmpty,
+              let name = lostAppleTargetName else { return nil }
+        return "保存先の「\(name)」（Apple カレンダー）には保存できません（\(appleLinkStatus.saveUnavailableReason)）。\(SaveTargetRules.timyCueOnlyLabel)に保存しますか？"
     }
 
     // MARK: - 「Apple Calendarに保存」
