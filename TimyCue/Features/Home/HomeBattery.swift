@@ -44,6 +44,31 @@ struct HomeBatteryReading: Equatable {
     }
 }
 
+/// 右上の電池の縦の位置（spec §88.2。2026-10-19 の見やすさの調整）。画面に依らない計算だけを置く。
+/// Home は iOS のステータスバーを出さないので、電池を、ふだんのステータスバーの電池に近い高さへ寄せる。電池は日付の行の中で
+/// 縦の中央にそろえて置き、そこから lift だけ上へずらす（日付・時計・タイムラインの縦の位置は動かさない）。
+/// Safe Area の上が大きい機種（Dynamic Island・ノッチ。上が約 44〜62pt）では決めた量だけ上げ、小さい機種（SE など。ステータスバーを
+/// 隠すと 0、出していれば 20pt）では、画面の上の端から batteryMinimumScreenTop を残すよう、上げる量を抑える。
+/// 電池は右の端にそろえたまま（Dynamic Island・ノッチは画面の中央にあるので、横に重ならない）
+enum HomeBatteryPlacement {
+    /// 電池を上へずらす量（pt。0 以上）
+    static func lift(safeAreaTop: CGFloat) -> CGFloat {
+        let room = safeAreaTop + HomeLayoutMetrics.topPadding - HomeLayoutMetrics.batteryMinimumScreenTop
+        return min(HomeLayoutMetrics.batteryLift, max(0, room))
+    }
+
+    /// ずらしたあとの電池の上の端の、画面の上の端からの位置の下限（pt）。日付の行の上の端から数える控えめな見込みで、
+    /// 行の中で縦の中央にそろえる分のすき間（数 pt）は入れない。実際の上の端は、これより少し下になる
+    static func topEdge(safeAreaTop: CGFloat) -> CGFloat {
+        safeAreaTop + HomeLayoutMetrics.topPadding - lift(safeAreaTop: safeAreaTop)
+    }
+
+    /// 電池の左の端（画面の左からの位置。標準の文字の大きさでの幅の見込みから）
+    static func leadingEdge(screenWidth: CGFloat) -> CGFloat {
+        screenWidth - HomeLayoutMetrics.horizontalPadding - HomeLayoutMetrics.batteryEstimatedWidth
+    }
+}
+
 /// 電池の残量の見張り（Home を出しているあいだだけ。UIDevice の電池の監視）。値は reading に入る
 @Observable
 final class HomeBattery {

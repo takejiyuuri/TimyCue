@@ -142,7 +142,7 @@ struct HomeView: View {
     private func screen(_ model: HomeScreenModel) -> some View {
         GeometryReader { proxy in
             VStack(alignment: .leading, spacing: 0) {
-                HomeTopBar(dateTitle: model.dateTitle, battery: battery.reading)
+                HomeTopBar(dateTitle: model.dateTitle, battery: battery.reading, safeAreaTop: proxy.safeAreaInsets.top)
                     .padding(.top, HomeLayoutMetrics.topPadding)
                 HomeStageView(timeline: model.timeline,
                               clock: model.clock,

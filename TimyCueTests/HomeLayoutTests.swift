@@ -196,4 +196,93 @@ final class HomeLayoutTests: XCTestCase {
             XCTAssertEqual(HomeStageLayout.clockDiameter(screenWidth: width), (width * 0.40).rounded())
         }
     }
+
+    // MARK: - 右上の電池の位置（2026-10-19 の見やすさの調整）
+
+    /// Dynamic Island の機種（Safe Area の上 59・62pt）とノッチの機種（44・47・48・50pt）では、ふだんのステータスバーの電池に
+    /// 近い高さへ、約 25〜30pt 上へ移る。画面の上の端からはみ出さない
+    func testBatteryMovesUpTowardTheStatusBarOnDynamicIslandAndNotchPhones() {
+        for top: CGFloat in [59, 62, 44, 47, 48, 50] {
+            let lift = HomeBatteryPlacement.lift(safeAreaTop: top)
+            XCTAssertGreaterThanOrEqual(lift, 25, "Safe Area の上 \(top)pt")
+            XCTAssertLessThanOrEqual(lift, 30, "Safe Area の上 \(top)pt")
+            XCTAssertGreaterThanOrEqual(HomeBatteryPlacement.topEdge(safeAreaTop: top), HomeLayoutMetrics.batteryMinimumScreenTop,
+                                        "Safe Area の上 \(top)pt：画面の上の端から最小の余白を残す")
+        }
+    }
+
+    /// Safe Area の上が小さい機種（SE。ステータスバーを出していれば 20pt、隠すと 0）では、画面の上の端から最小の余白（約 6pt）を
+    /// 残す分だけ上げる（上げる量を抑える）。下へは動かさない
+    func testBatteryStaysBelowTheTopEdgeOnPhonesWithASmallSafeArea() {
+        XCTAssertGreaterThanOrEqual(HomeLayoutMetrics.batteryMinimumScreenTop, 6)
+        for top: CGFloat in [20, 0] {
+            let lift = HomeBatteryPlacement.lift(safeAreaTop: top)
+            let expected = top + HomeLayoutMetrics.topPadding - HomeLayoutMetrics.batteryMinimumScreenTop
+            XCTAssertEqual(lift, expected, accuracy: 0.01, "Safe Area の上 \(top)pt：上の端から最小の余白を残すところまで上げる")
+            XCTAssertLessThan(lift, HomeLayoutMetrics.batteryLift, "Safe Area の上 \(top)pt：上げる量を抑える")
+            XCTAssertGreaterThanOrEqual(lift, 0, "下へは動かさない")
+            XCTAssertEqual(HomeBatteryPlacement.topEdge(safeAreaTop: top), HomeLayoutMetrics.batteryMinimumScreenTop, accuracy: 0.01)
+        }
+    }
+
+    /// 電池は右の端にそろえたまま。左の端は画面の中央から十分右（Dynamic Island の幅の半分 約 63pt、いちばん広いノッチ
+    /// （幅 375pt の XS・11 Pro）の幅の半分 約 105pt より右）にあり、横に重ならない
+    func testBatteryStaysRightOfTheDynamicIslandAndTheNotch() {
+        let widestCutoutHalf: CGFloat = 105
+        for width: CGFloat in [375, 390, 393, 402, 414, 428, 430, 440] {
+            let leading = HomeBatteryPlacement.leadingEdge(screenWidth: width)
+            XCTAssertGreaterThan(leading - width / 2, widestCutoutHalf, "幅 \(width)：電池の左の端が中央の切り欠きより右")
+            XCTAssertLessThanOrEqual(leading + HomeLayoutMetrics.batteryEstimatedWidth, width - HomeLayoutMetrics.horizontalPadding,
+                                     "幅 \(width)：右の余白の内側")
+        }
+    }
+
+    // MARK: - 文字の段と行の間（2026-10-19 の見やすさの調整）
+
+    /// 予定名が主役：どの段でも、主状態の予定名（札）がほかの予定名より大きい。詰める段ほど小さくなる（大きくはならない）
+    func testEventTitlesLeadAndShrinkOnlyAsTheTimelineTightens() {
+        let order: [HomeDensity] = [.spacious, .regular, .compact, .tight]
+        for density in order {
+            let sizes = HomeLayoutMetrics.titleSizes(density)
+            XCTAssertGreaterThan(sizes.mainTitle, sizes.title, "\(density)：主状態の予定名がいちばん大きい")
+        }
+        for (wider, tighter) in zip(order, order.dropFirst()) {
+            XCTAssertGreaterThanOrEqual(HomeLayoutMetrics.titleSizes(wider).title, HomeLayoutMetrics.titleSizes(tighter).title,
+                                        "\(wider) → \(tighter)：ほかの予定名")
+            XCTAssertGreaterThanOrEqual(HomeLayoutMetrics.titleSizes(wider).mainTitle, HomeLayoutMetrics.titleSizes(tighter).mainTitle,
+                                        "\(wider) → \(tighter)：主状態の予定名")
+        }
+    }
+
+    /// 予定が少ない日は、余った高さで行の間を広げる（出発の点と開始の点のような 15 分の間も少し広げる。広げすぎない上限つき）。
+    /// 予定が多い段ほど上限は小さく、いちばん詰めた段では広げない
+    func testQuietDaysUseTheSpareHeightBetweenRows() throws {
+        let one = items(events: 1)
+        let first = try XCTUnwrap(one.first)
+        XCTAssertTrue(first.isDeparture, "出発 9:45・開始 10:00")
+        let plan = HomeTimelineLayout.plan(items: one, availableHeight: 1000)
+        XCTAssertEqual(plan.density, .spacious)
+        let maxExtra = HomeLayoutMetrics.rows(.spacious).maxExtraGap
+        XCTAssertGreaterThanOrEqual(plan.rows[0].spacingAfter, 8, "15 分の間でも少し広げる")
+        XCTAssertLessThan(plan.rows[0].spacingAfter, maxExtra, "短い間は長い間ほどは広げない")
+        XCTAssertGreaterThan(maxExtra, HomeLayoutMetrics.rows(.regular).maxExtraGap)
+        XCTAssertGreaterThan(HomeLayoutMetrics.rows(.regular).maxExtraGap, HomeLayoutMetrics.rows(.compact).maxExtraGap)
+        XCTAssertEqual(HomeLayoutMetrics.rows(.tight).maxExtraGap, 0)
+    }
+
+    /// 文字を大きくしても、予定が多い日に出せる予定の数と密度の選び方を変えない（2026-10-19 の見やすさの調整の指示）。
+    /// 件数と密度を決める行の高さ（ふつう・詰める・さらに詰める段、「いま」・過ぎた出発の点の行）は TestFlight 1.0 (32) のまま。
+    /// 行の間の上限（maxExtraGap）は余った高さだけを使うので件数に関わらない。実機で決めてここを変えるときは、
+    /// 予定 11 件・小さい iPhone の画面で出せる件数が変わらないかを確かめてから、このテストも直す
+    func testRowHeightsThatDecideHowManyEventsFitAreKept() {
+        func heights(_ density: HomeDensity) -> [CGFloat] {
+            let rows = HomeLayoutMetrics.rows(density)
+            return [rows.eventRow, rows.mainRow, rows.departureRow, rows.separatorRow, rows.messageRow, rows.moreRow]
+        }
+        XCTAssertEqual(heights(.regular), [44, 58, 34, 28, 40, 32])
+        XCTAssertEqual(heights(.compact), [36, 52, 28, 26, 36, 30])
+        XCTAssertEqual(heights(.tight), [30, 46, 24, 22, 32, 26])
+        XCTAssertEqual(HomeLayoutMetrics.nowRowHeight, 30)
+        XCTAssertEqual(HomeLayoutMetrics.pastDepartureRowHeight, 26)
+    }
 }

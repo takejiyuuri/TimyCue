@@ -6,24 +6,41 @@ enum HomeStageNote: Equatable {
     case note(String)
 }
 
-/// 画面のいちばん上の行：左に今日の日付、右に電池の残量（spec §88.2。Home はステータスバーを出さない。大きな見出しは置かない）
+/// 画面のいちばん上の行：左に今日の日付、右に電池の残量（spec §88.2。Home はステータスバーを出さない。大きな見出しは置かない）。
+/// 行の並べ方の高さは前の日付の大きさ（HomeLayoutMetrics.dateLayoutFont）で決め、大きくした日付は同じ中心で上下へ少しはみ出して描く
+/// （下の時計・タイムラインの縦の位置と、出せる予定の数を変えない。2026-10-19 の見やすさの調整）。
+/// 電池は行の中で縦の中央にそろえてから、ふだんのステータスバーの電池に近い高さへ上げる（HomeBatteryPlacement。日付は動かさない）
 struct HomeTopBar: View {
     let dateTitle: String
     /// 取れないとき（シミュレータなど）は出さない
     let battery: HomeBatteryReading?
+    /// 画面の Safe Area の上の高さ（電池を上げる量を決める）
+    let safeAreaTop: CGFloat
 
     var body: some View {
-        HStack(alignment: .center, spacing: Theme.Spacing.s) {
-            Text(dateTitle)
-                .font(HomeLayoutMetrics.dateFont)
-                .foregroundStyle(Theme.Colors.textPrimary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
-            Spacer(minLength: Theme.Spacing.s)
-            if let battery {
-                HomeBatteryView(reading: battery)
+        // 並べ方の高さだけを決める、見えない前の大きさの日付
+        Text(dateTitle)
+            .font(HomeLayoutMetrics.dateLayoutFont)
+            .lineLimit(1)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .hidden()
+            .accessibilityHidden(true)
+            .overlay {
+                HStack(alignment: .center, spacing: Theme.Spacing.s) {
+                    Text(dateTitle)
+                        .font(HomeLayoutMetrics.dateFont)
+                        .foregroundStyle(Theme.Colors.textPrimary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                    Spacer(minLength: Theme.Spacing.s)
+                    if let battery {
+                        HomeBatteryView(reading: battery)
+                            .offset(y: -HomeBatteryPlacement.lift(safeAreaTop: safeAreaTop))
+                    }
+                }
+                // 前の大きさの行より少し高くなる分は、上下へはみ出して描く（行の高さに合わせて日付を縮めない）
+                .fixedSize(horizontal: false, vertical: true)
             }
-        }
     }
 }
 
@@ -39,8 +56,54 @@ struct HomeBatteryView: View {
                 .font(HomeLayoutMetrics.batteryIconFont)
         }
         .foregroundStyle(reading.isLow ? Theme.Colors.danger : Theme.Colors.textPrimary)
+        // iOS のステータスバーと同じく、文字の大きさの設定で大きくしすぎない（画面の中央のノッチ・Dynamic Island の方へ広がらないように）
+        .dynamicTypeSize(...HomeLayoutMetrics.batteryMaxTypeSize)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(reading.accessibilityText)
+    }
+}
+
+/// 「終わった予定 ○件」（Q91。押すと吹き出しで一覧：Q84）。2026-10-19 の見やすさの調整で、文字を約 1pt 大きく、色を少し濃くした。
+/// 並べ方の高さは前の大きさ（footnote）のまま：時計がないときは演出帯の高さがこの列で決まるので、タイムラインに使える高さ
+/// （出せる予定の数）を変えないよう、大きくした文字は同じ中心で上下へ少しはみ出して描く
+struct HomeFinishedButton: View {
+    let text: String
+    let onTap: () -> Void
+
+    /// 文字の大きさ（footnote と同じ割合で、文字の大きさの設定に合わせる）
+    @ScaledMetric(relativeTo: .footnote) private var textSize: CGFloat = HomeLayoutMetrics.finishedTextSize
+
+    init(text: String, onTap: @escaping () -> Void) {
+        self.text = text
+        self.onTap = onTap
+    }
+
+    var body: some View {
+        // 並べ方の高さと幅だけを決める、見えない前の大きさの文字
+        label
+            .font(HomeLayoutMetrics.headerLineFont)
+            .hidden()
+            .accessibilityHidden(true)
+            .overlay(alignment: .leading) {
+                label
+                    .font(.system(size: textSize))
+                    .foregroundStyle(HomeLayoutMetrics.finishedTextColor)
+                    .fixedSize()
+                    .contentShape(Rectangle())
+                    .onTapGesture(perform: onTap)
+                    .homeBubbleAnchor(HomeStore.finishedAnchorID)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityAddTraits(.isButton)
+            }
+    }
+
+    private var label: some View {
+        HStack(spacing: 2) {
+            Text(text)
+            Image(systemName: "chevron.right")
+                .font(.caption2)
+        }
+        .lineLimit(1)
     }
 }
 
@@ -83,7 +146,7 @@ struct HomeStageView: View {
             }
             // 終わった予定は、日付・終日の予定の下、人型より上に畳む（Q91）。押すと吹き出しで一覧（Q84）
             if let finished = timeline.finishedText {
-                finishedButton(finished)
+                HomeFinishedButton(text: finished, onTap: onTapFinished)
             }
             if clock == nil {
                 if let headline {
@@ -110,22 +173,6 @@ struct HomeStageView: View {
             .offset(x: -HomeStageLayout.figureLeadingShift(layout))
     }
 
-    private func finishedButton(_ text: String) -> some View {
-        HStack(spacing: 2) {
-            Text(text)
-            Image(systemName: "chevron.right")
-                .font(.caption2)
-        }
-        .font(HomeLayoutMetrics.headerLineFont)
-        .foregroundStyle(Theme.Colors.actionText)
-        .lineLimit(1)
-        .contentShape(Rectangle())
-        .onTapGesture(perform: onTapFinished)
-        .homeBubbleAnchor(HomeStore.finishedAnchorID)
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(.isButton)
-    }
-
     /// 時計（Q94 で確かめた時計をそのまま。中の文字・針は外径に合わせて縮める：Q85）と、その下の「8:30 → 9:15 出発予定」
     /// （文字の大きさは変えない：Q85）
     private func clockColumn(_ clock: HomeScreenModel.ClockDisplay, diameter: CGFloat) -> some View {
@@ -133,9 +180,10 @@ struct HomeStageView: View {
             HomeClockView(face: clock.face, targetWord: clock.word, scalesWithSize: true)
                 .frame(width: diameter, height: diameter)
                 .padding(.vertical, HomeMetrics.clockLabelRoom)
+            // 補助の説明：大きさは変えず（Q85）、色を少しだけ濃くして読みやすく（2026-10-19 の見やすさの調整）
             Text("\(HomeClockMath.flowText(now: clock.face.now, target: clock.face.target)) \(clock.word)予定")
                 .font(HomeMetrics.flowFont)
-                .foregroundStyle(Theme.Colors.textSecondary)
+                .foregroundStyle(HomeLayoutMetrics.flowTextColor)
                 .lineLimit(1)
                 .fixedSize()
             if let note {

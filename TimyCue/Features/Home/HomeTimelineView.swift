@@ -59,7 +59,7 @@ struct HomeRailSection: View {
                         .frame(height: HomeLayoutMetrics.pastDepartureRowHeight * scale)
                     }
                 case .now:
-                    HomeNowRow(now: timeline.now)
+                    HomeNowRow(now: timeline.now, scale: scale)
                         .frame(height: HomeLayoutMetrics.nowRowHeight * scale)
                 case .figure:
                     // 人型は演出帯の左の列のいちばん下（このすぐ上）に置く
@@ -80,7 +80,7 @@ struct HomeRailSection: View {
     }
 
     private func rows(_ plan: HomeTimelineLayout.Plan) -> some View {
-        let fonts = HomeLayoutMetrics.fonts(plan.density)
+        let fonts = HomeLayoutMetrics.fonts(plan.density, scale: scale)
         return VStack(alignment: .leading, spacing: 0) {
             ForEach(plan.rows) { row in
                 HomeTimelineRowView(item: row.item,
@@ -125,9 +125,11 @@ struct HomeRailSection: View {
     }
 }
 
-/// 「いま 8:52」（左の縦のタイムラインの起点。§88.2）
+/// 「いま 8:52」（左の縦のタイムラインの起点。§88.2）。今の位置として少し目立つ大きさ・太さ（2026-10-19 の見やすさの調整）
 struct HomeNowRow: View {
     let now: Date
+    /// 文字の大きさの設定に合わせた倍率（行の高さと同じもの）
+    let scale: CGFloat
 
     var body: some View {
         HStack(spacing: HomeLayoutMetrics.railGap) {
@@ -139,7 +141,7 @@ struct HomeNowRow: View {
             Text("いま")
             Text(TimeText.hourMinute(Clock.minuteOfDay(now)))
         }
-        .font(HomeLayoutMetrics.nowFont)
+        .font(HomeLayoutMetrics.nowFont(scale: scale))
         .foregroundStyle(Theme.Colors.actionText)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
@@ -308,11 +310,12 @@ struct HomeTimelineRowView: View {
         }
     }
 
-    /// 主状態の予定：予定名と場所の 2 行の札（場所がなければ 1 行。§88.2）
+    /// 主状態の予定：予定名と場所の 2 行の札（場所がなければ 1 行。§88.2）。札の上下の余白は、行の高さから mainCardInset を
+    /// 引いた中で、2 行を縦の中央に置いて決まる（予定名を大きくした分は mainCardInset で補う。2026-10-19 の見やすさの調整）
     private var mainCard: some View {
         HStack(alignment: .firstTextBaseline, spacing: Theme.Spacing.s) {
             time(fonts.time)
-            VStack(alignment: .leading, spacing: 1) {
+            VStack(alignment: .leading, spacing: HomeLayoutMetrics.mainCardLineSpacing) {
                 Text(title)
                     .font(fonts.mainTitle)
                     .lineLimit(1)
