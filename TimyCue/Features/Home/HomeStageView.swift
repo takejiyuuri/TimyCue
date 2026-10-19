@@ -6,45 +6,25 @@ enum HomeStageNote: Equatable {
     case note(String)
 }
 
-/// 画面のいちばん上の行：左に今日の日付、右に電池の残量（spec §88.2。Home はステータスバーを出さない。大きな見出しは置かない）。
-/// 行の並べ方の高さは前の日付の大きさ（HomeLayoutMetrics.dateLayoutFont）で決め、大きくした日付は同じ中心で上下へ少しはみ出して描く
-/// （下の時計・タイムラインの縦の位置と、出せる予定の数を変えない。2026-10-19 の見やすさの調整）。
-/// 電池は行の中で縦の中央にそろえてから、ふだんのステータスバーの電池に近い高さへ上げる（HomeBatteryPlacement。日付は動かさない）
+/// 画面のいちばん上の行：左に今日の日付（spec §88.2。Home はステータスバーを出さない。大きな見出しは置かない）。
+/// 日付は 22pt の本当の高さで並べる（大きくした分の高さは、上の余白で吸収する：HomeLayoutMetrics.topPadding）。
+/// 右上の電池は、この行とは別に画面の形から置く（HomeView・HomeBatteryPlacement。電池の場所を変えても日付・時計・タイムラインは動かない）。
+/// 電池が日付の行と同じ高さに来る機種（ノッチ・切り欠きのない機種）でも重ならないよう、右に電池の分をあけておく
 struct HomeTopBar: View {
     let dateTitle: String
-    /// 取れないとき（シミュレータなど）は出さない
-    let battery: HomeBatteryReading?
-    /// 画面の Safe Area の上の高さ（電池を上げる量を決める）
-    let safeAreaTop: CGFloat
 
     var body: some View {
-        // 並べ方の高さだけを決める、見えない前の大きさの日付
         Text(dateTitle)
-            .font(HomeLayoutMetrics.dateLayoutFont)
+            .font(HomeLayoutMetrics.dateFont)
+            .foregroundStyle(Theme.Colors.textPrimary)
             .lineLimit(1)
+            .minimumScaleFactor(0.8)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .hidden()
-            .accessibilityHidden(true)
-            .overlay {
-                HStack(alignment: .center, spacing: Theme.Spacing.s) {
-                    Text(dateTitle)
-                        .font(HomeLayoutMetrics.dateFont)
-                        .foregroundStyle(Theme.Colors.textPrimary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.8)
-                    Spacer(minLength: Theme.Spacing.s)
-                    if let battery {
-                        HomeBatteryView(reading: battery)
-                            .offset(y: -HomeBatteryPlacement.lift(safeAreaTop: safeAreaTop))
-                    }
-                }
-                // 前の大きさの行より少し高くなる分は、上下へはみ出して描く（行の高さに合わせて日付を縮めない）
-                .fixedSize(horizontal: false, vertical: true)
-            }
+            .padding(.trailing, HomeLayoutMetrics.batteryEstimatedSize.width + Theme.Spacing.s)
     }
 }
 
-/// 右上の電池の残量（％とマーク。充電中は稲妻、残りが少ないときは警告の色。形は仮：§88.2）
+/// 右上の電池の残量（％とマーク。充電中は稲妻、残りが少ないときは警告の色。形は仮：§88.2）。％とマークはひとまとめで置く
 struct HomeBatteryView: View {
     let reading: HomeBatteryReading
 
@@ -64,8 +44,8 @@ struct HomeBatteryView: View {
 }
 
 /// 「終わった予定 ○件」（Q91。押すと吹き出しで一覧：Q84）。2026-10-19 の見やすさの調整で、文字を約 1pt 大きく、色を少し濃くした。
-/// 並べ方の高さは前の大きさ（footnote）のまま：時計がないときは演出帯の高さがこの列で決まるので、タイムラインに使える高さ
-/// （出せる予定の数）を変えないよう、大きくした文字は同じ中心で上下へ少しはみ出して描く
+/// 14pt の本当の高さで並べる。時計がないときは演出帯の高さが左の列で決まるので、大きくした分は人型の上の最小の間で吸収する
+/// （HomeLayoutMetrics.figureTopGapWithFinished。タイムラインに出せる予定の数を変えない）
 struct HomeFinishedButton: View {
     let text: String
     let onTap: () -> Void
@@ -79,31 +59,19 @@ struct HomeFinishedButton: View {
     }
 
     var body: some View {
-        // 並べ方の高さと幅だけを決める、見えない前の大きさの文字
-        label
-            .font(HomeLayoutMetrics.headerLineFont)
-            .hidden()
-            .accessibilityHidden(true)
-            .overlay(alignment: .leading) {
-                label
-                    .font(.system(size: textSize))
-                    .foregroundStyle(HomeLayoutMetrics.finishedTextColor)
-                    .fixedSize()
-                    .contentShape(Rectangle())
-                    .onTapGesture(perform: onTap)
-                    .homeBubbleAnchor(HomeStore.finishedAnchorID)
-                    .accessibilityElement(children: .combine)
-                    .accessibilityAddTraits(.isButton)
-            }
-    }
-
-    private var label: some View {
         HStack(spacing: 2) {
             Text(text)
             Image(systemName: "chevron.right")
                 .font(.caption2)
         }
+        .font(.system(size: textSize))
+        .foregroundStyle(HomeLayoutMetrics.finishedTextColor)
         .lineLimit(1)
+        .contentShape(Rectangle())
+        .onTapGesture(perform: onTap)
+        .homeBubbleAnchor(HomeStore.finishedAnchorID)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
     }
 }
 
@@ -161,7 +129,8 @@ struct HomeStageView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
-            Spacer(minLength: HomeLayoutMetrics.figureTopGap)
+            // 「終わった予定」を大きくした分（約 1.2pt）は、人型の上の最小の間で吸収する（時計がないときもタイムラインの高さを保つ）
+            Spacer(minLength: timeline.finishedText == nil ? HomeLayoutMetrics.figureTopGap : HomeLayoutMetrics.figureTopGapWithFinished)
             figure
         }
     }

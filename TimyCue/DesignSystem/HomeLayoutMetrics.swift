@@ -8,37 +8,58 @@ enum HomeLayoutMetrics {
 
     /// 画面の左右の余白
     static let horizontalPadding: CGFloat = Theme.Spacing.l
-    /// Safe Area の上からの余白（Home はステータスバーを出さないので、小さい iPhone では画面の上の端からの余白になる）
-    static let topPadding: CGFloat = 10
-    /// 左上の日付（大きな見出しにはしない：§88.2）。2026-10-19 の見やすさの調整で約 2pt 大きくした（title3 20pt → title2 22pt）
+    /// 日付を 20 → 22pt にして、日付の行が高くなる分（pt。SF の行の高さは文字の大きさの約 1.19 倍。2026-10-19 の上の段の最終調整）
+    static let dateLineGrowth: CGFloat = 2.4
+    /// Safe Area の上から日付までの余白（Home はステータスバーを出さないので、小さい iPhone では画面の上の端からの余白になる）。
+    /// 前は 10pt。日付を大きくして行が高くなる分（dateLineGrowth）をここで吸収し、上の段の高さ（時計・タイムラインの縦の位置と、
+    /// タイムラインに出せる予定の数）を前と同じにする（2026-10-19 の上の段の最終調整）
+    static let topPadding: CGFloat = 10 - dateLineGrowth
+    /// 左上の日付（大きな見出しにはしない：§88.2）。2026-10-19 の見やすさの調整で約 2pt 大きくした（title3 20pt → title2 22pt）。
+    /// 並べ方の高さも 22pt の本当の高さで取る（上の段の最終調整）
     static let dateFont = Font.title2.weight(.semibold)
-    /// 日付の行の並べ方の高さを決める文字（前の日付の大きさ。title3 20pt）。日付を大きくしても行の高さはこれのままにして、
-    /// 下の時計・タイムラインの縦の位置と、タイムラインに使える高さ（出せる予定の数）を変えない。大きくした分は上下へ少しはみ出して描く
-    static let dateLayoutFont = Font.title3.weight(.semibold)
-    /// 日付の下の終日の予定（と、「終わった予定 ○件」の並べ方の高さ）
+    /// 日付の下の終日の予定
     static let headerLineFont = Font.footnote
     static let headerLineSpacing: CGFloat = 4
     /// 「終わった予定 ○件」の文字の大きさ（pt。標準の文字の大きさのとき。footnote と同じ割合で文字の大きさの設定に合わせる）。
     /// 2026-10-19 の見やすさの調整で 13pt から約 1pt 大きくし、色も操作の文字（#C8601A）より少し濃くした（仮）。
-    /// 並べ方の高さは前の footnote のまま（時計がないときも、下のタイムラインに使える高さを変えない）
+    /// 並べ方の高さも 14pt の本当の高さで取り、行が高くなる分（finishedLineGrowth）は人型の上の最小の間で吸収する（上の段の最終調整）
     static let finishedTextSize: CGFloat = 14
     static let finishedTextColor = Color(hex: 0xB45617)
+    /// 「終わった予定」を 13 → 14pt にして、その行が高くなる分（pt）
+    static let finishedLineGrowth: CGFloat = 1.2
     /// 右上の電池の残量（%）とマーク（画面見本：マーク 22×11pt＋「80%」。形は H2 の実機で決める：§88.2）
     static let batteryFont = Font.caption.weight(.semibold).monospacedDigit()
     static let batteryIconFont = Font.footnote
     /// これ以下（充電していないとき）は残りが少ない色にする（％。仮）
     static let batteryLowPercent = 20
-    /// 電池を、日付の行の中（縦の中央）から上へずらす量（pt）。Home はステータスバーを出さないので、ふだんのステータスバーの
-    /// 電池に近い高さへ寄せる（2026-10-19 の見やすさの調整。約 25〜30pt の目安の中ほど。仮）。日付・時計の位置は動かさない。
-    /// Safe Area の上が小さい機種（SE など）では、画面の上の端から batteryMinimumScreenTop を残すよう、ずらす量を抑える（HomeBatteryPlacement）
-    static let batteryLift: CGFloat = 28
-    /// 電池の上の端と画面の上の端のあいだの最小（pt）
+
+    // MARK: - 右上の電池の置き方（2026-10-19 の上の段の最終調整。HomeBatteryPlacement。どれも見込みの値で、実機で確かめる。仮）
+
+    /// 電池（「100%」とマークをひとまとめ）の大きさの見込み（pt。少し多めに見る）。文字の大きさの設定は batteryMaxTypeSize までなので、これより大きくならない
+    static let batteryEstimatedSize = CGSize(width: 62, height: 16)
+    /// 電池の文字の大きさの設定の上限。iOS のステータスバーと同じく、文字の大きさの設定で大きくしない（標準まで。前は xLarge まで）。
+    /// 電池の大きさの見込みを確かなものにして、ノッチ・Dynamic Island・画面の角との余白を保つ
+    static let batteryMaxTypeSize: DynamicTypeSize = .large
+    /// ステータスバーの帯の高さ（切り欠きのない機種＝ホームボタンの機種。ふつうのステータスバーの高さ）
+    static let flatStatusBarHeight: CGFloat = 20
+    /// 電池の上の端と画面の上の端のあいだの最小
     static let batteryMinimumScreenTop: CGFloat = 6
-    /// 標準の文字の大きさで「100%」とマークを並べた幅の見込み（pt。少し多めに見る）。電池の左の端が、画面の中央の
-    /// Dynamic Island・ノッチより右にあることを確かめるのに使う
-    static let batteryEstimatedWidth: CGFloat = 62
-    /// 電池の文字はこの大きさの設定までにする（iOS のステータスバーと同じく、大きくしすぎてノッチ・Dynamic Island の方へ広がらないように。仮）
-    static let batteryMaxTypeSize: DynamicTypeSize = .xLarge
+    /// 電池と、ノッチ・Dynamic Island（の見込みの枠）とのあいだの最小
+    static let batteryCutoutClearance: CGFloat = 8
+    /// 電池の右上の角と、画面の角の丸み（の見込み）とのあいだの最小（横の向きで）
+    static let batteryCornerClearance: CGFloat = 4
+    /// Safe Area の上の高さで画面の形を見分ける境目。Dynamic Island の機種は 59・62pt、ノッチの機種は 44〜50pt、
+    /// ホームボタンの機種はステータスバーを隠すと 0（出していれば 20pt）。表示の拡大（画面の拡大表示）で Dynamic Island の機種が
+    /// 51pt より小さくなるときは、ノッチとして扱う（ノッチの見込みの方が広く、安全）
+    static let dynamicIslandMinimumSafeTop: CGFloat = 51
+    static let notchMinimumSafeTop: CGFloat = 30
+    /// 切り欠きの見込み。幅の半分は画面の幅に対する割合、下の端は Safe Area の上の高さに対する割合（どちらも表示の拡大で変わらない）。
+    /// 実際より少し大きく見る：Dynamic Island は幅の半分 0.143〜0.160・下の端 0.82。ノッチは幅の半分 0.20〜0.30（12 mini がいちばん広い）・下の端 0.67〜0.72
+    static let dynamicIslandHalfWidthRatio: CGFloat = 0.17
+    static let notchHalfWidthRatio: CGFloat = 0.31
+    static let cutoutBottomRatio: CGFloat = 0.85
+    /// 画面の角の丸みの半径の見込み（画面の幅に対する割合。実際は 0.10〜0.15 くらい。切り欠きのない機種は角が丸くない）
+    static let screenCornerRadiusRatio: CGFloat = 0.155
 
     // MARK: - 演出帯（時計と人型）
 
@@ -59,6 +80,9 @@ enum HomeLayoutMetrics {
     /// 日付・知らせと人型のあいだの最小の間、人型の足元と「いま」（または過ぎた出発の点）のあいだ（H1 と同じ 8pt。仮）
     static let figureTopGap: CGFloat = Theme.Spacing.s
     static let figureBottomGap: CGFloat = Theme.Spacing.s
+    /// 「終わった予定 ○件」があるときの、人型の上の最小の間。大きくした「終わった予定」の行の分を吸収して、時計がないとき（演出帯の高さが
+    /// 左の列で決まるとき）も、タイムラインに使える高さを前と同じにする（2026-10-19 の上の段の最終調整）
+    static let figureTopGapWithFinished: CGFloat = figureTopGap - finishedLineGrowth
     /// 主状態の大きな知らせ（時計がないときは日付の下に横幅を使って：Q92。色は今の Home のまま）
     static let headlineFont = Font.title3.weight(.bold)
     /// 出発時刻を計算できない原因・目安の知らせ（小さく）

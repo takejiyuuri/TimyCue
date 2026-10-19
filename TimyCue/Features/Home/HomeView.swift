@@ -138,11 +138,12 @@ struct HomeView: View {
 
     // MARK: - 画面
 
-    /// 上から：日付と電池 → 演出帯（時計・人型）→（過ぎた出発の点）→ いま → タイムライン → 下の案内（重複候補・連携のカード）
+    /// 上から：日付 → 演出帯（時計・人型）→（過ぎた出発の点）→ いま → タイムライン → 下の案内（重複候補・連携のカード）。
+    /// 右上の電池は、これとは別の層に、画面の形から置く（batteryLayer）
     private func screen(_ model: HomeScreenModel) -> some View {
         GeometryReader { proxy in
             VStack(alignment: .leading, spacing: 0) {
-                HomeTopBar(dateTitle: model.dateTitle, battery: battery.reading, safeAreaTop: proxy.safeAreaInsets.top)
+                HomeTopBar(dateTitle: model.dateTitle)
                     .padding(.top, HomeLayoutMetrics.topPadding)
                 HomeStageView(timeline: model.timeline,
                               clock: model.clock,
@@ -173,12 +174,45 @@ struct HomeView: View {
             }
             .padding(.horizontal, HomeLayoutMetrics.horizontalPadding)
             .frame(width: proxy.size.width, height: proxy.size.height, alignment: .top)
+            .overlay(alignment: .topTrailing) {
+                batteryLayer(proxy)
+            }
             .overlayPreferenceValue(HomeBubbleAnchorKey.self) { anchors in
                 HomeBubbleLayer(anchors: anchors, home: home, finishedEvents: model.timeline.finishedEvents) { event in
                     openEditor(for: event)
                 }
             }
         }
+    }
+
+    /// 右上の電池（％とマークをひとまとめ。spec §88.2）。日付の行とは別に、画面の形（Dynamic Island・ノッチ・なし）と Safe Area の上の
+    /// 高さから、ふだんのステータスバーの電池に近い高さに置く（HomeBatteryPlacement。2026-10-19 の上の段の最終調整）。
+    /// この層の上の端は Safe Area の上（画面の座標で containerTop）なので、画面の上の端から決めた中心の高さを、この層の中の位置に直して置く。
+    /// 電池の場所を変えても、日付・時計・タイムラインは動かない
+    @ViewBuilder
+    private func batteryLayer(_ proxy: GeometryProxy) -> some View {
+        if let reading = battery.reading {
+            let containerTop = proxy.frame(in: .global).minY
+            let safeAreaTop = HomeBatteryPlacement.topInset(swiftUI: proxy.safeAreaInsets.top, containerTop: containerTop,
+                                                            window: Self.windowSafeAreaTop)
+            let placement = HomeBatteryPlacement.make(screenWidth: proxy.size.width, safeAreaTop: safeAreaTop)
+            let centerInLayer = placement.centerY - containerTop
+            HomeBatteryView(reading: reading)
+                .padding(.trailing, placement.trailingInset)
+                // 電池の縦の中心を、この層の上の端から centerInLayer の所にそろえる（Safe Area より上なら負の値）
+                .alignmentGuide(.top) { dimensions in dimensions[VerticalAlignment.center] - centerInLayer }
+                .allowsHitTesting(false)
+        }
+    }
+
+    /// この画面の窓（UIKit）の Safe Area の上の高さ。取れないときは nil（HomeBatteryPlacement.topInset で SwiftUI の値と比べる）
+    @MainActor
+    private static var windowSafeAreaTop: CGFloat? {
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap(\.windows)
+            .first(where: \.isKeyWindow)?
+            .safeAreaInsets.top
     }
 
     /// 下の案内：重複候補（Q50）と、まだ連携していないときの連携のカード（Q42-8・Q115）

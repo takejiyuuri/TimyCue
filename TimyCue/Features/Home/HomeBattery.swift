@@ -44,28 +44,104 @@ struct HomeBatteryReading: Equatable {
     }
 }
 
-/// 右上の電池の縦の位置（spec §88.2。2026-10-19 の見やすさの調整）。画面に依らない計算だけを置く。
-/// Home は iOS のステータスバーを出さないので、電池を、ふだんのステータスバーの電池に近い高さへ寄せる。電池は日付の行の中で
-/// 縦の中央にそろえて置き、そこから lift だけ上へずらす（日付・時計・タイムラインの縦の位置は動かさない）。
-/// Safe Area の上が大きい機種（Dynamic Island・ノッチ。上が約 44〜62pt）では決めた量だけ上げ、小さい機種（SE など。ステータスバーを
-/// 隠すと 0、出していれば 20pt）では、画面の上の端から batteryMinimumScreenTop を残すよう、上げる量を抑える。
-/// 電池は右の端にそろえたまま（Dynamic Island・ノッチは画面の中央にあるので、横に重ならない）
-enum HomeBatteryPlacement {
-    /// 電池を上へずらす量（pt。0 以上）
-    static func lift(safeAreaTop: CGFloat) -> CGFloat {
-        let room = safeAreaTop + HomeLayoutMetrics.topPadding - HomeLayoutMetrics.batteryMinimumScreenTop
-        return min(HomeLayoutMetrics.batteryLift, max(0, room))
+/// Home の画面のいちばん上の形（右上の電池の置き方を切り替える。2026-10-19 の上の段の最終調整）。
+/// Safe Area の上の高さから見分ける：Dynamic Island の機種は 59・62pt、ノッチの機種は 44〜50pt、ホームボタンの機種は
+/// ステータスバーを隠すと 0（出していれば 20pt）。表示の拡大で Dynamic Island の機種が小さくなったときはノッチとして扱う（安全な側）
+enum HomeTopShape: Equatable {
+    case dynamicIsland
+    case notch
+    /// 上に切り欠きがない（ホームボタンの機種。SE など）
+    case flat
+
+    static func from(safeAreaTop: CGFloat) -> HomeTopShape {
+        if safeAreaTop >= HomeLayoutMetrics.dynamicIslandMinimumSafeTop { return .dynamicIsland }
+        if safeAreaTop >= HomeLayoutMetrics.notchMinimumSafeTop { return .notch }
+        return .flat
+    }
+}
+
+/// 右上の電池（％とマークをひとまとめ）の置き場所（spec §88.2。2026-10-19 の上の段の最終調整）。画面に依らない計算だけを置く。
+/// Home は iOS のステータスバーを出さないので、電池を、ふだんのステータスバーの電池に近い高さ（ステータスバーの帯の縦の中心）に置く。
+/// 帯の高さは、センサーの張り出しを含む Safe Area の上の高さ（切り欠きのない機種は、ふつうのステータスバーの 20pt）。
+/// Dynamic Island の機種では、帯の中心は Dynamic Island の縦の中心とほぼそろう。帯の中に置くと、切り欠き（の少し広めの見込み）との
+/// 横のあいだが batteryCutoutClearance に足りないとき（ノッチの機種。ノッチの右の「耳」は「100%」とマークには狭い）は、
+/// 切り欠きの下に batteryCutoutClearance をあけて置く。右は画面の角の丸みを避ける。電池は日付の行とは別に置き、
+/// 電池の場所を変えても日付・時計・タイムラインは動かない
+struct HomeBatteryPlacement: Equatable {
+    enum Mode: Equatable {
+        /// ステータスバーの帯の縦の中心
+        case statusBarBand
+        /// 切り欠き（ノッチなど）の下
+        case belowCutout
     }
 
-    /// ずらしたあとの電池の上の端の、画面の上の端からの位置の下限（pt）。日付の行の上の端から数える控えめな見込みで、
-    /// 行の中で縦の中央にそろえる分のすき間（数 pt）は入れない。実際の上の端は、これより少し下になる
-    static func topEdge(safeAreaTop: CGFloat) -> CGFloat {
-        safeAreaTop + HomeLayoutMetrics.topPadding - lift(safeAreaTop: safeAreaTop)
+    let shape: HomeTopShape
+    let mode: Mode
+    /// 電池の中心の、画面の上の端からの位置（pt）
+    let centerY: CGFloat
+    /// 電池の右の端と、画面の右の端のあいだ（pt）
+    let trailingInset: CGFloat
+
+    /// 電池の枠（画面の座標。size は電池の大きさ。既定は見込みの大きさ）
+    func frame(screenWidth: CGFloat, size: CGSize = HomeLayoutMetrics.batteryEstimatedSize) -> CGRect {
+        CGRect(x: screenWidth - trailingInset - size.width, y: centerY - size.height / 2, width: size.width, height: size.height)
     }
 
-    /// 電池の左の端（画面の左からの位置。標準の文字の大きさでの幅の見込みから）
-    static func leadingEdge(screenWidth: CGFloat) -> CGFloat {
-        screenWidth - HomeLayoutMetrics.horizontalPadding - HomeLayoutMetrics.batteryEstimatedWidth
+    /// 画面の大きさと Safe Area の上の高さから、電池の置き場所を決める
+    static func make(screenWidth: CGFloat, safeAreaTop: CGFloat,
+                     size: CGSize = HomeLayoutMetrics.batteryEstimatedSize) -> HomeBatteryPlacement {
+        let shape = HomeTopShape.from(safeAreaTop: safeAreaTop)
+        let halfHeight = size.height / 2
+        let bandCenter = max(statusBarBandHeight(safeAreaTop: safeAreaTop) / 2,
+                             HomeLayoutMetrics.batteryMinimumScreenTop + halfHeight)
+        let band = HomeBatteryPlacement(shape: shape, mode: .statusBarBand, centerY: bandCenter,
+                                        trailingInset: cornerSafeTrailingInset(screenWidth: screenWidth, top: bandCenter - halfHeight,
+                                                                               shape: shape))
+        guard let cutout = cutoutEstimate(screenWidth: screenWidth, safeAreaTop: safeAreaTop) else { return band }
+        if band.frame(screenWidth: screenWidth, size: size).minX - cutout.maxX >= HomeLayoutMetrics.batteryCutoutClearance {
+            return band
+        }
+        let top = cutout.maxY + HomeLayoutMetrics.batteryCutoutClearance
+        return HomeBatteryPlacement(shape: shape, mode: .belowCutout, centerY: top + halfHeight,
+                                    trailingInset: cornerSafeTrailingInset(screenWidth: screenWidth, top: top, shape: shape))
+    }
+
+    /// ステータスバーの帯の高さ：Dynamic Island・ノッチの機種は、ステータスバーを隠しても Safe Area の上に残るセンサーの張り出しの高さ。
+    /// 切り欠きのない機種は、隠すと Safe Area の上が 0 になりうるので、ふつうのステータスバーの高さ
+    static func statusBarBandHeight(safeAreaTop: CGFloat) -> CGFloat {
+        HomeTopShape.from(safeAreaTop: safeAreaTop) == .flat ? HomeLayoutMetrics.flatStatusBarHeight : safeAreaTop
+    }
+
+    /// 切り欠き（Dynamic Island・ノッチ）の見込みの枠（画面の座標。実際より少し広く・下まで見る）。切り欠きのない機種は nil
+    static func cutoutEstimate(screenWidth: CGFloat, safeAreaTop: CGFloat) -> CGRect? {
+        let halfWidthRatio: CGFloat
+        switch HomeTopShape.from(safeAreaTop: safeAreaTop) {
+        case .dynamicIsland: halfWidthRatio = HomeLayoutMetrics.dynamicIslandHalfWidthRatio
+        case .notch: halfWidthRatio = HomeLayoutMetrics.notchHalfWidthRatio
+        case .flat: return nil
+        }
+        let halfWidth = screenWidth * halfWidthRatio
+        return CGRect(x: screenWidth / 2 - halfWidth, y: 0, width: halfWidth * 2,
+                      height: safeAreaTop * HomeLayoutMetrics.cutoutBottomRatio)
+    }
+
+    /// 電池の右上の角が、画面の角の丸み（の見込み）から batteryCornerClearance 以上内側になる右の余白（画面の左右の余白より小さくしない）。
+    /// top は電池の上の端（画面の上の端から）。切り欠きのない機種は角が丸くないので、画面の左右の余白のまま
+    static func cornerSafeTrailingInset(screenWidth: CGFloat, top: CGFloat, shape: HomeTopShape) -> CGFloat {
+        let padding = HomeLayoutMetrics.horizontalPadding
+        guard shape != .flat else { return padding }
+        let radius = screenWidth * HomeLayoutMetrics.screenCornerRadiusRatio
+        guard top < radius else { return padding }
+        let rise = radius - max(0, top)
+        let intrusion = radius - (radius * radius - rise * rise).squareRoot()
+        return max(padding, intrusion + HomeLayoutMetrics.batteryCornerClearance)
+    }
+
+    /// ステータスバーを隠した Home での Safe Area の上の高さ（pt）。Dynamic Island・ノッチの機種はセンサーの張り出しの分が残り、
+    /// ホームボタンの機種は 0 になりうる。SwiftUI の画面で測った値・その画面の上の端の位置（画面の座標）・窓（UIKit）の値のうち、
+    /// いちばん大きいものを使う（どれかが 0 で返っても、切り欠きのある機種を切り欠きなしと取り違えない）。おかしな値は使わない
+    static func topInset(swiftUI: CGFloat, containerTop: CGFloat, window: CGFloat?) -> CGFloat {
+        [swiftUI, containerTop, window ?? 0].filter { $0.isFinite && $0 > 0 }.max() ?? 0
     }
 }
 

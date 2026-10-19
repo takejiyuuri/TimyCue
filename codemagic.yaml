@@ -245,6 +245,18 @@ workflows:
           # 電池の残りが少ないとき（15%。警告の色）と充電中（稲妻）の形（仮。§88.2 の電池の表示は H2 の実機で決める）
           capture home-h2-battery-low -TimyCueTab home -TimyCueHomeScenario onePlace -TimyCueSampleCalendars appleDefault -TimyCueSampleBattery 15
           capture home-h2-battery-charging -TimyCueTab home -TimyCueHomeScenario onePlace -TimyCueSampleCalendars appleDefault -TimyCueSampleBattery 60c
+          # 2026-10-19 上の段の最終調整：文字の大きさを最大近く（Home の上限の xxxLarge）にした形。日付・終わった予定・予定名が欠けたり
+          # 重なったりしないか。電池は文字の大きさの設定で大きくしない。撮ったら元の文字の大きさに戻す。変えられなければ撮らずに記録する
+          ORIGINAL_SIZE=$(xcrun simctl ui "$SIM_UDID" content_size 2>/dev/null | tail -n 1 | tr -d '[:space:]' || true)
+          if xcrun simctl ui "$SIM_UDID" content_size extra-extra-extra-large 2>/dev/null; then
+            for SCENE in several many; do
+              capture "home-h2-${SCENE}-xxxl" -TimyCueTab home -TimyCueHomeScenario "$SCENE" -TimyCueSampleCalendars appleDefault -TimyCueSampleBattery 80
+            done
+            xcrun simctl ui "$SIM_UDID" content_size "${ORIGINAL_SIZE:-large}" 2>/dev/null || xcrun simctl ui "$SIM_UDID" content_size large 2>/dev/null || true
+            echo "文字の大きさを元（${ORIGINAL_SIZE:-large}）に戻した"
+          else
+            echo "シミュレータの文字の大きさを変えられなかったので、home-h2-several-xxxl・home-h2-many-xxxl は撮らない"
+          fi
           # S1b：開発用の失敗の再現の画面（検証用のビルドだけ）
           capture dev-save-faults -TimyCueTab settings -TimyCueDevScreen saveFaults
           # S1b（spec §89.9）：3 日を選んで保存し、検証用の失敗の再現で途中を失敗させる（見本の予定はメモリの中だけ。何も書かない）。
@@ -394,14 +406,88 @@ workflows:
             done
             # H2 の新しい Home を小さい iPhone（幅 375pt・高さ 667pt。ステータスバーを出さないので上は画面の端から）で。
             # 時計 40％（150pt）・人型・タイムラインが重ならず、縦にスクロールせずタブの上まで収まるか。行が入らなければ詰めて「ほか○件」
-            for SCENE in onePlace two several many overdue finished longText; do
+            # empty は 2026-10-19 上の段の最終調整で足した（電池と日付の行の近さ・［予定を登録］の収まり）
+            for SCENE in empty onePlace two several many overdue finished longText; do
               capture "small-home-h2-${SCENE}" -TimyCueTab home -TimyCueHomeScenario "$SCENE" -TimyCueSampleCalendars appleDefault -TimyCueSampleBattery 80
             done
             # 連携のカード（まだ連携していないとき）が下に出ても収まるか
             capture small-home-h2-several-unlinked -TimyCueTab home -TimyCueHomeScenario several -TimyCueSampleBattery 80
+            # 文字の大きさを最大近く（xxxLarge）にした予定 11 件（2026-10-19 上の段の最終調整）。撮ったら元に戻す
+            ORIGINAL_SIZE=$(xcrun simctl ui "$SIM_UDID" content_size 2>/dev/null | tail -n 1 | tr -d '[:space:]')
+            if xcrun simctl ui "$SIM_UDID" content_size extra-extra-extra-large 2>/dev/null; then
+              capture small-home-h2-many-xxxl -TimyCueTab home -TimyCueHomeScenario many -TimyCueSampleCalendars appleDefault -TimyCueSampleBattery 80
+              xcrun simctl ui "$SIM_UDID" content_size "${ORIGINAL_SIZE:-large}" 2>/dev/null || xcrun simctl ui "$SIM_UDID" content_size large 2>/dev/null
+              echo "小さい iPhone の文字の大きさを元（${ORIGINAL_SIZE:-large}）に戻した"
+            else
+              echo "小さい iPhone のシミュレータの文字の大きさを変えられなかったので、small-home-h2-many-xxxl は撮らない"
+            fi
           ) || true
           else
             echo "小さい iPhone のシミュレータを用意できなかったので、小さい幅の画面写真は撮らない"
+          fi
+          # ノッチの機種でも撮る（2026-10-19 上の段の最終調整）。電池がノッチに触れない（ノッチの下に 8pt 以上）か、日付・タイムラインの収まり。
+          # 幅 375pt のノッチの iPhone 13 mini（なければ 12 mini）を使い、なければ作る。作れなければ iPhone 16e・14 などほかのノッチの機種。
+          # どれも用意できなければ撮らずに記録する。画面の大きさの確かめで、実機の確認ではない
+          NOTCH_UDID=$(xcrun simctl list devices available -j | python3 -c '
+          import json, sys
+          devices = json.load(sys.stdin)["devices"]
+          for name in ["iPhone 13 mini", "iPhone 12 mini"]:
+              found = [d for runtime, items in sorted(devices.items()) if "iOS" in runtime for d in items if d["name"] == name]
+              if found:
+                  print(found[-1]["udid"])
+                  break
+          ') || true
+          if [ -z "$NOTCH_UDID" ]; then
+            NOTCH_RUNTIME=$(xcrun simctl list runtimes available -j | python3 -c '
+          import json, sys
+          runtimes = [r for r in json.load(sys.stdin)["runtimes"] if r.get("platform") == "iOS" or "iOS" in r.get("name", "")]
+          print(runtimes[-1]["identifier"] if runtimes else "")
+          ') || true
+            if [ -n "$NOTCH_RUNTIME" ]; then
+              for TYPE in iPhone-13-mini iPhone-12-mini; do
+                NOTCH_UDID=$(xcrun simctl create "TimyCue notch" "com.apple.CoreSimulator.SimDeviceType.$TYPE" "$NOTCH_RUNTIME" 2>/dev/null || true)
+                if [ -n "$NOTCH_UDID" ]; then break; fi
+              done
+            fi
+          fi
+          if [ -z "$NOTCH_UDID" ]; then
+            NOTCH_UDID=$(xcrun simctl list devices available -j | python3 -c '
+          import json, sys
+          devices = json.load(sys.stdin)["devices"]
+          for name in ["iPhone 16e", "iPhone 14", "iPhone 13"]:
+              found = [d for runtime, items in sorted(devices.items()) if "iOS" in runtime for d in items if d["name"] == name]
+              if found:
+                  print(found[-1]["udid"])
+                  break
+          ') || true
+          fi
+          if [ -z "$NOTCH_UDID" ] && [ -n "${NOTCH_RUNTIME:-}" ]; then
+            for TYPE in iPhone-16e iPhone-14; do
+              NOTCH_UDID=$(xcrun simctl create "TimyCue notch" "com.apple.CoreSimulator.SimDeviceType.$TYPE" "$NOTCH_RUNTIME" 2>/dev/null || true)
+              if [ -n "$NOTCH_UDID" ]; then break; fi
+            done
+          fi
+          if [ -n "$NOTCH_UDID" ]; then (
+            set +e
+            echo "ノッチの機種のシミュレータ:"
+            xcrun simctl list devices | grep "$NOTCH_UDID"
+            xcrun simctl shutdown all 2>/dev/null || true
+            SIM_UDID=$NOTCH_UDID
+            xcrun simctl boot "$SIM_UDID" 2>/dev/null || true
+            xcrun simctl bootstatus "$SIM_UDID" -b
+            xcrun simctl status_bar "$SIM_UDID" override --time "9:41" --batteryState charged --batteryLevel 100 || true
+            # アプリを入れられなかったら、まちがった写真を撮らずに抜ける（サブシェルの exit は外を止めない）
+            xcrun simctl install "$SIM_UDID" "$APP" || exit 0
+            DATA=$(xcrun simctl get_app_container "$SIM_UDID" "$BUNDLE" data) || exit 0
+            [ -n "$DATA" ] || exit 0
+            READY="$DATA/Documents/timycue-screenshot-ready"
+            launch_and_wait -TimyCueTab home
+            for SCENE in empty two several many longText; do
+              capture "notch-home-h2-${SCENE}" -TimyCueTab home -TimyCueHomeScenario "$SCENE" -TimyCueSampleCalendars appleDefault -TimyCueSampleBattery 80
+            done
+          ) || true
+          else
+            echo "ノッチの機種のシミュレータを用意できなかったので、notch-home-h2- は撮らない"
           fi
           ls -l build/screenshots
           # 再現で落ちたときの記録（シミュレータのアプリのクラッシュは、Mac の DiagnosticReports に残る）

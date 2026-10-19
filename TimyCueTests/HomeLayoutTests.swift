@@ -1,3 +1,4 @@
+import UIKit
 import XCTest
 @testable import TimyCue
 
@@ -197,44 +198,194 @@ final class HomeLayoutTests: XCTestCase {
         }
     }
 
-    // MARK: - 右上の電池の位置（2026-10-19 の見やすさの調整）
+    // MARK: - 右上の電池の位置（2026-10-19 の上の段の最終調整）
+    // 前（e45cf2d）の「日付の行から決まった量（28pt）だけ上げる」形のテスト 3 件（上へ 25〜30pt・SE で上げる量を抑える・
+    // 中央の切り欠きより右）は、画面の形（Dynamic Island・ノッチ・なし）と Safe Area の上の高さから置き場所を決める形に変えたので、
+    // 下のテスト（帯の中心・切り欠きと角と上の端からの余白・切り欠きのない機種）に置き換えた
 
-    /// Dynamic Island の機種（Safe Area の上 59・62pt）とノッチの機種（44・47・48・50pt）では、ふだんのステータスバーの電池に
-    /// 近い高さへ、約 25〜30pt 上へ移る。画面の上の端からはみ出さない
-    func testBatteryMovesUpTowardTheStatusBarOnDynamicIslandAndNotchPhones() {
-        for top: CGFloat in [59, 62, 44, 47, 48, 50] {
-            let lift = HomeBatteryPlacement.lift(safeAreaTop: top)
-            XCTAssertGreaterThanOrEqual(lift, 25, "Safe Area の上 \(top)pt")
-            XCTAssertLessThanOrEqual(lift, 30, "Safe Area の上 \(top)pt")
-            XCTAssertGreaterThanOrEqual(HomeBatteryPlacement.topEdge(safeAreaTop: top), HomeLayoutMetrics.batteryMinimumScreenTop,
-                                        "Safe Area の上 \(top)pt：画面の上の端から最小の余白を残す")
+    /// テストで使う機種の画面の上の形（pt。実際の機種の値の見込み。置き方の計算の見込みの値とは別に持ち、見込みが実際より広いかも確かめる）
+    private struct PhoneTop {
+        let name: String
+        let width: CGFloat
+        let safeTop: CGFloat
+        /// ノッチ・Dynamic Island の枠（画面の座標）。切り欠きのない機種は nil
+        let cutout: CGRect?
+        /// 画面の角の丸みの半径（切り欠きのない機種は 0）
+        let cornerRadius: CGFloat
+    }
+
+    /// 画面の幅の中央にある切り欠き
+    private static func centeredCutout(width: CGFloat, screen: CGFloat, top: CGFloat = 0, height: CGFloat) -> CGRect {
+        CGRect(x: (screen - width) / 2, y: top, width: width, height: height)
+    }
+
+    private static let dynamicIslandPhones: [PhoneTop] = [
+        PhoneTop(name: "iPhone 14 Pro・15・15 Pro・16", width: 393, safeTop: 59,
+                 cutout: centeredCutout(width: 126, screen: 393, top: 11, height: 37.33), cornerRadius: 55),
+        PhoneTop(name: "iPhone 14 Pro Max・15 Plus・15 Pro Max・16 Plus", width: 430, safeTop: 59,
+                 cutout: centeredCutout(width: 126, screen: 430, top: 11, height: 37.33), cornerRadius: 55),
+        PhoneTop(name: "iPhone 16 Pro", width: 402, safeTop: 62,
+                 cutout: centeredCutout(width: 126, screen: 402, top: 14, height: 37.33), cornerRadius: 62),
+        PhoneTop(name: "iPhone 16 Pro Max", width: 440, safeTop: 62,
+                 cutout: centeredCutout(width: 126, screen: 440, top: 14, height: 37.33), cornerRadius: 62),
+        // 表示の拡大（14 Pro Max を幅 375pt で。Safe Area・切り欠き・角は 375/430 倍）
+        PhoneTop(name: "iPhone 14 Pro Max（拡大表示）", width: 375, safeTop: 51.4,
+                 cutout: centeredCutout(width: 110, screen: 375, top: 9.6, height: 32.6), cornerRadius: 48),
+    ]
+
+    private static let notchPhones: [PhoneTop] = [
+        PhoneTop(name: "iPhone XS・11 Pro", width: 375, safeTop: 44,
+                 cutout: centeredCutout(width: 209, screen: 375, height: 30), cornerRadius: 39),
+        PhoneTop(name: "iPhone XS Max・11 Pro Max", width: 414, safeTop: 44,
+                 cutout: centeredCutout(width: 209, screen: 414, height: 30), cornerRadius: 39),
+        PhoneTop(name: "iPhone XR・11", width: 414, safeTop: 48,
+                 cutout: centeredCutout(width: 223, screen: 414, height: 32), cornerRadius: 41.5),
+        PhoneTop(name: "iPhone 12・12 Pro", width: 390, safeTop: 47,
+                 cutout: centeredCutout(width: 210, screen: 390, height: 32), cornerRadius: 47.33),
+        PhoneTop(name: "iPhone 12 Pro Max", width: 428, safeTop: 47,
+                 cutout: centeredCutout(width: 210, screen: 428, height: 32), cornerRadius: 53.33),
+        PhoneTop(name: "iPhone 12 mini", width: 375, safeTop: 50,
+                 cutout: centeredCutout(width: 226, screen: 375, height: 35), cornerRadius: 44),
+        PhoneTop(name: "iPhone 13・13 Pro・14・16e", width: 390, safeTop: 47,
+                 cutout: centeredCutout(width: 168, screen: 390, height: 34), cornerRadius: 47.33),
+        PhoneTop(name: "iPhone 13 Pro Max・14 Plus", width: 428, safeTop: 47,
+                 cutout: centeredCutout(width: 168, screen: 428, height: 34), cornerRadius: 53.33),
+        PhoneTop(name: "iPhone 13 mini", width: 375, safeTop: 50,
+                 cutout: centeredCutout(width: 182, screen: 375, height: 36), cornerRadius: 44),
+        // 表示の拡大（12 mini を幅 320pt で）
+        PhoneTop(name: "iPhone 12 mini（拡大表示）", width: 320, safeTop: 42.7,
+                 cutout: centeredCutout(width: 193, screen: 320, height: 30), cornerRadius: 37.5),
+        // Dynamic Island の機種を表示の拡大にすると Safe Area の上が 51pt より小さくなり、ノッチとして扱う（14 Pro を幅 320pt で）
+        PhoneTop(name: "iPhone 14 Pro（拡大表示）", width: 320, safeTop: 48,
+                 cutout: centeredCutout(width: 102.6, screen: 320, top: 9, height: 30.4), cornerRadius: 44.8),
+    ]
+
+    private static let flatPhones: [PhoneTop] = [
+        PhoneTop(name: "iPhone SE（ステータスバーを隠す）", width: 375, safeTop: 0, cutout: nil, cornerRadius: 0),
+        PhoneTop(name: "iPhone SE（ステータスバーあり）", width: 375, safeTop: 20, cutout: nil, cornerRadius: 0),
+        PhoneTop(name: "iPhone SE（拡大表示）", width: 320, safeTop: 0, cutout: nil, cornerRadius: 0),
+    ]
+
+    /// ステータスバーを隠した Home での Safe Area の上の高さの取り方：Dynamic Island・ノッチの機種はセンサーの張り出しの分が残り、
+    /// SE 系は 0 になりうる。SwiftUI の値・画面の上の端の位置・窓（UIKit）の値のうち大きいものを使い、どれかが 0 でも取り違えない
+    func testTopInsetKeepsTheSensorHousingWithoutTheStatusBar() {
+        XCTAssertEqual(HomeBatteryPlacement.topInset(swiftUI: 59, containerTop: 59, window: 59), 59, "Dynamic Island の機種")
+        XCTAssertEqual(HomeBatteryPlacement.topInset(swiftUI: 47, containerTop: 47, window: 47), 47, "ノッチの機種")
+        XCTAssertEqual(HomeBatteryPlacement.topInset(swiftUI: 0, containerTop: 62, window: 62), 62, "SwiftUI の値が 0 で返っても取り違えない")
+        XCTAssertEqual(HomeBatteryPlacement.topInset(swiftUI: 0, containerTop: 0, window: 59), 59, "窓の値で補う")
+        XCTAssertEqual(HomeBatteryPlacement.topInset(swiftUI: 59, containerTop: 59, window: nil), 59, "窓の値が取れないとき")
+        XCTAssertEqual(HomeBatteryPlacement.topInset(swiftUI: 0, containerTop: 0, window: 0), 0, "SE 系：ステータスバーを隠すと 0")
+        XCTAssertEqual(HomeBatteryPlacement.topInset(swiftUI: 20, containerTop: 20, window: 20), 20, "SE 系：ステータスバーを出しているとき")
+        XCTAssertEqual(HomeBatteryPlacement.topInset(swiftUI: .nan, containerTop: -5, window: .infinity), 0, "おかしな値は使わない")
+    }
+
+    /// 画面の上の形は Safe Area の上の高さから見分ける。ステータスバーの帯の高さは、切り欠きのある機種は Safe Area の上、
+    /// 切り欠きのない機種はふつうのステータスバーの 20pt
+    func testScreenTopShapeAndStatusBarBandFromTheSafeArea() {
+        for top: CGFloat in [59, 62] {
+            XCTAssertEqual(HomeTopShape.from(safeAreaTop: top), .dynamicIsland, "\(top)pt")
+            XCTAssertEqual(HomeBatteryPlacement.statusBarBandHeight(safeAreaTop: top), top)
+        }
+        for top: CGFloat in [44, 47, 48, 50] {
+            XCTAssertEqual(HomeTopShape.from(safeAreaTop: top), .notch, "\(top)pt")
+            XCTAssertEqual(HomeBatteryPlacement.statusBarBandHeight(safeAreaTop: top), top)
+        }
+        for top: CGFloat in [0, 20] {
+            XCTAssertEqual(HomeTopShape.from(safeAreaTop: top), .flat, "\(top)pt")
+            XCTAssertEqual(HomeBatteryPlacement.statusBarBandHeight(safeAreaTop: top), HomeLayoutMetrics.flatStatusBarHeight)
+        }
+        XCTAssertEqual(HomeTopShape.from(safeAreaTop: 48), .notch, "表示の拡大の Dynamic Island の機種（約 48pt）はノッチとして扱う（安全な側）")
+        XCTAssertEqual(HomeTopShape.from(safeAreaTop: 51.4), .dynamicIsland, "14 Pro Max の表示の拡大")
+    }
+
+    /// Dynamic Island の機種：電池はステータスバーの帯の縦の中心（Safe Area の上の半分）にあり、Dynamic Island と縦の中心がほぼそろう。
+    /// Dynamic Island の見込みの枠は、実際より広く・下まで見る
+    func testBatteryCentersOnTheDynamicIslandBand() throws {
+        for phone in Self.dynamicIslandPhones {
+            let placement = HomeBatteryPlacement.make(screenWidth: phone.width, safeAreaTop: phone.safeTop)
+            let island = try XCTUnwrap(phone.cutout)
+            let estimate = try XCTUnwrap(HomeBatteryPlacement.cutoutEstimate(screenWidth: phone.width, safeAreaTop: phone.safeTop))
+            XCTAssertEqual(placement.shape, .dynamicIsland, phone.name)
+            XCTAssertEqual(placement.mode, .statusBarBand, phone.name)
+            XCTAssertEqual(placement.centerY, phone.safeTop / 2, accuracy: 0.01, phone.name)
+            XCTAssertEqual(placement.centerY, island.midY, accuracy: 3, "\(phone.name)：Dynamic Island と縦の中心がそろう")
+            XCTAssertGreaterThanOrEqual(estimate.maxX, island.maxX, "\(phone.name)：見込みは実際より広い")
+            XCTAssertGreaterThanOrEqual(estimate.maxY, island.maxY, "\(phone.name)：見込みは実際より下まで")
         }
     }
 
-    /// Safe Area の上が小さい機種（SE。ステータスバーを出していれば 20pt、隠すと 0）では、画面の上の端から最小の余白（約 6pt）を
-    /// 残す分だけ上げる（上げる量を抑える）。下へは動かさない
-    func testBatteryStaysBelowTheTopEdgeOnPhonesWithASmallSafeArea() {
-        XCTAssertGreaterThanOrEqual(HomeLayoutMetrics.batteryMinimumScreenTop, 6)
-        for top: CGFloat in [20, 0] {
-            let lift = HomeBatteryPlacement.lift(safeAreaTop: top)
-            let expected = top + HomeLayoutMetrics.topPadding - HomeLayoutMetrics.batteryMinimumScreenTop
-            XCTAssertEqual(lift, expected, accuracy: 0.01, "Safe Area の上 \(top)pt：上の端から最小の余白を残すところまで上げる")
-            XCTAssertLessThan(lift, HomeLayoutMetrics.batteryLift, "Safe Area の上 \(top)pt：上げる量を抑える")
-            XCTAssertGreaterThanOrEqual(lift, 0, "下へは動かさない")
-            XCTAssertEqual(HomeBatteryPlacement.topEdge(safeAreaTop: top), HomeLayoutMetrics.batteryMinimumScreenTop, accuracy: 0.01)
+    /// ノッチの機種：ノッチの右の「耳」は「100%」とマークをひとまとめに置くには狭い（いちばん広いノッチ・表示の拡大まで見ると
+    /// 8pt の余白を取れない）ので、ノッチの下に 8pt 以上あけて置く。日付の中心より上（日付・時計・タイムラインは動かさない）
+    func testNotchPhonesPutTheBatteryJustBelowTheNotch() throws {
+        for phone in Self.notchPhones {
+            let placement = HomeBatteryPlacement.make(screenWidth: phone.width, safeAreaTop: phone.safeTop)
+            let notch = try XCTUnwrap(phone.cutout)
+            let estimate = try XCTUnwrap(HomeBatteryPlacement.cutoutEstimate(screenWidth: phone.width, safeAreaTop: phone.safeTop))
+            XCTAssertEqual(placement.shape, .notch, phone.name)
+            XCTAssertEqual(placement.mode, .belowCutout, phone.name)
+            XCTAssertGreaterThanOrEqual(placement.frame(screenWidth: phone.width).minY - notch.maxY, 8, "\(phone.name)：ノッチの下に 8pt 以上")
+            XCTAssertGreaterThanOrEqual(estimate.maxX, notch.maxX, "\(phone.name)：見込みは実際より広い")
+            XCTAssertGreaterThanOrEqual(estimate.maxY, notch.maxY, "\(phone.name)：見込みは実際より下まで")
+            let dateCenter = phone.safeTop + HomeLayoutMetrics.topPadding + 13
+            XCTAssertLessThan(placement.centerY, dateCenter, "\(phone.name)：日付の中心より上")
         }
     }
 
-    /// 電池は右の端にそろえたまま。左の端は画面の中央から十分右（Dynamic Island の幅の半分 約 63pt、いちばん広いノッチ
-    /// （幅 375pt の XS・11 Pro）の幅の半分 約 105pt より右）にあり、横に重ならない
-    func testBatteryStaysRightOfTheDynamicIslandAndTheNotch() {
-        let widestCutoutHalf: CGFloat = 105
-        for width: CGFloat in [375, 390, 393, 402, 414, 428, 430, 440] {
-            let leading = HomeBatteryPlacement.leadingEdge(screenWidth: width)
-            XCTAssertGreaterThan(leading - width / 2, widestCutoutHalf, "幅 \(width)：電池の左の端が中央の切り欠きより右")
-            XCTAssertLessThanOrEqual(leading + HomeLayoutMetrics.batteryEstimatedWidth, width - HomeLayoutMetrics.horizontalPadding,
-                                     "幅 \(width)：右の余白の内側")
+    /// 切り欠きのない機種（SE 系）：ふつうのステータスバーの高さ 20pt の帯の中心を目安にし、画面の上の端から 6pt を残す
+    func testBatteryOnPhonesWithoutACutoutUsesTheUsualStatusBarHeight() {
+        let expected = max(HomeLayoutMetrics.flatStatusBarHeight / 2,
+                           HomeLayoutMetrics.batteryMinimumScreenTop + HomeLayoutMetrics.batteryEstimatedSize.height / 2)
+        for phone in Self.flatPhones {
+            let placement = HomeBatteryPlacement.make(screenWidth: phone.width, safeAreaTop: phone.safeTop)
+            XCTAssertEqual(placement.shape, .flat, phone.name)
+            XCTAssertEqual(placement.mode, .statusBarBand, phone.name)
+            XCTAssertEqual(placement.centerY, expected, accuracy: 0.01, phone.name)
+            XCTAssertEqual(placement.trailingInset, HomeLayoutMetrics.horizontalPadding, accuracy: 0.01, "\(phone.name)：角が丸くない")
+            XCTAssertNil(HomeBatteryPlacement.cutoutEstimate(screenWidth: phone.width, safeAreaTop: phone.safeTop))
         }
+    }
+
+    /// どの機種（表示の拡大を含む）でも、電池（見込みの大きさ）は切り欠きから 8pt 以上（横か縦）離れ、画面の上の端から 6pt 以上、
+    /// 画面の角の丸みより 2pt 以上内側、右の余白の内側で、画面の右半分にある
+    func testBatteryKeepsClearOfTheCutoutTheCornersAndTheTopEdge() {
+        for phone in Self.dynamicIslandPhones + Self.notchPhones + Self.flatPhones {
+            let frame = HomeBatteryPlacement.make(screenWidth: phone.width, safeAreaTop: phone.safeTop).frame(screenWidth: phone.width)
+            XCTAssertGreaterThanOrEqual(frame.minY, HomeLayoutMetrics.batteryMinimumScreenTop - 0.01, "\(phone.name)：画面の上の端")
+            XCTAssertLessThanOrEqual(frame.maxX, phone.width - HomeLayoutMetrics.horizontalPadding + 0.01, "\(phone.name)：右の余白")
+            XCTAssertGreaterThan(frame.minX, phone.width / 2, "\(phone.name)：画面の右半分")
+            if let cutout = phone.cutout {
+                let sideGap = frame.minX - cutout.maxX
+                let belowGap = frame.minY - cutout.maxY
+                XCTAssertTrue(sideGap >= 8 || belowGap >= 8, "\(phone.name)：切り欠きとの横 \(sideGap)pt・縦 \(belowGap)pt")
+            }
+            let corner = CGPoint(x: phone.width - phone.cornerRadius, y: phone.cornerRadius)
+            if phone.cornerRadius > 0, frame.minY < corner.y, frame.maxX > corner.x {
+                let dx = frame.maxX - corner.x
+                let dy = frame.minY - corner.y
+                let distance = (dx * dx + dy * dy).squareRoot()
+                XCTAssertLessThanOrEqual(distance, phone.cornerRadius - 2, "\(phone.name)：画面の角の丸みの内側")
+            }
+        }
+    }
+
+    // MARK: - 日付と「終わった予定」の高さ（2026-10-19 の上の段の最終調整）
+
+    /// 日付（22pt）と「終わった予定」（14pt）は本当の高さで並べ、高くなった分を余白で吸収する（上の段の高さと、時計がないときの
+    /// 演出帯の高さを前と同じにして、タイムラインに出せる予定の数を保つ）。標準の文字の大きさの行の高さで確かめる
+    func testTheLargerDateAndFinishedLinesAreAbsorbedByTheMargins() {
+        let standard = UITraitCollection(preferredContentSizeCategory: .large)
+        let date = UIFont.preferredFont(forTextStyle: .title2, compatibleWith: standard).lineHeight
+        let dateBefore = UIFont.preferredFont(forTextStyle: .title3, compatibleWith: standard).lineHeight
+        XCTAssertEqual(date - dateBefore, HomeLayoutMetrics.dateLineGrowth, accuracy: 0.3, "日付の行が高くなる分の見込み")
+        XCTAssertEqual(HomeLayoutMetrics.topPadding + date, 10 + dateBefore, accuracy: 0.3,
+                       "上の余白＋日付の行は、前（10pt＋20pt の日付の行）と同じ")
+        let finished = UIFont.systemFont(ofSize: HomeLayoutMetrics.finishedTextSize).lineHeight
+        let finishedBefore = UIFont.preferredFont(forTextStyle: .footnote, compatibleWith: standard).lineHeight
+        XCTAssertEqual(finished - finishedBefore, HomeLayoutMetrics.finishedLineGrowth, accuracy: 0.3, "「終わった予定」の行が高くなる分の見込み")
+        XCTAssertEqual(finished + HomeLayoutMetrics.figureTopGapWithFinished, finishedBefore + HomeLayoutMetrics.figureTopGap, accuracy: 0.3,
+                       "時計がないとき：「終わった予定」の行＋人型の上の最小の間は前と同じ")
+        XCTAssertGreaterThanOrEqual(HomeLayoutMetrics.topPadding, 6, "日付の上の余白を削りすぎない")
+        XCTAssertGreaterThanOrEqual(HomeLayoutMetrics.figureTopGapWithFinished, 6, "人型の上の間を削りすぎない")
     }
 
     // MARK: - 文字の段と行の間（2026-10-19 の見やすさの調整）
