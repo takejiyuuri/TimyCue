@@ -14,6 +14,9 @@ protocol AppleCalendarRepository: EventRepository {
     func reloadCache()
     /// 前回の保存の途中で終わっていたら、記録した鍵で結び付け直す。確かめてもらう記録を返す（spec §89.9）
     func recover(now: Date) -> [SaveJournalEntry]
+    /// 書けていない結び付けを、今ファイルに書く。書けていない分がない・書けたら true（連携を OFF にする前に確かめる。
+    /// 書けなければ OFF にしない。2026-10-19 ユーザー指示）
+    func saveUnsavedLinks() -> Bool
     /// 止める：書けていない結び付けを先に書き、読み込みと書き込みをやめ、読んだ予定を捨てる（連携 OFF）
     func pause()
     /// 使い直す：最初の読み込みで、消えた予定をもう一度確かめる（連携 ON）

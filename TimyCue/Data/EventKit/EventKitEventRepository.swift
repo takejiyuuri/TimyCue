@@ -554,6 +554,12 @@ final class EventKitEventRepository: AppleCalendarRepository {
 
     // MARK: - 連携の ON/OFF（spec §89.6。S6）
 
+    /// 書けていない結び付けを、今ファイルに書く（連携を OFF にする前。CalendarConnection は、書けなければ OFF にしない）。
+    /// 書けていない分がなければ何も書かない
+    func saveUnsavedLinks() -> Bool {
+        linksDirty ? persistLinks() : true
+    }
+
     /// 連携を OFF にしたとき：書けていない結び付けを先に書き、読み込みと書き込みを止め、読んだ予定と読んだ範囲を捨てる
     /// （ON に戻したら最新を取り直す）。結び付け・終了未設定の印・「見つからない」の記録・保存の途中の記録は消さない。
     /// 読み始めていた裏の読み込みの結果は取り込まない

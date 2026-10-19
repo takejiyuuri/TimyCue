@@ -207,25 +207,43 @@ final class CalendarConnection {
     // MARK: - 設定 ＞ カレンダー連携
 
     /// Apple カレンダー連携（全体）を ON/OFF する（spec §89.6・Q101）。OFF にするたびの確認は出さない。
-    /// OFF：Apple カレンダーの保存先を止め（書けていない結び付けを先に書く）、TimyCue のみの予定だけを見せる。Apple 側の予定・
-    /// 結び付け・TimyCue の設定・保存先の設定・表示の設定は消さない。ON：許可を読み直し、フルアクセスがあれば最新を取り直す
-    /// （OFF の前の「見つからない」の記録はやり直す。表示の設定は勝手に ON にしない。Q103）。保存できなければ戻して知らせ、false を返す
+    /// OFF：先に、要るものをすべてファイルに残す（書けていない結び付け → OFF の設定）。どれかを書けなければ OFF にせず、ON のまま戻して
+    /// 理由を知らせ、false を返す（アプリが終わっても、ON に戻したときに到着目標などを結び付け直せるように。2026-10-19 ユーザー指示）。
+    /// 書けたら Apple カレンダーの保存先を止め、TimyCue のみの予定だけを見せる。Apple 側の予定・結び付け（終了未設定の印・
+    /// 繰り返しの共通設定の id・「見つからない」の記録を含む）・TimyCue の設定・保存先の設定・表示の設定は消さない。
+    /// ON：許可を読み直し、フルアクセスがあるときだけ最新を取り直す（許可がなければ Apple を読み書きしない。OFF の前の
+    /// 「見つからない」の記録はやり直す。表示の設定は勝手に ON にしない。Q103）。保存できなければ戻して知らせ、false を返す
     @discardableResult
     func setAppleLinkEnabled(_ enabled: Bool) -> Bool {
         guard enabled != isLinkEnabled else { return true }
-        guard updatePreferences({ $0.appleLinkEnabled = enabled }) else { return false }
-        if enabled {
-            refreshAuthorization()
-            if isLinked {
-                useEventKit(resettingMissing: true)
-            } else {
-                notify()
-            }
+        guard enabled else { return turnLinkOff() }
+        guard updatePreferences({ $0.appleLinkEnabled = true }) else { return false }
+        refreshAuthorization()
+        if isLinked {
+            useEventKit(resettingMissing: true)
         } else {
-            stopUsingEventKit()
+            notify()
         }
         return true
     }
+
+    /// 連携を OFF にする（setAppleLinkEnabled から）。書けていない結び付けを書いてから、OFF の設定を書く。
+    /// 止めてある保存先（許可が外れたときなど）にも書けていない結び付けがあれば、先に書く
+    private func turnLinkOff() -> Bool {
+        if let eventKit, !eventKit.saveUnsavedLinks() {
+            reportSettingsFailure(Self.linkOffLinksFailureMessage)
+            return false
+        }
+        guard updatePreferences(failureMessage: Self.linkOffSettingsFailureMessage, { $0.appleLinkEnabled = false }) else {
+            return false
+        }
+        stopUsingEventKit()
+        return true
+    }
+
+    /// 連携を OFF にできなかったときの知らせ（文言は仮）
+    static let linkOffLinksFailureMessage = "Apple カレンダー連携を OFF にできませんでした。予定と到着目標などの結び付けを保存できませんでした。もう一度お試しください。"
+    static let linkOffSettingsFailureMessage = "Apple カレンダー連携を OFF にできませんでした。設定を保存できませんでした。もう一度お試しください。"
 
     /// 新しい予定の既定の保存先を変える（spec §89.2・§89.4。設定画面での変更と、初めて保存する前の確かめではっきり選んだとき）。
     /// 「TimyCue のみ」にしても、前に選んでいた Apple カレンダー（defaultCalendarID）は消さずに覚えておく。
@@ -430,9 +448,10 @@ final class CalendarConnection {
     /// 設定を変えて保存する。保存できなければ変更前の値のままにし、知らせる（変更済みと誤って見せない。読み直しより前に戻す。spec §89.9）。
     /// 案内を閉じた印のような、ユーザーが設定として変えたのではないものは `reportsFailure: false`（戻すだけ）。
     /// 新しい版の印（formatVersion）を書き、保存できたら移行の済んだ記録にも写す（spec §89.8）。
-    /// 移行を先送りしているあいだは、仮の保存先の種類と印を書かない。利用者が保存先をはっきり選んだとき（choosesSaveTarget）だけ書いて、先送りを解く
+    /// 移行を先送りしているあいだは、仮の保存先の種類と印を書かない。利用者が保存先をはっきり選んだとき（choosesSaveTarget）だけ書いて、先送りを解く。
+    /// failureMessage：保存できなかったときの知らせの文（nil ならふつうの文）
     @discardableResult
-    private func updatePreferences(reportsFailure: Bool = true, choosesSaveTarget: Bool = false,
+    private func updatePreferences(reportsFailure: Bool = true, choosesSaveTarget: Bool = false, failureMessage: String? = nil,
                                    _ change: (inout CalendarPreferences) -> Void) -> Bool {
         var next = preferences
         change(&next)
@@ -451,12 +470,19 @@ final class CalendarConnection {
             syncSaveTargetRecord()
             return true
         } catch {
-            settingsRevision += 1
             if reportsFailure {
-                settingsFailure = SettingsFailure(message: "変更は反映していません。もう一度お試しください。")
+                reportSettingsFailure(failureMessage ?? "変更は反映していません。もう一度お試しください。")
+            } else {
+                settingsRevision += 1
             }
             return false
         }
+    }
+
+    /// 設定を変えられなかったことを知らせる。スイッチや選択の行を描き直して、元の値を見せる（spec §89.9）
+    private func reportSettingsFailure(_ message: String) {
+        settingsRevision += 1
+        settingsFailure = SettingsFailure(message: message)
     }
 
     // MARK: - 保存先の移行（spec §89.8・Q98・Q111。S2）

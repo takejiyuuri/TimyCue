@@ -258,9 +258,42 @@ final class CalendarLinkToggleTests: XCTestCase {
         XCTAssertFalse(connection.setAppleLinkEnabled(false))
         XCTAssertTrue(connection.isLinkEnabled, "保存できなかった変更は戻す（変わったように見せない。spec §89.9）")
         XCTAssertEqual(apple.pauses, 0)
-        XCTAssertNotNil(connection.settingsFailure)
+        XCTAssertEqual(connection.settingsFailure?.message, CalendarConnection.linkOffSettingsFailureMessage,
+                       "OFF にできなかった理由を出す（2026-10-19 ユーザー指示。文言は仮）")
         XCTAssertEqual(connection.settingsRevision, 1, "スイッチの見た目も戻す")
         XCTAssertFalse(setup.switchable.current === setup.local)
+    }
+
+    @MainActor
+    func testTurningOffWritesUnsavedLinksFirstAndStaysOnWhenTheyCannotBeWritten() throws {
+        try writePreferences(appleDefaultWork())
+        let apple = FakeAppleCalendar(calendars: [home, work], systemDefaultID: "home")
+        let log = ChangeLog()
+        let setup = makeConnection(apple: apple, log: log)
+        let connection = setup.connection
+        apple.unsavedLinks = true
+        apple.linksCanBeSaved = false
+
+        XCTAssertFalse(connection.setAppleLinkEnabled(false), "結び付けをファイルに書けなければ OFF にしない（2026-10-19 ユーザー指示）")
+        XCTAssertTrue(connection.isLinkEnabled, "ON のまま")
+        XCTAssertTrue(connection.isLinked)
+        XCTAssertEqual(apple.pauses, 0, "Apple カレンダーの保存先も止めない")
+        XCTAssertFalse(setup.switchable.current === setup.local)
+        XCTAssertNotNil(log.rules, "作成画面にも連携中のまま渡す")
+        XCTAssertEqual(connection.settingsFailure?.message, CalendarConnection.linkOffLinksFailureMessage, "理由を出す（文言は仮）")
+        XCTAssertEqual(connection.settingsRevision, 1, "スイッチの見た目を ON に戻す")
+        XCTAssertEqual(JSONFile(url: preferencesURL, empty: CalendarPreferences()).load().appleLinkEnabled, nil,
+                       "OFF の設定を先に書かない（結び付けを書けてから）")
+
+        // 書けるようになれば OFF にできる（先に結び付けを書く）
+        connection.dismissSettingsFailure()
+        apple.linksCanBeSaved = true
+        XCTAssertTrue(connection.setAppleLinkEnabled(false))
+        XCTAssertEqual(apple.linkSaves, 2)
+        XCTAssertFalse(apple.unsavedLinks)
+        XCTAssertEqual(apple.pauses, 1)
+        XCTAssertNil(connection.settingsFailure)
+        XCTAssertEqual(JSONFile(url: preferencesURL, empty: CalendarPreferences()).load().appleLinkEnabled, false)
     }
 
     @MainActor
@@ -412,6 +445,12 @@ private final class FakeAppleCalendar: AppleCalendarRepository {
     private(set) var missingResets = 0
     private(set) var writes = 0
     private(set) var isPaused = false
+    /// 書けていない結び付けがある（テストで決める）
+    var unsavedLinks = false
+    /// 結び付けをファイルに書けるか（テストで決める）
+    var linksCanBeSaved = true
+    /// 書けていない結び付けを書こうとした回数
+    private(set) var linkSaves = 0
 
     init(calendars: [CalendarChoice], systemDefaultID: String?, events: [CalendarEvent] = []) {
         base = InMemoryEventRepository(events: events)
@@ -440,6 +479,16 @@ private final class FakeAppleCalendar: AppleCalendarRepository {
     }
 
     var managesAppleLinks: Bool { true }
+
+    var hasUnsavedLinks: Bool { unsavedLinks }
+
+    func saveUnsavedLinks() -> Bool {
+        guard unsavedLinks else { return true }
+        linkSaves += 1
+        guard linksCanBeSaved else { return false }
+        unsavedLinks = false
+        return true
+    }
 
     func calendars() -> [CalendarChoice] {
         calendarReads += 1
