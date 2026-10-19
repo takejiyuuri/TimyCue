@@ -344,6 +344,88 @@ final class CalendarLinkToggleTests: XCTestCase {
         XCTAssertEqual(created.count, 0, "許可がないあいだは Apple カレンダーを使わない")
     }
 
+    // MARK: - TimyCue の連携の ON と iPhone の許可（2026-10-19 ユーザー指示 4）
+
+    func testThePermissionIsShownSeparatelyFromTheLinkSetting() {
+        let table: [(EKAuthorizationStatus, String)] = [
+            (.fullAccess, "許可あり"),
+            (.notDetermined, "未確認"),
+            (.denied, "許可が必要"),
+            (.writeOnly, "許可が必要"),
+            (.restricted, "利用できません"),
+        ]
+        for (status, label) in table {
+            XCTAssertEqual(AppleLinkStatus.permissionStateLabel(for: status), label, "許可 \(status.rawValue)")
+        }
+        XCTAssertNil(AppleLinkStatus.permissionNote(authorization: .fullAccess, linkEnabled: true))
+        XCTAssertNil(AppleLinkStatus.permissionNote(authorization: .denied, linkEnabled: false),
+                     "連携 OFF のあいだは許可の案内を出さない（Q101）")
+        XCTAssertNil(AppleLinkStatus.permissionNote(authorization: .notDetermined, linkEnabled: false))
+        for status in [EKAuthorizationStatus.notDetermined, .denied, .writeOnly] {
+            let note = AppleLinkStatus.permissionNote(authorization: status, linkEnabled: true) ?? ""
+            XCTAssertTrue(note.contains("読み込まず、書き込みもしていません"), "ON でも許可がなければ、Apple を読み書きしていないと示す（許可 \(status.rawValue)）")
+            XCTAssertTrue(note.contains("フルアクセス"), "許可のしかたを示す")
+            XCTAssertTrue(note.contains("TimyCue のみ（このiPhone）に保存します"))
+        }
+        XCTAssertTrue(AppleLinkStatus.permissionNote(authorization: .writeOnly, linkEnabled: true)?.contains("予定の追加だけ") ?? false)
+        XCTAssertNotNil(AppleLinkStatus.permissionNote(authorization: .restricted, linkEnabled: false), "端末の制限は OFF でも示す")
+    }
+
+    @MainActor
+    func testTurningTheLinkOnWithoutFullAccessNeverUsesAppleCalendar() throws {
+        let cases: [(status: EKAuthorizationStatus, topLabel: String, permission: String)] = [
+            (.notDetermined, "未接続", "未確認"),
+            (.denied, "許可が必要", "許可が必要"),
+            (.writeOnly, "一部許可", "許可が必要"),
+            (.restricted, "利用できません", "利用できません"),
+        ]
+        for item in cases {
+            var preferences = CalendarPreferences()
+            preferences.saveTargetKind = .appleCalendar
+            preferences.appleLinkEnabled = false
+            try writePreferences(preferences)
+            try? FileManager.default.removeItem(at: directory.appendingPathComponent("events.json"))
+            let apple = FakeAppleCalendar(calendars: [home, work], systemDefaultID: "home")
+            let log = ChangeLog()
+            let created = Counter()
+            let setup = makeConnection(apple: apple, authorization: AuthorizationBox(item.status), log: log, created: created)
+            let connection = setup.connection
+
+            XCTAssertTrue(connection.setAppleLinkEnabled(true), "TimyCue の設定は ON にできる（許可 \(item.status.rawValue)）")
+            XCTAssertTrue(connection.isLinkEnabled)
+            XCTAssertFalse(connection.isLinked, "フルアクセスがなければ連携していない")
+            XCTAssertEqual(created.count, 0, "Apple カレンダーの保存先を作らない（読みも書きもしない）")
+            XCTAssertTrue(setup.switchable.current === setup.local, "予定はこの iPhone の中だけ")
+            XCTAssertNil(log.rules, "作成画面には、連携していないことを渡す")
+            XCTAssertEqual(connection.statusLabel, item.topLabel, "設定トップの状態")
+            XCTAssertEqual(connection.permissionStateLabel, item.permission, "iPhone のカレンダーの許可の行")
+            XCTAssertNotNil(connection.permissionNote, "ON でも Apple を読み書きしていないことと、許可のしかたを出す")
+
+            connection.handleBecameActive()
+            connection.calendarDidChange()
+            XCTAssertEqual(created.count, 0, "前面に戻っても、Apple 側が変わっても、許可がなければ使わない")
+            XCTAssertEqual(apple.calendarReads, 0)
+
+            // 新しい予定は TimyCue のみ（この iPhone の中）
+            let status = try XCTUnwrap(log.status)
+            let editor = ScheduleEditorStore(repository: setup.switchable, metadataRepository: InMemoryEventMetadataRepository())
+            editor.receiveLink(log.rules, status: status)
+            editor.startNew(on: day)
+            editor.content.title = "A社"
+            editor.setStartMinute(600)
+            try editor.save()
+            XCTAssertEqual(apple.writes, 0, "Apple へ書かない")
+            XCTAssertEqual(setup.local.allEvents().map(\.title), ["A社"])
+            XCTAssertNil(setup.local.allEvents().first?.savedOnDeviceWhileLinked)
+
+            // ON のまま開き直しても、許可がなければ使わない
+            let relaunched = makeConnection(apple: apple, authorization: AuthorizationBox(item.status), created: created)
+            XCTAssertTrue(relaunched.connection.isLinkEnabled)
+            XCTAssertFalse(relaunched.connection.isLinked)
+            XCTAssertEqual(created.count, 0)
+        }
+    }
+
     @MainActor
     func testPermissionChangesAreFollowedWhenTheAppBecomesActive() throws {
         let apple = FakeAppleCalendar(calendars: [home], systemDefaultID: "home")

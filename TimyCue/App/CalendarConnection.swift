@@ -139,6 +139,17 @@ final class CalendarConnection {
         AppleLinkStatus.permissionLabel(for: status)
     }
 
+    /// 設定 ＞ カレンダー連携 の「iPhone のカレンダーの許可」（許可あり・許可が必要・未確認・利用できません）。
+    /// TimyCue の連携の ON/OFF とは別に出す（2026-10-19 ユーザー指示 4）
+    var permissionStateLabel: String {
+        AppleLinkStatus.permissionStateLabel(for: authorization)
+    }
+
+    /// 連携が ON なのにフルアクセスがないときの説明（Apple を読み書きしていないこと・許可のしかた）。端末の制限は ON/OFF によらず
+    var permissionNote: String? {
+        AppleLinkStatus.permissionNote(authorization: authorization, linkEnabled: isLinkEnabled)
+    }
+
     /// Home に連携のカードを出すか。まだ連携していない・許可がないときだけ（Q42-8・Q115）。わざと OFF にしたときは出さない（Q102）
     var showsSetupCard: Bool { linkStatus.showsSetupCard }
 
@@ -166,13 +177,10 @@ final class CalendarConnection {
     /// 自分から何度も出そうとはしない。一度拒否されたら iPhone の設定から許可してもらう
     func connect() async {
         guard localEvents != nil else { return }
-        do {
-            let granted = try await eventStore.requestFullAccessToEvents()
-            state = granted ? .connected : .denied
-        } catch {
-            state = .denied
-        }
+        // 返事ではなく、求めたあとの iPhone の許可の状態で決める（フルアクセスがあるときだけ Apple を読み書きする。2026-10-19 ユーザー指示 4）
+        _ = try? await eventStore.requestFullAccessToEvents()
         authorization = authorizationStatus()
+        state = Self.state(for: authorization)
         // 連携した直後は、前に付けた「見つからない」の記録をやり直す
         if isLinked { useEventKit(resettingMissing: true) }
     }

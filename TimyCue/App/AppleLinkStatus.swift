@@ -34,6 +34,42 @@ enum AppleLinkStatus: Equatable {
         return Self.permissionLabel(for: authorization)
     }
 
+    /// 設定 ＞ カレンダー連携 の「iPhone のカレンダーの許可」の行（TimyCue の連携の ON/OFF とは別の状態。2026-10-19 ユーザー指示 4。文言は仮）。
+    /// 追加のみの許可は、予定を読み込めないので「許可が必要」
+    static func permissionStateLabel(for status: EKAuthorizationStatus) -> String {
+        switch status {
+        case .fullAccess, .authorized: "許可あり"
+        case .writeOnly, .denied: "許可が必要"
+        case .notDetermined: "未確認"
+        case .restricted: "利用できません"
+        @unknown default: "未確認"
+        }
+    }
+
+    /// 連携が ON なのにフルアクセスがないときの説明（Apple を読み書きしていないことと、許可のしかた）。端末の制限は ON/OFF によらず出す。
+    /// 連携 OFF のあいだは許可の案内を出さない（Q101）。フルアクセスがあれば nil（2026-10-19 ユーザー指示 4。文言は仮）
+    static func permissionNote(authorization: EKAuthorizationStatus, linkEnabled: Bool) -> String? {
+        let saving = "それまで新しい予定は \(SaveTargetRules.timyCueOnlyLabel)に保存します。"
+        let allow = "iPhone の設定で、TimyCue のカレンダーへのアクセスを「フルアクセス」にすると連携します。"
+        switch authorization {
+        case .fullAccess, .authorized:
+            return nil
+        case .restricted:
+            return "この端末では Apple カレンダーを使えません（制限されています）。Apple カレンダーの予定は読み込まず、書き込みもしていません。新しい予定は \(SaveTargetRules.timyCueOnlyLabel)に保存します。"
+        case .notDetermined:
+            guard linkEnabled else { return nil }
+            return "Appleカレンダー連携は ON ですが、まだカレンダーへのアクセスを許可していないため、Apple カレンダーの予定は読み込まず、書き込みもしていません。「Appleカレンダーを連携する」を押して、カレンダーへのフルアクセスを許可すると連携します。" + saving
+        case .denied:
+            guard linkEnabled else { return nil }
+            return "Appleカレンダー連携は ON ですが、カレンダーへのアクセスが許可されていないため、Apple カレンダーの予定は読み込まず、書き込みもしていません。" + allow + saving
+        case .writeOnly:
+            guard linkEnabled else { return nil }
+            return "Appleカレンダー連携は ON ですが、カレンダーは予定の追加だけが許可されているため、Apple カレンダーの予定は読み込まず、書き込みもしていません。" + allow + saving
+        @unknown default:
+            return nil
+        }
+    }
+
     /// iPhone の許可の状態の言い方
     static func permissionLabel(for status: EKAuthorizationStatus) -> String {
         switch status {

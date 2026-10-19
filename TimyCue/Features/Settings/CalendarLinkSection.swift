@@ -3,7 +3,9 @@ import SwiftUI
 
 /// 設定 ＞ カレンダー連携 のいちばん上（spec §89.6・Q101・Q115。S6）。
 /// フルアクセスがあれば「Appleカレンダー連携」の ON/OFF のスイッチを出す。OFF はエラーではない正常な選択なので、OFF にするたびの確認は出さない。
-/// フルアクセスがなくても項目は隠さず、「Appleカレンダーを連携する」の入口を出す。連携 OFF のあいだに許可が外れても警告は出さない（Q101）。
+/// フルアクセスがなくても項目は隠さず、TimyCue の連携の設定（ON/OFF）と「Appleカレンダーを連携する」の入口を出す。
+/// TimyCue の連携の設定と iPhone のカレンダーの許可は別の状態として、両方を出す（2026-10-19 ユーザー指示 4）。ON でもフルアクセスがなければ、
+/// Apple を読み書きしていないことと許可のしかたを出す。連携 OFF のあいだに許可が外れても警告は出さない（Q101）。
 /// 説明の文は仮（例文の「Appleカレンダー連携」「Appleカレンダーを連携する」は決定のまま）
 struct CalendarLinkSection: View {
     @Environment(CalendarConnection.self) private var connection
@@ -19,17 +21,18 @@ struct CalendarLinkSection: View {
                 .tint(Theme.Colors.accent)
                 // 保存できずに戻したとき、スイッチの見た目も戻す（spec §89.9）
                 .id(connection.settingsRevision)
-            } else if connection.authorization == .restricted {
-                Text("この端末では Apple カレンダーを使えません。新しい予定は \(SaveTargetRules.timyCueOnlyLabel)に保存します。")
+            } else {
+                // フルアクセスがないときは、スイッチの代わりに今の TimyCue の設定を出し、下に連携の入口を出す（Q101）
+                LabeledContent("Appleカレンダー連携", value: connection.isLinkEnabled ? "ON" : "OFF")
+            }
+            // iPhone のカレンダーの許可（TimyCue の連携の設定とは別の状態）
+            LabeledContent("iPhone のカレンダーの許可", value: connection.permissionStateLabel)
+            if let note = connection.permissionNote {
+                Text(note)
                     .font(.footnote)
                     .foregroundStyle(Theme.Colors.textSecondary)
-            } else {
-                // 連携 ON のまま許可がない（拒否・追加のみ）ときだけ、許可の説明を出す。わざと OFF にしているときは出さない（Q101）
-                if connection.isLinkEnabled && connection.state == .denied {
-                    Text(permissionText)
-                        .font(.footnote)
-                        .foregroundStyle(Theme.Colors.textSecondary)
-                }
+            }
+            if !connection.hasFullAccess && connection.authorization != .restricted {
                 Button("Appleカレンダーを連携する") { link() }
             }
         } header: {
@@ -53,12 +56,6 @@ struct CalendarLinkSection: View {
         default:
             break
         }
-    }
-
-    private var permissionText: String {
-        connection.authorization == .writeOnly
-            ? "予定の追加だけが許可されています。Apple カレンダーの予定を読み込むには、iPhone の設定でカレンダーを「フルアクセス」にしてください。それまで新しい予定は \(SaveTargetRules.timyCueOnlyLabel)に保存します。"
-            : "カレンダーへのアクセスが許可されていません。iPhone の設定から許可してください。それまで新しい予定は \(SaveTargetRules.timyCueOnlyLabel)に保存します。"
     }
 
     /// 連携 ON の説明（Apple の予定が TimyCue で非表示になること・Apple 側では削除されないこと。spec §89.6）
