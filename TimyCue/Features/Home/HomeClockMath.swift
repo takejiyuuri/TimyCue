@@ -43,10 +43,17 @@ enum HomeClockMath {
         var markersCoincide: Bool { markerDistanceMinutes == 0 }
     }
 
+    /// いま（分の頭にそろえる）から target までの残りの分（切り捨て）。時計を出すかと、Home のキャラクターのモードの境目
+    /// （spec §88.4・Q89）を同じ数え方にするため、ここにまとめた（計算は前の face の中のものと同じ）
+    static func remainingMinutes(now: Date, target: Date, calendar: Calendar = .timyCue) -> Int {
+        let minuteStart = calendar.dateInterval(of: .minute, for: now)?.start ?? now
+        return Int((target.timeIntervalSince(minuteStart) / 60).rounded(.down))
+    }
+
     /// いまから target までが 60 分以内（0 分より多い）なら、時計に描くものを返す
     static func face(now: Date, target: Date, calendar: Calendar = .timyCue) -> Face? {
         let minuteStart = calendar.dateInterval(of: .minute, for: now)?.start ?? now
-        let remaining = Int((target.timeIntervalSince(minuteStart) / 60).rounded(.down))
+        let remaining = remainingMinutes(now: now, target: target, calendar: calendar)
         guard remaining > 0, remaining <= windowMinutes else { return nil }
         let minutes = continuousMinutes(minuteStart, calendar: calendar)
         return Face(now: minuteStart,
