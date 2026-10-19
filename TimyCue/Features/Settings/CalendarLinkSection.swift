@@ -2,8 +2,8 @@ import EventKit
 import SwiftUI
 
 /// 設定 ＞ カレンダー連携 のいちばん上（spec §89.6・Q101・Q115。S6）。
-/// フルアクセスがあれば「Appleカレンダー連携」の ON/OFF のスイッチを出す。OFF はエラーではない正常な選択なので、OFF にするたびの確認は出さない。
-/// フルアクセスがなくても項目は隠さず、TimyCue の連携の設定（ON/OFF）と「Appleカレンダーを連携する」の入口を出す。
+/// 「Appleカレンダー連携」の ON/OFF のスイッチは、iPhone のカレンダーの許可の状態によらず出す（許可がなくても OFF にできる。2026-10-19 決定 2）。
+/// OFF はエラーではない正常な選択なので、OFF にするたびの確認は出さない。フルアクセスがなければ「Appleカレンダーを連携する」の入口も出す。
 /// TimyCue の連携の設定と iPhone のカレンダーの許可は別の状態として、両方を出す（2026-10-19 ユーザー指示 4）。ON でもフルアクセスがなければ、
 /// Apple を読み書きしていないことと許可のしかたを出す。連携 OFF のあいだに許可が外れても警告は出さない（Q101）。
 /// 説明の文は仮（例文の「Appleカレンダー連携」「Appleカレンダーを連携する」は決定のまま）
@@ -13,18 +13,13 @@ struct CalendarLinkSection: View {
 
     var body: some View {
         Section {
-            if connection.hasFullAccess {
-                Toggle(isOn: Binding(get: { connection.isLinkEnabled },
-                                     set: { enabled in _ = connection.setAppleLinkEnabled(enabled) })) {
-                    Text("Appleカレンダー連携")
-                }
-                .tint(Theme.Colors.accent)
-                // 保存できずに戻したとき、スイッチの見た目も戻す（spec §89.9）
-                .id(connection.settingsRevision)
-            } else {
-                // フルアクセスがないときは、スイッチの代わりに今の TimyCue の設定を出し、下に連携の入口を出す（Q101）
-                LabeledContent("Appleカレンダー連携", value: connection.isLinkEnabled ? "ON" : "OFF")
+            Toggle(isOn: Binding(get: { connection.isLinkEnabled },
+                                 set: { enabled in _ = connection.switchAppleLink(enabled) })) {
+                Text("Appleカレンダー連携")
             }
+            .tint(Theme.Colors.accent)
+            // 保存できずに戻したとき、スイッチの見た目も戻す（spec §89.9）
+            .id(connection.settingsRevision)
             // iPhone のカレンダーの許可（TimyCue の連携の設定とは別の状態）
             LabeledContent("iPhone のカレンダーの許可", value: connection.permissionStateLabel)
             if let note = connection.permissionNote {
@@ -38,19 +33,20 @@ struct CalendarLinkSection: View {
         } header: {
             Text("Apple カレンダー")
         } footer: {
-            if connection.hasFullAccess {
-                Text(connection.isLinkEnabled ? Self.onNote : Self.offNote)
+            // OFF の説明は許可の状態によらず出す。ON の説明はフルアクセスがあるとき（ないときは上に許可の説明を出す）
+            if !connection.isLinkEnabled {
+                Text(Self.offNote)
+            } else if connection.hasFullAccess {
+                Text(Self.onNote)
             }
         }
     }
 
-    /// 連携を ON として保存してから、まだ許可を求めていなければ iOS の許可を求め、拒否・追加のみなら設定アプリを開く
+    /// 連携を ON として保存してから、まだ許可を求めていなければ iOS の許可を求め（switchAppleLink）、拒否・追加のみなら設定アプリを開く
     /// （OFF のあいだに許可が外れていたら、ON に戻そうとしたこのときに許可を案内する。Q101）
     private func link() {
-        guard connection.setAppleLinkEnabled(true) else { return }
+        guard connection.switchAppleLink(true) else { return }
         switch connection.authorization {
-        case .notDetermined:
-            Task { await connection.connect() }
         case .denied, .writeOnly:
             if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
         default:

@@ -7,7 +7,7 @@ import SwiftUI
 /// つないだあとの状態の確認・変更は 設定 ＞ カレンダー連携 で行う。
 /// 許可しなくても、TimyCue で作った予定は端末の中に保存して使える（§80）。
 /// Apple カレンダー連携（全体）は TimyCue の設定で ON/OFF できる（spec §89.6。S6）。連携しているのは、連携 ON でフルアクセスがあるときだけ。
-/// OFF にしても iPhone の許可や iCloud の設定は変えず、Apple 側の予定も消さない
+/// OFF にしても iPhone の許可や iCloud の設定は変えず、Apple 側の予定も消さない。iPhone の許可がなくても OFF にできる（2026-10-19 決定 2）
 @MainActor
 @Observable
 final class CalendarConnection {
@@ -39,6 +39,8 @@ final class CalendarConnection {
     private(set) var settingsRevision = 0
     /// 前回、予定の保存の途中でアプリが終わっていて、確かめてもらうことがあるときの知らせ（spec §89.9）
     private(set) var recoveryNotice: String?
+    /// 「Appleカレンダー連携」を ON にしたときに始めた、iPhone のカレンダーの許可を求める処理（テストで終わりを待つため）
+    @ObservationIgnored private(set) var permissionRequest: Task<Void, Never>?
 
     @ObservationIgnored private let eventStore: EKEventStore
     @ObservationIgnored private let switchable: SwitchableEventRepository
@@ -65,6 +67,8 @@ final class CalendarConnection {
     @ObservationIgnored private let authorizationStatus: () -> EKAuthorizationStatus
     /// Apple カレンダーの保存先を作る（テストでは EventKit の代わりの保存先にする。nil なら EventKit）
     @ObservationIgnored private let makeAppleRepository: ((@escaping () -> CalendarPreferences, SaveJournal) -> AppleCalendarRepository)?
+    /// iPhone のカレンダーのフルアクセスを求める（テストでは差し替える。nil なら EventKit に求める）
+    @ObservationIgnored private let requestAccess: (@MainActor () async -> Void)?
 
     /// localEvents が nil のとき（DEBUG の見本の予定で動かしているとき）は、つながない。
     /// 開発用・見本の予定を Apple カレンダーへ書き込まないため（Q34）。
@@ -80,6 +84,7 @@ final class CalendarConnection {
          saveTargetRecords: SaveTargetRecordStore? = nil,
          authorizationStatus: @escaping () -> EKAuthorizationStatus = { EKEventStore.authorizationStatus(for: .event) },
          makeAppleRepository: ((@escaping () -> CalendarPreferences, SaveJournal) -> AppleCalendarRepository)? = nil,
+         requestAccess: (@MainActor () async -> Void)? = nil,
          onChange: @escaping @MainActor (_ calendars: [CalendarChoice], _ saveTargets: SaveTargetRules?,
                                          _ linkStatus: AppleLinkStatus) -> Void) {
         self.eventStore = eventStore
@@ -91,6 +96,7 @@ final class CalendarConnection {
         self.saveTargetRecords = saveTargetRecords
         self.authorizationStatus = authorizationStatus
         self.makeAppleRepository = makeAppleRepository
+        self.requestAccess = requestAccess
         self.onChange = onChange
         let existed = FileManager.default.fileExists(atPath: preferencesFile.url.path)
         preferences = preferencesFile.load()
@@ -178,7 +184,11 @@ final class CalendarConnection {
     func connect() async {
         guard localEvents != nil else { return }
         // 返事ではなく、求めたあとの iPhone の許可の状態で決める（フルアクセスがあるときだけ Apple を読み書きする。2026-10-19 ユーザー指示 4）
-        _ = try? await eventStore.requestFullAccessToEvents()
+        if let requestAccess {
+            await requestAccess()
+        } else {
+            _ = try? await eventStore.requestFullAccessToEvents()
+        }
         authorization = authorizationStatus()
         state = Self.state(for: authorization)
         // 連携した直後は、前に付けた「見つからない」の記録をやり直す
@@ -254,6 +264,20 @@ final class CalendarConnection {
     /// 連携を OFF にできなかったときの知らせ（文言は仮）
     static let linkOffLinksFailureMessage = "Apple カレンダー連携を OFF にできませんでした。予定と到着目標などの結び付けを保存できませんでした。もう一度お試しください。"
     static let linkOffSettingsFailureMessage = "Apple カレンダー連携を OFF にできませんでした。設定を保存できませんでした。もう一度お試しください。"
+
+    /// 設定 ＞ カレンダー連携 の「Appleカレンダー連携」のスイッチ（iPhone の許可の状態によらず出す）と「Appleカレンダーを連携する」
+    /// （spec §89.6・2026-10-19 決定 2）。OFF：setAppleLinkEnabled と同じ（OFF の前に要るものを残し、残せなければ OFF にせず理由を出す。
+    /// 許可がなく Apple カレンダーの保存先を使っていなければ、結び付けのファイルには触れない）。
+    /// ON：ON を保存し、まだ許可を求めていなければ、続けて許可を求める（拒否・追加のみ・制限なら、画面は Apple を読み書きしていないことと
+    /// 許可のしかたを出す。フルアクセスがないあいだは Apple を読み書きしない）。保存できなければ false（スイッチは戻す）
+    @discardableResult
+    func switchAppleLink(_ enabled: Bool) -> Bool {
+        guard setAppleLinkEnabled(enabled) else { return false }
+        if enabled, isLive, authorization == .notDetermined {
+            permissionRequest = Task { await connect() }
+        }
+        return true
+    }
 
     /// 新しい予定の既定の保存先を変える（spec §89.2・§89.4。設定画面での変更と、初めて保存する前の確かめではっきり選んだとき）。
     /// 「TimyCue のみ」にしても、前に選んでいた Apple カレンダー（defaultCalendarID）は消さずに覚えておく。
