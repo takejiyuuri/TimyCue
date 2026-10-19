@@ -8,7 +8,8 @@ enum SaveTargetMigration {
     struct Evidence: Equatable {
         /// 旧版ではっきり選んだ保存先（設定の defaultCalendarID）
         var explicitCalendarID: String?
-        /// 旧版の自動の切り替えの「保存先のカレンダーを切り替えました」をまだ知らせていない印（旧版は Apple に保存していた）
+        /// 旧版の自動の切り替えの「保存先のカレンダーを切り替えました」をまだ知らせていない印。読むだけで、Apple に保存していた
+        /// 証拠にはしない（実際に Apple へ書いたことまでは示さない。2026-10-19 ユーザー指示）。印そのものは消さずに残す
         var oldAutoSwitchNotice = false
         /// TimyCue が Apple カレンダーへ書いたときにしか付かない印がある（結び付けの終了未設定・保存の途中の記録の Apple の書き込み）
         var appleWriteRecord = false
@@ -24,9 +25,7 @@ enum SaveTargetMigration {
     enum Reason: Equatable {
         /// 1 明示的に選んだ旧版の保存先
         case explicitChoice
-        /// 2 旧版の自動の切り替えの印（旧版は Apple に保存していた）
-        case oldAutoSwitch
-        /// 2 旧版で Apple へ保存していた確かな記録
+        /// 2 旧版で Apple へ保存していた確かな記録（結び付けの終了未設定の印・保存の途中の記録の Apple の書き込み）
         case appleWriteRecord
         /// 3 新しい利用者
         case newUser
@@ -41,14 +40,14 @@ enum SaveTargetMigration {
     }
 
     /// 優先の順（Q111）：1 明示的に選んだ旧版の保存先／2 旧版で Apple に保存していた信頼できる記録／
-    /// 3 新しい利用者は「TimyCue のみ」／4 特定できない今の利用者は、初めて保存する前に確かめる
+    /// 3 新しい利用者は「TimyCue のみ」／4 特定できない今の利用者は、初めて保存する前に確かめる。
+    /// 旧版の自動の切り替えの印だけでは Apple にしない（2026-10-19 ユーザー指示。印のある今の利用者は、ほかの記録がなければ 4）
     static func decide(_ evidence: Evidence) -> Decision {
         // 1 はっきり選んだ保存先は、今そのカレンダーが使えなくても、許可がなくても引き継ぐ（Q111-1）
         if evidence.explicitCalendarID != nil { return .decided(.appleCalendar, reason: .explicitChoice) }
-        // 2 旧版の自動の切り替えは、Apple に保存していたときだけ起きる（保存先は iPhone の既定を引き継ぐ。Q111-2）
-        if evidence.oldAutoSwitchNotice { return .decided(.appleCalendar, reason: .oldAutoSwitch) }
         // 書き込みの記録を確かめられないうちは決めない（今の利用者を TimyCue のみと誤らないため）
         if evidence.linksCouldNotOpen || evidence.journalCouldNotOpen { return .deferred }
+        // 2 TimyCue が Apple へ書いたときにしか付かない記録（保存先は iPhone の既定を引き継ぐ。Q111-2）
         if evidence.appleWriteRecord { return .decided(.appleCalendar, reason: .appleWriteRecord) }
         // 3 使った跡が何もなければ新しい利用者（Q111-3）
         if !evidence.usedBefore { return .decided(.timyCueOnly, reason: .newUser) }

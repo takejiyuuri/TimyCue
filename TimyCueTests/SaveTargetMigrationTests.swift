@@ -89,12 +89,20 @@ final class SaveTargetMigrationTests: XCTestCase {
                        "はっきり選んだ旧版の保存先をいちばん優先する（開けないファイルがあっても。Q111-1）")
     }
 
-    func testTheOldAutoSwitchNoticeKeepsApple() {
+    func testTheOldAutoSwitchNoticeAloneIsNotAppleEvidence() {
         var evidence = SaveTargetMigration.Evidence()
         evidence.oldAutoSwitchNotice = true
         evidence.usedBefore = true
-        XCTAssertEqual(SaveTargetMigration.decide(evidence), .decided(.appleCalendar, reason: .oldAutoSwitch),
-                       "旧版の自動の切り替えは Apple に保存していたときだけ起きる（Q111-2）")
+        XCTAssertEqual(SaveTargetMigration.decide(evidence), .decided(.askBeforeSaving, reason: .unknown),
+                       "旧版の自動の切り替えの印だけでは、実際に Apple へ書いた証拠にしない。連携中に初めて保存するときに選ぶ（2026-10-19 ユーザー指示）")
+
+        evidence.appleWriteRecord = true
+        XCTAssertEqual(SaveTargetMigration.decide(evidence), .decided(.appleCalendar, reason: .appleWriteRecord),
+                       "Apple へ書いた確かな記録があれば、今までどおり Apple")
+
+        evidence.appleWriteRecord = false
+        evidence.linksCouldNotOpen = true
+        XCTAssertEqual(SaveTargetMigration.decide(evidence), .deferred, "印があっても、書き込みの記録を確かめられないうちは決めない")
     }
 
     func testAnAppleWriteRecordKeepsApple() {
@@ -236,6 +244,20 @@ final class SaveTargetMigrationTests: XCTestCase {
         XCTAssertEqual(file.hiddenCalendarIDs, ["jp"])
         XCTAssertEqual(file.holidayOverrides, ["memo": true])
         XCTAssertEqual(records.load(), SaveTargetRecord(kind: .appleCalendar, calendarID: "work", linkEnabled: nil))
+    }
+
+    @MainActor
+    func testAnOldAutoSwitchNoticeAloneAsksBeforeSavingAndIsKept() throws {
+        try Data(#"{"hiddenCalendarIDs":["jp"],"pendingFallbackNotice":true}"#.utf8).write(to: preferencesURL)
+        let connection = makeConnection()
+        XCTAssertEqual(connection.preferences.saveTargetKind, .askBeforeSaving,
+                       "古い切り替えの印だけの今の利用者は、Apple にしない（連携中に初めて保存するときに選ぶ。2026-10-19 ユーザー指示）")
+        XCTAssertNil(connection.preferences.defaultCalendarID)
+        let file = savedPreferences()
+        XCTAssertEqual(file.saveTargetKind, .askBeforeSaving)
+        XCTAssertEqual(file.pendingFallbackNotice, true, "印は読むだけで消さない")
+        XCTAssertEqual(file.hiddenCalendarIDs, ["jp"])
+        XCTAssertEqual(records.load(), SaveTargetRecord(kind: .askBeforeSaving, calendarID: nil, linkEnabled: nil))
     }
 
     @MainActor
