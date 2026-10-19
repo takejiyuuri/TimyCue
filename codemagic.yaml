@@ -346,6 +346,11 @@ workflows:
           # 再現で落ちたときの記録（シミュレータのアプリのクラッシュは、Mac の DiagnosticReports に残る）
           ls -1t ~/Library/Logs/DiagnosticReports/ 2>/dev/null | grep -i timycue | head -20 | tee -a build/diagnostics/repro.log || true
           cp ~/Library/Logs/DiagnosticReports/TimyCue*.ips build/diagnostics/ 2>/dev/null || true
+          # 作成画面を開く確かめで落ちた場面があれば、ビルド確認を失敗にする（2026-10-19 のクラッシュの回帰の確かめ。記録と写真は上で残してある）
+          if grep -q "落ちた" build/diagnostics/repro.log 2>/dev/null; then
+            echo "作成画面を開く確かめで、アプリが落ちた場面があります（build/diagnostics/repro.log）"
+            exit 1
+          fi
     artifacts:
       - build/screenshots/*.png
       - build/diagnostics/*.png

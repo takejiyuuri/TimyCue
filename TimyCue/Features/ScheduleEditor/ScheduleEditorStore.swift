@@ -335,8 +335,11 @@ final class ScheduleEditorStore {
             let full = rules.label(for: resolution)
             return full == calendar.title ? [full] : [full, calendar.title]
         case .unavailable(let problem, _):
-            var values = [rules.label(for: resolution)]
-            if let title = SaveTargetRules.title(of: problem) { values.append("\(title)（使えません）") }
+            // 設定の既定・予定ごとの選びは、はじめから「名前（使えません）」なので、同じ短い言い方を重ねない
+            // （重なると行の値を選ぶ部品が止まり、作成画面を開いたときに落ちた。2026-10-19 TestFlight 1.0 (30) のクラッシュ）
+            let full = rules.label(for: resolution)
+            var values = [full]
+            if let title = SaveTargetRules.title(of: problem), "\(title)（使えません）" != full { values.append("\(title)（使えません）") }
             values.append("使えません")
             return values
         }

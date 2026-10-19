@@ -168,8 +168,10 @@ private struct InputRowView: View {
     }
 
     private var value: some View {
+        // 候補は並びの位置で見分ける。同じ文字が重なると、ViewThatFits が候補を数えるところで止まって落ちる
+        // （2026-10-19 TestFlight 1.0 (30) のクラッシュ。候補を作る側でも重ねないようにしてある）
         ViewThatFits(in: .horizontal) {
-            ForEach(values, id: \.self) { text in
+            ForEach(Array(values.enumerated()), id: \.offset) { _, text in
                 Text(text)
                     .lineLimit(1)
             }
