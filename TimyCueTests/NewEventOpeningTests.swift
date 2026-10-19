@@ -152,8 +152,15 @@ final class NewEventOpeningTests: XCTestCase {
             XCTAssertTrue(editor.showsCalendarRow, "使えない保存先を出し、選び直せる（spec §89.3）")
             XCTAssertEqual(editor.calendarRowChoices, [.timyCueOnly, .calendar("home"), .calendar("work")],
                            "選べるのは「TimyCue のみ」と使えるカレンダーだけ（表示 OFF の Default は出さない）")
-            XCTAssertNotNil(editor.saveTargetPrompt, "保存の前に選び直してもらう")
         }
+        // 予定名と開始時刻を入れて保存しようとすると、保存の前に選び直してもらう
+        // （足りない項目があるあいだは、先に行で知らせるので、開いた直後には出さない。§46）
+        let day = open(setup, from: .calendarPlus)
+        XCTAssertNil(setup.editor.saveTargetPrompt)
+        setup.editor.content.title = "見本の打合せ"
+        setup.editor.setStartMinute(14 * 60, on: day)
+        XCTAssertNotNil(setup.editor.saveTargetPrompt, "保存の前に選び直してもらう")
+        XCTAssertEqual(setup.editor.saveTargetPromptChoices, [.timyCueOnly, .calendar("home"), .calendar("work")])
         assertSettingsKept(setup, hidden: ["default"], defaultCalendarID: nil)
     }
 
