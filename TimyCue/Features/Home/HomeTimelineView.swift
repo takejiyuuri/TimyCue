@@ -70,6 +70,8 @@ struct HomeRailSection: View {
                 let reserve = showsRegister ? HomeLayoutMetrics.registerReserve * scale : 0
                 rows(HomeTimelineLayout.plan(items: timeline.items, availableHeight: proxy.size.height - reserve, scale: scale))
             }
+            // 万一入りきらなくても、下の案内（連携のカードなど）に重ねない（Home はスクロールさせない）
+            .clipped()
         }
         // 点どうしを縦の線でつなぐ（線は点の後ろ）
         .backgroundPreferenceValue(HomeRailDotKey.self) { dots in
