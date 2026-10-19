@@ -228,6 +228,30 @@ final class EditorLinkChangeTests: XCTestCase {
         XCTAssertTrue(setup.local.allEvents().isEmpty)
     }
 
+    func testDeletingOrCancellingACopyAfterTheLinkIsLostStillChangesNothing() throws {
+        let event = CalendarEvent(day: day, startMinute: 600, title: "A社", source: .appleCalendar, calendarID: "home")
+        let setup = makeSetup(apple: [event], linked: rules(.appleCalendar))
+        let store = setup.store
+        try store.startEditing(eventID: event.id)
+        unlink(setup, status: .off)
+
+        XCTAssertThrowsError(try store.deleteEditingEvent()) { error in
+            XCTAssertEqual(error as? ScheduleEditorError, .appleUnavailable)
+        }
+        XCTAssertTrue(store.failure?.message.contains("削除していません") ?? false, "消していない理由を出す")
+        XCTAssertEqual(setup.apple.allEvents().map(\.id), [event.id], "Apple の予定は消さない")
+        store.dismissFailure()
+
+        try store.startCopy()
+        store.cancelCopy()
+        XCTAssertEqual(store.calendarRowValues, ["家（保存できません）", "保存できません"],
+                       "コピーをやめて編集に戻っても、TimyCue のみとは出さない")
+        XCTAssertThrowsError(try store.save()) { error in
+            XCTAssertEqual(error as? ScheduleEditorError, .appleUnavailable)
+        }
+        XCTAssertTrue(setup.local.allEvents().isEmpty, "この iPhone の中に複製を作らない")
+    }
+
     func testACopyOfAnAppleEventAfterTheLinkIsLostAsksBeforeSaving() throws {
         let event = CalendarEvent(day: day, startMinute: 600, title: "A社", source: .appleCalendar, calendarID: "work")
         let setup = makeSetup(apple: [event], linked: rules(.appleCalendar))

@@ -545,7 +545,13 @@ final class ScheduleEditorStore {
         setsTimesIndividually = saved.setsTimesIndividually
         copyPicks = []
         copyInitialChoice = nil
+        let linkChanged = linkChangedWhileEditing
         resetLinkChange()
+        // 連携が外れて、編集していた Apple の予定を保存できないままなら、編集の画面でもそのとおりに出す
+        // （黙って TimyCue のみと出さない。2026-10-19 ユーザー指示 3）
+        if linkChanged, editsAppleEvent, !isConnectedToApple {
+            lostAppleTargetName = editedAppleCalendarTitle ?? "Apple カレンダー"
+        }
         resetTransientState()
         baseline = saved.baseline
         stateBeforeCopy = nil
@@ -1044,6 +1050,11 @@ final class ScheduleEditorStore {
     /// 繰り返し予定は、scope の範囲（この予定のみ／これ以降／すべて）で消す（Q44）
     func deleteEditingEvent(scope: RecurrenceScope = .thisEvent) throws {
         guard case .edit(let id) = mode else { return }
+        // 開いているあいだに連携が外れて、Apple の予定を消せない：何も消さずに理由を出す（2026-10-19 ユーザー指示 3）
+        if lostAppleTargetName != nil {
+            failure = .appleUnavailable(reason: appleLinkStatus.saveUnavailableReason, action: .delete)
+            throw ScheduleEditorError.appleUnavailable
+        }
         let day = displayedDay
         let effectiveScope: RecurrenceScope = isEditingRecurringEvent ? scope : .thisEvent
         var removed = Set(repository.occurrenceIDs(sameSeriesAs: id, scope: effectiveScope))
