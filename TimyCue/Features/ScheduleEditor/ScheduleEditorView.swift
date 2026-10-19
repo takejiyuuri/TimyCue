@@ -28,6 +28,8 @@ struct ScheduleEditorView: View {
     @State private var asksSaveTargetAgain = false
     /// 開いているあいだに連携が外れ、出していた Apple の保存先に保存できないので、TimyCue のみに保存するかを聞いている（2026-10-19 指示 3）
     @State private var asksLinkLoss = false
+    /// 開いたあとに設定が変わって保存先が変わったので、新しい保存先に保存するかを聞いている（2026-10-19 決定 1）
+    @State private var asksSaveTargetChange = false
 
     var body: some View {
         GeometryReader { geometry in
@@ -74,6 +76,7 @@ struct ScheduleEditorView: View {
         .modifier(SaveTargetDialogs(asksFirstSaveTarget: $asksFirstSaveTarget,
                                     asksSaveTargetAgain: $asksSaveTargetAgain,
                                     asksLinkLoss: $asksLinkLoss,
+                                    asksSaveTargetChange: $asksSaveTargetChange,
                                     onSave: { performSave() }))
         // 繰り返し予定は、保存するときに 1 回だけ範囲を聞く（Q44）
         .confirmationDialog("繰り返し予定の変更", isPresented: $asksSaveScope, titleVisibility: .visible) {
@@ -163,7 +166,9 @@ struct ScheduleEditorView: View {
 
     /// 保存ボタン。開いているあいだに連携が外れて、出していた Apple の保存先に保存できなければ、TimyCue のみに保存するかを先に聞く
     /// （黙って変えない。2026-10-19 指示 3）。新しい予定の保存先がまだ決まっていなければ先に聞き（Q111-4）、保存先が使えなければ
-    /// 保存の前に選び直してもらう（spec §89.4）。足りない項目があるときは、どれも出さずに行で知らせる（§46）
+    /// 保存の前に選び直してもらう（spec §89.4）。開いたあとに設定が変わって保存先が変わっていれば、
+    /// 新しい保存先に保存するかを聞く（2026-10-19 決定 1。使えない・未選択になったときは、上の 2 つが先に出るので重ねない）。
+    /// 足りない項目があるときは、どれも出さずに行で知らせる（§46）
     private func save() {
         if store.linkLossPrompt != nil {
             asksLinkLoss = true
@@ -175,6 +180,10 @@ struct ScheduleEditorView: View {
         }
         if store.saveTargetPrompt != nil {
             asksSaveTargetAgain = true
+            return
+        }
+        if store.saveTargetChangePrompt != nil {
+            asksSaveTargetChange = true
             return
         }
         if store.isEditingRecurringEvent && store.saveIssues.isEmpty {

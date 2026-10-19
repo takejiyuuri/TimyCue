@@ -1,7 +1,8 @@
 import SwiftUI
 
 /// 作成画面で、保存の前に保存先を選んでもらう確かめ（spec §89.4・Q99・Q111-4。S3）。作成画面の本体を短く保つため、別にする。
-/// 開いているあいだに連携が外れたときの確かめ（2026-10-19 ユーザー指示 3）は LinkLossDialog。文言は仮
+/// 開いているあいだに連携が外れたときの確かめ（2026-10-19 ユーザー指示 3）は LinkLossDialog、
+/// 開いたあとに設定が変わって保存先が変わったときの確かめ（2026-10-19 決定 1）は SaveTargetChangeDialog。文言は仮
 struct SaveTargetDialogs: ViewModifier {
     @Environment(ScheduleEditorStore.self) private var store
     @Environment(CalendarConnection.self) private var connection
@@ -11,6 +12,8 @@ struct SaveTargetDialogs: ViewModifier {
     @Binding var asksSaveTargetAgain: Bool
     /// 開いているあいだに連携が外れ、出していた Apple の保存先に保存できないので、TimyCue のみに保存するかを聞いている
     @Binding var asksLinkLoss: Bool
+    /// 開いたあとに設定が変わって保存先が変わったので、新しい保存先に保存するかを聞いている
+    @Binding var asksSaveTargetChange: Bool
     /// 保存する（作成画面の保存と同じ。閉じる・失敗を知らせるのも作成画面）
     let onSave: () -> Void
 
@@ -45,8 +48,9 @@ struct SaveTargetDialogs: ViewModifier {
                 }
                 if let hiddenCalendarID = prompt.hiddenCalendarID {
                     Button(showButtonTitle(prompt)) {
-                        // 表示の設定を保存できなければ、知らせて予定は保存しない
-                        if connection.setShown(true, calendarID: hiddenCalendarID) { onSave() }
+                        // 表示の設定を保存できなければ、知らせて予定は保存しない。利用者が決めたことなので、表示を ON にしたことを
+                        // 保存先の変化として確かめない（2026-10-19 決定 1）
+                        if store.applyOwnSettingsChange({ connection.setShown(true, calendarID: hiddenCalendarID) }) { onSave() }
                     }
                 }
                 Button("やめる", role: .cancel) {}
@@ -54,6 +58,7 @@ struct SaveTargetDialogs: ViewModifier {
                 Text(prompt.message)
             }
             .modifier(LinkLossDialog(isPresented: $asksLinkLoss, onSave: onSave))
+            .modifier(SaveTargetChangeDialog(isPresented: $asksSaveTargetChange, onSave: onSave))
     }
 
     /// 「「○○」の表示をONにして保存」
@@ -62,13 +67,39 @@ struct SaveTargetDialogs: ViewModifier {
     }
 
     /// 初めての確かめで既定の保存先を選んだ：設定に保存できたら、その保存先でこの予定も保存する（作成画面の決まりは先に新しくなる）。
-    /// 保存できなければ予定は保存せず、この予定の選びだけ残す（設定の失敗の知らせが出る。もう一度保存を押すとその保存先で保存する）
+    /// 保存できなければ予定は保存せず、この予定の選びだけ残す（設定の失敗の知らせが出る。もう一度保存を押すとその保存先で保存する）。
+    /// 利用者が決めたことなので、既定が変わったことを保存先の変化として確かめない（2026-10-19 決定 1）
     private func chooseFirstSaveTarget(_ option: DefaultSaveTarget) {
-        if connection.setDefaultSaveTarget(option) {
+        if store.applyOwnSettingsChange({ connection.setDefaultSaveTarget(option) }) {
             onSave()
         } else if let choice = store.eventChoice(for: option) {
             store.chooseSaveTarget(choice)
         }
+    }
+}
+
+/// 作成画面（新規・コピー）を開いたあとに、連携したまま設定（既定の保存先・iPhone の既定・保存先のカレンダーの表示・使えるかどうか）が
+/// 変わって、行で選んでいない新しい予定の保存先が変わったときの、保存の前の確かめ（spec §89.4・2026-10-19 決定 1）。
+/// 新しい保存先に保存するか、「カレンダー」の行で選び直すか、やめるかを聞く。文言は仮
+private struct SaveTargetChangeDialog: ViewModifier {
+    @Environment(ScheduleEditorStore.self) private var store
+    @Binding var isPresented: Bool
+    let onSave: () -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .confirmationDialog("保存先が変わりました", isPresented: $isPresented, titleVisibility: .visible,
+                                presenting: store.saveTargetChangePrompt) { prompt in
+                Button(prompt.saveButtonTitle) {
+                    // 確かめた保存先が今も同じときだけ、確かめたことにして保存する（違えば保存は止まる）
+                    store.confirmSaveTargetChange(prompt)
+                    onSave()
+                }
+                Button("ほかの保存先を選ぶ") { store.openCalendarRow() }
+                Button("やめる", role: .cancel) {}
+            } message: { prompt in
+                Text(prompt.message)
+            }
     }
 }
 

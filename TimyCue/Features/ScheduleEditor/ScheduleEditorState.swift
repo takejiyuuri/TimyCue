@@ -103,4 +103,6 @@ enum ScheduleEditorError: Error, Equatable {
     case needsLinkLossConfirmation
     /// 連携していないので、Apple カレンダーの予定を直せない・Apple Calendarに作れない。何も書いていない（2026-10-19 ユーザー指示 3）
     case appleUnavailable
+    /// 作成画面を開いたあとに設定が変わり、行で選んでいない新しい予定の書く先が変わった。確かめるまで何も書かない（2026-10-19 決定 1）
+    case needsSaveTargetChangeConfirmation
 }

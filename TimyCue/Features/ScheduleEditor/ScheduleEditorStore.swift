@@ -52,6 +52,15 @@ final class ScheduleEditorStore {
     private(set) var lostAppleTargetName: String?
     /// 作成画面（新規・コピー）を開いているあいだに連携の状態が変わった。実際の保存先が見えるよう「カレンダー」の行を出したままにする
     private(set) var linkChangedWhileEditing = false
+    /// 作成画面（新規・コピー）を開いたあとに、連携したまま設定（既定の保存先・iPhone の既定・保存先のカレンダーの表示・使えるかどうか）が
+    /// 変わって、行で選んでいない新しい予定の実際の書く先が変わった（spec §89.4・2026-10-19 決定 1）。保存の前に確かめる。
+    /// 利用者が確かめた・行で選んだ・初めての確かめで選んだ・開き直したら消す。開いたときの書く先に戻ったら消す
+    private(set) var saveTargetChange: SaveTargetChange?
+    /// 作成画面を開いているあいだに、設定が変わって書く先が変わったことがある。実際の書く先が見えるよう「カレンダー」の行を出したままにする
+    private(set) var targetChangedWhileEditing = false
+    /// 作成画面の中の操作（初めての確かめで既定を選んだ・「表示をONにして保存」）で設定を変えているところ。
+    /// 利用者が決めたことなので、そのあいだに届いた設定の変化は、書く先の変化として覚えない（2026-10-19 決定 1）
+    @ObservationIgnored private var appliesOwnSettingsChange = false
     /// 編集しているのが Apple カレンダーの予定か（開いたとき）と、その所属のカレンダーの名前。連携が外れて予定が読めなくなっても、
     /// 行に所属を出し、保存しないで理由を出すため（2026-10-19 ユーザー指示 3）
     private var editsAppleEvent = false
@@ -154,12 +163,53 @@ final class ScheduleEditorStore {
 
     /// アプリの連携の知らせを受ける（CalendarConnection が知らせるたび。TimyCueApp）。rules が nil なら連携していない（連携 OFF・許可なし）。
     /// 作成画面を開いているあいだに連携の状態が変わったら、画面に出していた保存先を保つ（黙って変えない。2026-10-19 ユーザー指示 3）。
+    /// 連携したまま設定が変わって、行で選んでいない新しい予定の書く先が変わったら、それを覚えて保存の前に確かめる（2026-10-19 決定 1）。
     /// そのあと setCalendars で保存先の決まりを入れる
     func receiveLink(_ rules: SaveTargetRules?, status: AppleLinkStatus) {
         let linking = rules != nil
-        if linking != isConnectedToApple { keepShownSaveTarget(linking: linking) }
+        if linking != isConnectedToApple {
+            keepShownSaveTarget(linking: linking)
+        } else if let rules, isConnectedToApple {
+            noteSaveTargetChange(to: rules)
+        }
         appleLinkStatus = status
         setCalendars(rules)
+    }
+
+    /// 連携したまま設定が変わったとき、行で選んでいない（設定に従っている）新しい予定（新規・コピー）の実際の書く先が変わったかを覚える
+    /// （spec §89.4・2026-10-19 決定 1。呼ぶのは決まりを変える前）。別の Apple カレンダー・TimyCue のみ・未選択・使えない、のどれかへ
+    /// 変わったら覚える。同じカレンダーの名前が変わっただけは変化に数えない。開いたとき（か、利用者が確かめたとき）の書く先に戻ったら消す。
+    /// 行で選んだ保存先・コピー元の保存先は、設定が変わっても変えないので見ない（使えなくなったら、今までどおり保存の前に選び直し）。
+    /// 作成画面の中の操作で設定を変えたとき（applyOwnSettingsChange）は、利用者が決めたことなので覚えない
+    private func noteSaveTargetChange(to rules: SaveTargetRules) {
+        guard !isFinished, mode.allowsMultipleDays, content.saveChoice == nil, !appliesOwnSettingsChange else { return }
+        let before = saveTargets.resolve(choice: nil)
+        let after = SaveDestinationKey(rules.resolve(choice: nil))
+        if let change = saveTargetChange {
+            if change.from == after { saveTargetChange = nil }
+            return
+        }
+        guard SaveDestinationKey(before) != after else { return }
+        saveTargetChange = SaveTargetChange(from: SaveDestinationKey(before), fromName: saveTargets.label(for: before))
+        targetChangedWhileEditing = true
+    }
+
+    /// 保存先が変わったときの確かめで［「新」に保存］を押した：確かめた書く先が今も同じなら、記録を消す（このあとの保存で書く）。
+    /// 確かめたあとにまた変わっていたら消さない（確かめた先と違う先には書かない。保存は止まる）
+    func confirmSaveTargetChange(_ prompt: SaveTargetChangePrompt) {
+        guard let target = pendingSaveTarget, SaveDestinationKey(target) == prompt.destination else { return }
+        saveTargetChange = nil
+    }
+
+    /// 作成画面の中の操作（初めての確かめで既定を選んだ・「表示をONにして保存」）で設定を変える（2026-10-19 決定 1）。
+    /// 利用者が決めたことなので、そのあいだに届いた設定の変化は書く先の変化として覚えず、変えられたら記録も消す。change の結果を返す
+    @discardableResult
+    func applyOwnSettingsChange(_ change: () -> Bool) -> Bool {
+        appliesOwnSettingsChange = true
+        defer { appliesOwnSettingsChange = false }
+        guard change() else { return false }
+        saveTargetChange = nil
+        return true
     }
 
     /// Apple カレンダーとつないだ・設定を変えたとき（書き込めないカレンダーも含めた一覧と、表示・表示のみ・既定の保存先の設定）。
@@ -217,10 +267,12 @@ final class ScheduleEditorStore {
         }
     }
 
-    /// 連携の状態の変化の記録を消す（新規・編集・コピーを始めたとき）
+    /// 連携の状態の変化と、設定の変化による書く先の変化の記録を消す（新規・編集・コピーを始めたとき）
     private func resetLinkChange() {
         lostAppleTargetName = nil
         linkChangedWhileEditing = false
+        saveTargetChange = nil
+        targetChangedWhileEditing = false
     }
 
     // MARK: - 保存先（spec §89.2〜§89.5。2026-10-17・2026-10-18 決定）
@@ -255,13 +307,14 @@ final class ScheduleEditorStore {
     /// 新規・コピー：連携中で、保存先の候補（「TimyCue のみ」と使える Apple カレンダー）が 2 種類以上あるとき。
     /// TimyCue のみしか使えなくても、今の保存先・開いたときの保存先（設定の既定・コピー元）が使えない、またはまだ決まっていないときは、
     /// 出して選び直せるようにする。行で選んで使えるようになっても、開いたときの保存先が使えなければ出したままにする（選んだ値が見えるように）。
-    /// 開いているあいだに連携の状態が変わったときは、実際の保存先が見えるように出したままにする（2026-10-19 ユーザー指示 3）
+    /// 開いているあいだに連携の状態が変わったとき（2026-10-19 ユーザー指示 3）と、設定が変わって書く先が変わったとき（2026-10-19 決定 1）は、
+    /// 実際の保存先が見えるように出したままにする
     var showsCalendarRow: Bool {
         switch mode {
         case .edit:
             return true
         case .new, .copy:
-            if linkChangedWhileEditing { return true }
+            if linkChangedWhileEditing || targetChangedWhileEditing { return true }
             guard isConnectedToApple else { return false }
             if !saveTargetCandidates.isEmpty { return true }
             if case .notChosen? = pendingSaveTarget { return true }
@@ -351,6 +404,8 @@ final class ScheduleEditorStore {
         switch mode {
         case .new, .copy:
             content.saveChoice = choice
+            // この予定の保存先をはっきり選んだので、開いたあとの設定の変化の記録は消す（2026-10-19 決定 1）
+            saveTargetChange = nil
             // 連携が外れて保存できなくなった Apple の保存先の代わりに、TimyCue のみをはっきり選んだ（2026-10-19 ユーザー指示 3）
             if choice == .timyCueOnly, lostAppleTargetName != nil {
                 lostAppleTargetName = nil
@@ -824,6 +879,12 @@ final class ScheduleEditorStore {
                                   action: .save, canChooseInRow: showsCalendarRow && !isLocked(.calendar),
                                   offersTimyCueOnly: mode.allowsMultipleDays && isConnectedToApple)
             throw problem
+        }
+        // 開いたあとに設定が変わって、行で選んでいない新しい予定の書く先（使える Apple カレンダーか TimyCue のみ）が変わった：
+        // 確かめるまで何も書かずに止める（画面は保存の前に確かめを出すので、ここは最後の守り。アラートは出さない。2026-10-19 決定 1）。
+        // 使えない・未選択になったときは、上の今までの止め方（選び直し・初めての確かめ）に任せる
+        if mode.allowsMultipleDays, isConnectedToApple, saveTargetChange != nil {
+            throw ScheduleEditorError.needsSaveTargetChangeConfirmation
         }
         do {
             return try performSave(scope: scope)

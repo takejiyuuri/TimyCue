@@ -174,7 +174,10 @@ final class EditorLinkChangeTests: XCTestCase {
         XCTAssertEqual(setup.local.allEvents().first?.savedOnDeviceWhileLinked, true, "連携中に TimyCue のみで保存した印（Q104）")
     }
 
-    func testSettingsChangesWhileStillLinkedDoNotPinTheTarget() {
+    /// 2026-10-19 決定「TestFlight 1.0 (30) 報告への回答」1 で決まりを変えた：連携のまま設定が変わって、行で選んでいない新しい予定の
+    /// 書く先が変わったときも覚えて、保存の前に確かめる（前は、確かめずに新しい既定に従っていた）。予定ごとの選びを作らない（既定に従う）・
+    /// 連携の状態の変化として扱わないのは今までどおり。確かめの細かいところは SaveTargetChangeTests
+    func testSettingsChangesWhileStillLinkedDoNotPinTheTarget() throws {
         let setup = makeSetup(linked: rules(.appleCalendar))
         let store = setup.store
         store.startNew(on: day)
@@ -182,6 +185,12 @@ final class EditorLinkChangeTests: XCTestCase {
         XCTAssertNil(store.content.saveChoice, "連携のまま設定が変わっただけなら、予定ごとの選びは作らない（既定に従う）")
         XCTAssertFalse(store.linkChangedWhileEditing)
         XCTAssertEqual(store.calendarRowValue, "TimyCue のみ（このiPhone）")
+        XCTAssertEqual(store.saveTargetChange?.fromName, "iPhoneの既定（家）", "書く先が変わったことは覚える（2026-10-19 決定 1）")
+        XCTAssertTrue(store.showsCalendarRow)
+        fill(store)
+        XCTAssertNotNil(store.saveTargetChangePrompt, "保存の前に確かめる")
+        XCTAssertThrowsError(try store.save())
+        XCTAssertTrue(setup.local.allEvents().isEmpty, "確かめるまで書かない")
     }
 
     func testANewSessionForgetsTheLinkChange() {

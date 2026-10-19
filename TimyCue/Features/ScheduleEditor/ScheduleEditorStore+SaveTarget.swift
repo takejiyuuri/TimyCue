@@ -16,6 +16,50 @@ struct SaveTargetPrompt: Equatable {
     }
 }
 
+/// 新しい予定を実際に書く先の見分け（spec §89.4・2026-10-19 決定 1）。作成画面を開いたあとに設定が変わって、
+/// 行で選んでいない新しい予定の書く先が変わったかを見るのに使う。同じカレンダーなら、名前が変わっても同じ
+enum SaveDestinationKey: Equatable {
+    /// その Apple カレンダー（calendarIdentifier）
+    case apple(String)
+    /// TimyCue のみ（この iPhone の中）
+    case timyCueOnly
+    /// まだ決まっていない
+    case notChosen
+    /// 使えない（表示 OFF・表示のみ・書き込めない・見つからない）。保存の前に選び直してもらう
+    case unavailable
+
+    init(_ resolution: SaveTargetResolution) {
+        switch resolution {
+        case .usable(let calendar, _): self = .apple(calendar.id)
+        case .timyCueOnly: self = .timyCueOnly
+        case .notChosen: self = .notChosen
+        case .unavailable: self = .unavailable
+        }
+    }
+}
+
+/// 作成画面を開いたあとに設定が変わって、行で選んでいない新しい予定の実際の書く先が変わった記録（spec §89.4・2026-10-19 決定 1）。
+/// 変わったあとの書く先は、そのときの決まりから出す（もう一度変われば、それに合わせる）
+struct SaveTargetChange: Equatable {
+    /// 変わる前の書く先（開いたとき。確かめると記録ごと消える）
+    let from: SaveDestinationKey
+    /// 変わる前に画面に出していた名前（「iPhoneの既定（Default）」「TimyCue のみ（このiPhone）」「仕事（使えません）」など）
+    let fromName: String
+}
+
+/// 保存先が変わったときの、保存の前の確かめの中身（spec §89.4・2026-10-19 決定 1。文言は仮）
+struct SaveTargetChangePrompt: Equatable {
+    /// 今の書く先（確かめたときに、確かめた先と同じかを見る）
+    let destination: SaveDestinationKey
+    /// 変わる前の名前
+    let fromName: String
+    /// 今の書く先の名前
+    let toName: String
+    let message: String
+    /// 「「仕事」に保存」「TimyCue のみ（このiPhone）に保存」
+    let saveButtonTitle: String
+}
+
 /// 作成・編集の画面の「カレンダー」の行と、保存の前の確かめ（spec §89.3・§89.4・Q97・Q99・Q105・Q110・Q111-4・Q113。S3）。
 /// ここは読むだけ。選んだものを当てるのは chooseSaveTarget（この予定だけ。設定の既定は変えない。Q99）
 extension ScheduleEditorStore {
@@ -96,6 +140,8 @@ extension ScheduleEditorStore {
             return "「Apple Calendarに保存」の移す先を選びます。この予定は、このiPhoneに保存しています。"
         }
         guard mode.allowsMultipleDays else { return nil }
+        // 開いたあとに設定が変わって、書く先が変わった（2026-10-19 決定 1）
+        if let note = saveTargetChangeNote { return note }
         switch pendingSaveTarget {
         case .timyCueOnly?:
             return SaveTargetRules.timyCueOnlyNote
@@ -206,6 +252,45 @@ extension ScheduleEditorStore {
         guard !isFinished, mode.allowsMultipleDays, !isConnectedToApple, saveIssues.isEmpty,
               let name = lostAppleTargetName else { return nil }
         return "保存先の「\(name)」（Apple カレンダー）には保存できません（\(appleLinkStatus.saveUnavailableReason)）。\(SaveTargetRules.timyCueOnlyLabel)に保存しますか？"
+    }
+
+    // MARK: - 開いたあとに設定が変わって保存先が変わったときの確かめ（spec §89.4・2026-10-19 決定 1）
+
+    /// 保存の前の確かめ。新しい書く先が使える Apple カレンダーか TimyCue のみのときだけ（使えない・未選択になったときは、
+    /// 今までの保存の前の選び直し・初めての確かめが出るので重ねない）。足りない項目があるときは、先に行で知らせる（§46）。文言は仮
+    var saveTargetChangePrompt: SaveTargetChangePrompt? {
+        guard !isFinished, mode.allowsMultipleDays, isConnectedToApple, saveIssues.isEmpty,
+              let change = saveTargetChange, let target = pendingSaveTarget else { return nil }
+        let toName: String
+        let saveName: String
+        let buttonTitle: String
+        switch target {
+        case .usable:
+            toName = saveTargets.name(for: target)
+            saveName = "「\(toName)」"
+            buttonTitle = "「\(toName)」に保存"
+        case .timyCueOnly:
+            toName = SaveTargetRules.timyCueOnlyLabel
+            saveName = SaveTargetRules.timyCueOnlyLabel
+            buttonTitle = "\(SaveTargetRules.timyCueOnlyLabel)に保存"
+        case .unavailable, .notChosen:
+            return nil
+        }
+        return SaveTargetChangePrompt(destination: SaveDestinationKey(target), fromName: change.fromName, toName: toName,
+                                      message: "作成画面を開いたあとに設定が変わり、保存先が「\(change.fromName)」から「\(toName)」になりました。\(saveName)に保存しますか？",
+                                      saveButtonTitle: buttonTitle)
+    }
+
+    /// 「カレンダー」の行を開いたときの説明（開いたあとに設定が変わって、書く先が変わったとき。文言は仮）
+    var saveTargetChangeNote: String? {
+        guard mode.allowsMultipleDays, isConnectedToApple, let change = saveTargetChange, let target = pendingSaveTarget else { return nil }
+        let changed = "作成画面を開いたあとに設定が変わり、保存先が「\(change.fromName)」から「\(saveTargets.label(for: target))」になりました。"
+        switch target {
+        case .usable, .timyCueOnly:
+            return changed + "保存するときに確かめます。"
+        case .unavailable, .notChosen:
+            return changed + "保存先を選んでください。"
+        }
     }
 
     // MARK: - 「Apple Calendarに保存」
