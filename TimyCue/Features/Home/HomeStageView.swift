@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// 演出帯の小さな知らせ（出発時刻を計算できない原因・目安。2026-10-14 決定：時計の下、時計がなければ予定の上に小さく）
 enum HomeStageNote: Equatable {
@@ -8,7 +9,7 @@ enum HomeStageNote: Equatable {
 
 /// 画面のいちばん上の行：左に今日の日付（spec §88.2。Home はステータスバーを出さない。大きな見出しは置かない）。
 /// 日付は 22pt の本当の高さで並べる（大きくした分の高さは、上の余白で吸収する：HomeLayoutMetrics.topPadding）。
-/// 右上の電池は、この行とは別に画面の形から置く（HomeView・HomeBatteryPlacement。電池の場所を変えても日付・時計・タイムラインは動かない）。
+/// 右上の電池は、この行とは別の層に画面の形から置く（HomeBatteryLayer・HomeBatteryPlacement。電池の場所を変えても日付・時計・タイムラインは動かない）。
 /// 電池が日付の行と同じ高さに来る機種（ノッチ・切り欠きのない機種）でも重ならないよう、右に電池の分をあけておく
 struct HomeTopBar: View {
     let dateTitle: String
@@ -42,6 +43,87 @@ struct HomeBatteryView: View {
         .accessibilityLabel(reading.accessibilityText)
     }
 }
+
+/// 右上の電池の層（spec §88.2。2026-10-19 ビルド確認 #77 の直し）。画面全体に広げ（Safe Area を無視する）、電池を画面の座標のまま、
+/// HomeBatteryPlacement の枠の中心に置く（.position）。Safe Area の上の高さは、この層の GeometryReader の値と窓（UIKit）の値の大きいほう。
+/// Home の中身（日付・時計・タイムライン）とは別の層なので、電池の場所を変えても中身は動かない。押せない（下の中身の操作を妨げない）
+struct HomeBatteryLayer: View {
+    /// 取れないとき（シミュレータなど）は出さない
+    let reading: HomeBatteryReading?
+
+    var body: some View {
+        GeometryReader { proxy in
+            if let reading {
+                let safeAreaTop = HomeBatteryPlacement.topInset(swiftUI: proxy.safeAreaInsets.top, window: Self.windowSafeAreaTop)
+                let placement = HomeBatteryPlacement.make(screenWidth: proxy.size.width, safeAreaTop: safeAreaTop)
+                let frame = placement.frame(screenWidth: proxy.size.width)
+                ZStack(alignment: .topLeading) {
+                    HomeBatteryView(reading: reading)
+                        .fixedSize()
+                        // 「80%」も「100%」も右の端をそろえる（見込みの幅の枠の右に寄せる。はみ出しても切らない）
+                        .frame(width: frame.width, height: frame.height, alignment: .trailing)
+                        .position(x: frame.midX, y: frame.midY)
+                    if let probe = Self.probe(safeAreaTop: safeAreaTop, placement: placement, screen: proxy.size,
+                                              bottomInset: proxy.safeAreaInsets.bottom) {
+                        probe
+                    }
+                }
+            }
+        }
+        .ignoresSafeArea()
+        .allowsHitTesting(false)
+    }
+
+    /// この画面の窓（UIKit）の Safe Area の上の高さ。取れないときは nil
+    @MainActor
+    private static var windowSafeAreaTop: CGFloat? {
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap(\.windows)
+            .first(where: \.isKeyWindow)?
+            .safeAreaInsets.top
+    }
+
+    /// 画面写真の見本（DEBUG の起動引数 -TimyCueHomeScenario）のときだけ、電池の置き場所の計算の値を画面の下に小さく出す
+    /// （#77 の確かめ。公開版・TestFlight の形には入らない）
+    private static func probe(safeAreaTop: CGFloat, placement: HomeBatteryPlacement, screen: CGSize, bottomInset: CGFloat) -> AnyView? {
+        #if DEBUG
+        guard HomeDebugScenario.current != nil else { return nil }
+        // ホームインジケータのある機種はタブの下のすき間に、ない機種（SE 系）はタブのすぐ上に
+        let y = bottomInset >= 70 ? screen.height - 17 : screen.height - bottomInset - 15
+        return AnyView(HomeBatteryProbe(safeAreaTop: safeAreaTop, placement: placement, screenWidth: screen.width)
+            .position(x: screen.width / 2, y: y))
+        #else
+        return nil
+        #endif
+    }
+}
+
+#if DEBUG
+/// 電池の置き場所の計算の値（DEBUG の画面写真の見本のときだけ。2026-10-19 ビルド確認 #77 の確かめ）：
+/// Safe Area の上・画面の形・置き方・中心の高さ・右の余白・画面の幅
+struct HomeBatteryProbe: View {
+    let safeAreaTop: CGFloat
+    let placement: HomeBatteryPlacement
+    let screenWidth: CGFloat
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text(verbatim: "電池 safeTop \(Self.number(safeAreaTop))・形 \(placement.shape)・置き方 \(placement.mode)")
+            Text(verbatim: "centerY \(Self.number(placement.centerY))・trailingInset \(Self.number(placement.trailingInset))・screenWidth \(Self.number(screenWidth))")
+        }
+        .font(.system(size: 9, weight: .regular, design: .monospaced))
+        .foregroundStyle(Color.black)
+        .padding(2)
+        .background(Color.white.opacity(0.85))
+        .fixedSize()
+    }
+
+    private static func number(_ value: CGFloat) -> String {
+        String(format: "%.1f", Double(value))
+    }
+}
+#endif
 
 /// 「終わった予定 ○件」（Q91。押すと吹き出しで一覧：Q84）。2026-10-19 の見やすさの調整で、文字を約 1pt 大きく、色を少し濃くした。
 /// 14pt の本当の高さで並べる。時計がないときは演出帯の高さが左の列で決まるので、大きくした分は人型の上の最小の間で吸収する

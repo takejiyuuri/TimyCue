@@ -65,8 +65,8 @@ enum HomeTopShape: Equatable {
 /// 帯の高さは、センサーの張り出しを含む Safe Area の上の高さ（切り欠きのない機種は、ふつうのステータスバーの 20pt）。
 /// Dynamic Island の機種では、帯の中心は Dynamic Island の縦の中心とほぼそろう。帯の中に置くと、切り欠き（の少し広めの見込み）との
 /// 横のあいだが batteryCutoutClearance に足りないとき（ノッチの機種。ノッチの右の「耳」は「100%」とマークには狭い）は、
-/// 切り欠きの下に batteryCutoutClearance をあけて置く。右は画面の角の丸みを避ける。電池は日付の行とは別に置き、
-/// 電池の場所を変えても日付・時計・タイムラインは動かない
+/// 切り欠きの下に batteryCutoutClearance をあけて置く。右は画面の角の丸みを避ける。電池は日付の行とは別に、画面全体に広げた層に
+/// 画面の座標で置き（HomeBatteryLayer。frame の中心に置く）、電池の場所を変えても日付・時計・タイムラインは動かない
 struct HomeBatteryPlacement: Equatable {
     enum Mode: Equatable {
         /// ステータスバーの帯の縦の中心
@@ -138,10 +138,11 @@ struct HomeBatteryPlacement: Equatable {
     }
 
     /// ステータスバーを隠した Home での Safe Area の上の高さ（pt）。Dynamic Island・ノッチの機種はセンサーの張り出しの分が残り、
-    /// ホームボタンの機種は 0 になりうる。SwiftUI の画面で測った値・その画面の上の端の位置（画面の座標）・窓（UIKit）の値のうち、
-    /// いちばん大きいものを使う（どれかが 0 で返っても、切り欠きのある機種を切り欠きなしと取り違えない）。おかしな値は使わない
-    static func topInset(swiftUI: CGFloat, containerTop: CGFloat, window: CGFloat?) -> CGFloat {
-        [swiftUI, containerTop, window ?? 0].filter { $0.isFinite && $0 > 0 }.max() ?? 0
+    /// ホームボタンの機種は 0 になりうる。画面全体に広げた電池の層（Safe Area を無視する GeometryReader）で測った値と、窓（UIKit）の値の
+    /// 大きいほうを使う（どちらかが 0 で返っても、切り欠きのある機種を切り欠きなしと取り違えない）。おかしな値は使わない。
+    /// 画面の中の位置（global の座標）には頼らない（2026-10-19 ビルド確認 #77 で、電池が計算した高さに来なかったため）
+    static func topInset(swiftUI: CGFloat, window: CGFloat?) -> CGFloat {
+        [swiftUI, window ?? 0].filter { $0.isFinite && $0 > 0 }.max() ?? 0
     }
 }
 

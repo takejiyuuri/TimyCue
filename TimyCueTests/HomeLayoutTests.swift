@@ -267,16 +267,19 @@ final class HomeLayoutTests: XCTestCase {
     ]
 
     /// ステータスバーを隠した Home での Safe Area の上の高さの取り方：Dynamic Island・ノッチの機種はセンサーの張り出しの分が残り、
-    /// SE 系は 0 になりうる。SwiftUI の値・画面の上の端の位置・窓（UIKit）の値のうち大きいものを使い、どれかが 0 でも取り違えない
+    /// SE 系は 0 になりうる。画面全体の電池の層で測った値と窓（UIKit）の値の大きいほうを使い、どちらかが 0 でも取り違えない。
+    /// 2026-10-19 ビルド確認 #77 の直しで、画面の中の位置（global の座標）を使うのをやめた（引数から外した）
     func testTopInsetKeepsTheSensorHousingWithoutTheStatusBar() {
-        XCTAssertEqual(HomeBatteryPlacement.topInset(swiftUI: 59, containerTop: 59, window: 59), 59, "Dynamic Island の機種")
-        XCTAssertEqual(HomeBatteryPlacement.topInset(swiftUI: 47, containerTop: 47, window: 47), 47, "ノッチの機種")
-        XCTAssertEqual(HomeBatteryPlacement.topInset(swiftUI: 0, containerTop: 62, window: 62), 62, "SwiftUI の値が 0 で返っても取り違えない")
-        XCTAssertEqual(HomeBatteryPlacement.topInset(swiftUI: 0, containerTop: 0, window: 59), 59, "窓の値で補う")
-        XCTAssertEqual(HomeBatteryPlacement.topInset(swiftUI: 59, containerTop: 59, window: nil), 59, "窓の値が取れないとき")
-        XCTAssertEqual(HomeBatteryPlacement.topInset(swiftUI: 0, containerTop: 0, window: 0), 0, "SE 系：ステータスバーを隠すと 0")
-        XCTAssertEqual(HomeBatteryPlacement.topInset(swiftUI: 20, containerTop: 20, window: 20), 20, "SE 系：ステータスバーを出しているとき")
-        XCTAssertEqual(HomeBatteryPlacement.topInset(swiftUI: .nan, containerTop: -5, window: .infinity), 0, "おかしな値は使わない")
+        XCTAssertEqual(HomeBatteryPlacement.topInset(swiftUI: 59, window: 59), 59, "Dynamic Island の機種")
+        XCTAssertEqual(HomeBatteryPlacement.topInset(swiftUI: 62, window: 62), 62, "Dynamic Island の機種（16 Pro・Pro Max）")
+        XCTAssertEqual(HomeBatteryPlacement.topInset(swiftUI: 47, window: 47), 47, "ノッチの機種")
+        XCTAssertEqual(HomeBatteryPlacement.topInset(swiftUI: 0, window: 62), 62, "SwiftUI の値が 0 で返っても、窓の値で補う")
+        XCTAssertEqual(HomeBatteryPlacement.topInset(swiftUI: 59, window: 0), 59, "窓の値が 0 で返っても取り違えない")
+        XCTAssertEqual(HomeBatteryPlacement.topInset(swiftUI: 59, window: nil), 59, "窓の値が取れないとき")
+        XCTAssertEqual(HomeBatteryPlacement.topInset(swiftUI: 0, window: 0), 0, "SE 系：ステータスバーを隠すと 0")
+        XCTAssertEqual(HomeBatteryPlacement.topInset(swiftUI: 20, window: 20), 20, "SE 系：ステータスバーを出しているとき")
+        XCTAssertEqual(HomeBatteryPlacement.topInset(swiftUI: .nan, window: .infinity), 0, "おかしな値は使わない")
+        XCTAssertEqual(HomeBatteryPlacement.topInset(swiftUI: -5, window: nil), 0, "負の値は使わない")
     }
 
     /// 画面の上の形は Safe Area の上の高さから見分ける。ステータスバーの帯の高さは、切り欠きのある機種は Safe Area の上、
@@ -349,7 +352,11 @@ final class HomeLayoutTests: XCTestCase {
     /// 画面の角の丸みより 2pt 以上内側、右の余白の内側で、画面の右半分にある
     func testBatteryKeepsClearOfTheCutoutTheCornersAndTheTopEdge() {
         for phone in Self.dynamicIslandPhones + Self.notchPhones + Self.flatPhones {
-            let frame = HomeBatteryPlacement.make(screenWidth: phone.width, safeAreaTop: phone.safeTop).frame(screenWidth: phone.width)
+            let placement = HomeBatteryPlacement.make(screenWidth: phone.width, safeAreaTop: phone.safeTop)
+            let frame = placement.frame(screenWidth: phone.width)
+            // 電池の層は、この枠の中心に画面の座標で置く（#77 の直し）：中心の高さは centerY、右の端は画面の幅 − trailingInset
+            XCTAssertEqual(frame.midY, placement.centerY, accuracy: 0.01, phone.name)
+            XCTAssertEqual(frame.maxX, phone.width - placement.trailingInset, accuracy: 0.01, phone.name)
             XCTAssertGreaterThanOrEqual(frame.minY, HomeLayoutMetrics.batteryMinimumScreenTop - 0.01, "\(phone.name)：画面の上の端")
             XCTAssertLessThanOrEqual(frame.maxX, phone.width - HomeLayoutMetrics.horizontalPadding + 0.01, "\(phone.name)：右の余白")
             XCTAssertGreaterThan(frame.minX, phone.width / 2, "\(phone.name)：画面の右半分")
