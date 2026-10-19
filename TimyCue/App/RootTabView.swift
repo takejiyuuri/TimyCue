@@ -63,6 +63,9 @@ struct RootTabView: View {
             Text(connection.recoveryNotice ?? "")
         }
         .onAppear {
+            // 起動のときに設定のファイルを開けなかったら（連携の ON/OFF を確かめられない）、最初の画面を出すときにも読み直す
+            // （まだ読めなければ何も変えない。spec §89.6・2026-10-19 決定 3）
+            _ = connection.reloadPreferences()
             openEditorForScreenshot()
             applyReproSettings()
             markReadyForScreenshot()
@@ -84,6 +87,12 @@ struct RootTabView: View {
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.significantTimeChangeNotification)
             .receive(on: DispatchQueue.main)) { _ in
             calendarStore.updateToday()
+        }
+        // iPhone のロックを解除して、守られたファイルを読めるようになったとき：連携の設定を確かめられなかったら読み直す
+        // （確かめられていれば何もしない。spec §89.6・2026-10-19 決定 3）
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.protectedDataDidBecomeAvailableNotification)
+            .receive(on: DispatchQueue.main)) { _ in
+            _ = connection.reloadPreferences()
         }
         .fullScreenCover(isPresented: $showsEditorForScreenshot) {
             ScheduleEditorView(initialMonth: CalendarMonth(CalendarDay(Date())))

@@ -68,7 +68,9 @@ struct TimyCueApp: App {
         _departures = State(initialValue: DepartureStore(isEnabled: !Self.usesSampleData,
                                                          location: LocationProvider(isEnabled: !Self.usesSampleData)))
         // 連携しているときだけ、保存先の決まりを作成画面へ渡す（nil は連携していない。新しい予定はこの iPhone の中へ。spec §89.6）。
-        // 連携の状態も渡す（作成画面を開いているあいだに連携が変わったら、画面に出していた保存先を保つ。2026-10-19 ユーザー指示 3）
+        // 連携の状態も渡す（作成画面を開いているあいだに連携が変わったら、画面に出していた保存先を保つ。2026-10-19 ユーザー指示 3。
+        // 連携の設定を確かめられないときは、新しい予定を黙って TimyCue のみにせず確かめる。2026-10-19 決定 3）。
+        // 連携したまま設定が変わって書く先が変わったら、作成画面が覚えて保存の前に確かめる（2026-10-19 決定 1）
         let connection = CalendarConnection(
             eventStore: EKEventStore(),
             switchable: switchable,

@@ -6,20 +6,35 @@ import SwiftUI
 /// OFF はエラーではない正常な選択なので、OFF にするたびの確認は出さない。フルアクセスがなければ「Appleカレンダーを連携する」の入口も出す。
 /// TimyCue の連携の設定と iPhone のカレンダーの許可は別の状態として、両方を出す（2026-10-19 ユーザー指示 4）。ON でもフルアクセスがなければ、
 /// Apple を読み書きしていないことと許可のしかたを出す。連携 OFF のあいだに許可が外れても警告は出さない（Q101）。
-/// 説明の文は仮（例文の「Appleカレンダー連携」「Appleカレンダーを連携する」は決定のまま）
+/// 設定のファイルを読めず、連携の ON/OFF を確かめられないあいだは、スイッチの代わりに「確認中」と説明と「もう一度読み込む」を出す
+/// （2026-10-19 決定 3）。説明の文は仮（例文の「Appleカレンダー連携」「Appleカレンダーを連携する」は決定のまま）
 struct CalendarLinkSection: View {
     @Environment(CalendarConnection.self) private var connection
     @Environment(\.openURL) private var openURL
 
     var body: some View {
         Section {
-            Toggle(isOn: Binding(get: { connection.isLinkEnabled },
-                                 set: { enabled in _ = connection.switchAppleLink(enabled) })) {
-                Text("Appleカレンダー連携")
+            if connection.isLinkSettingUnconfirmed {
+                // 確かめられないあいだは設定を変えられない（読めない設定のファイルを上書きしない）。読み直しの入口を出す（文言は仮）
+                LabeledContent("Appleカレンダー連携", value: AppleLinkStatus.unconfirmedLabel)
+                Text(AppleLinkStatus.unconfirmedNote)
+                    .font(.footnote)
+                    .foregroundStyle(Theme.Colors.textSecondary)
+                Button("もう一度読み込む") { connection.retryReadingPreferences() }
+                if connection.preferencesStillUnreadable {
+                    Text(AppleLinkStatus.stillUnreadableNote)
+                        .font(.footnote)
+                        .foregroundStyle(Theme.Colors.textSecondary)
+                }
+            } else {
+                Toggle(isOn: Binding(get: { connection.isLinkEnabled },
+                                     set: { enabled in _ = connection.switchAppleLink(enabled) })) {
+                    Text("Appleカレンダー連携")
+                }
+                .tint(Theme.Colors.accent)
+                // 保存できずに戻したとき、スイッチの見た目も戻す（spec §89.9）
+                .id(connection.settingsRevision)
             }
-            .tint(Theme.Colors.accent)
-            // 保存できずに戻したとき、スイッチの見た目も戻す（spec §89.9）
-            .id(connection.settingsRevision)
             // iPhone のカレンダーの許可（TimyCue の連携の設定とは別の状態）
             LabeledContent("iPhone のカレンダーの許可", value: connection.permissionStateLabel)
             if let note = connection.permissionNote {
@@ -27,17 +42,19 @@ struct CalendarLinkSection: View {
                     .font(.footnote)
                     .foregroundStyle(Theme.Colors.textSecondary)
             }
-            if !connection.hasFullAccess && connection.authorization != .restricted {
+            if !connection.isLinkSettingUnconfirmed && !connection.hasFullAccess && connection.authorization != .restricted {
                 Button("Appleカレンダーを連携する") { link() }
             }
         } header: {
             Text("Apple カレンダー")
         } footer: {
             // OFF の説明は許可の状態によらず出す。ON の説明はフルアクセスがあるとき（ないときは上に許可の説明を出す）
-            if !connection.isLinkEnabled {
-                Text(Self.offNote)
-            } else if connection.hasFullAccess {
-                Text(Self.onNote)
+            if !connection.isLinkSettingUnconfirmed {
+                if !connection.isLinkEnabled {
+                    Text(Self.offNote)
+                } else if connection.hasFullAccess {
+                    Text(Self.onNote)
+                }
             }
         }
     }

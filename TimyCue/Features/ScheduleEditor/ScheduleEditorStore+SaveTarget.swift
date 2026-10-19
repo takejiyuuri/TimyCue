@@ -70,6 +70,7 @@ extension ScheduleEditorStore {
     /// 書き込める Apple の予定の編集（連携中）：使える Apple カレンダー（今の所属を含む。Apple の予定を TimyCue のみへ移す操作は仕様にない）。
     /// ローカルの予定の編集（連携中）：「Apple Calendarに保存」の移す先（使える Apple カレンダー。移す先を確かめの画面で選ぶ形は S5）。
     /// 新規・コピーを開いているあいだに連携が外れ、出していた Apple の保存先に保存できない：「TimyCue のみ」だけ（2026-10-19 ユーザー指示 3）。
+    /// 連携の設定を確かめられないあいだの新規・コピーも「TimyCue のみ」だけ（2026-10-19 決定 3）。
     /// それ以外（連携していない・書き込めない予定）は選べない（閲覧専用）
     var calendarRowChoices: [SaveChoice] {
         guard isConnectedToApple else { return canChooseInCalendarRow ? [SaveChoice.timyCueOnly] : [] }
@@ -83,9 +84,12 @@ extension ScheduleEditorStore {
     }
 
     /// 行で選べるか（選べなければ鍵の印を付けて、開かない＝閲覧専用。Q113）。連携していないときは、新規・コピーを開いているあいだに
-    /// 連携が外れて、出していた Apple の保存先に保存できないときだけ（TimyCue のみを選べる。2026-10-19 ユーザー指示 3）
+    /// 連携が外れて、出していた Apple の保存先に保存できないときだけ（TimyCue のみを選べる。2026-10-19 ユーザー指示 3）。
+    /// 連携の設定を確かめられないあいだに、TimyCue のみをまだ選んでいないときも選べる（2026-10-19 決定 3）
     var canChooseInCalendarRow: Bool {
-        guard isConnectedToApple else { return mode.allowsMultipleDays && lostAppleTargetName != nil }
+        guard isConnectedToApple else {
+            return mode.allowsMultipleDays && (lostAppleTargetName != nil || awaitsUnconfirmedLinkChoice)
+        }
         switch mode {
         case .new, .copy:
             return true
@@ -132,9 +136,16 @@ extension ScheduleEditorStore {
     /// 行を開いたときの、チップの下の説明（文言は仮。TimyCue のみは spec §89.2 の推奨の文）
     var calendarRowNote: String? {
         guard isConnectedToApple else {
+            guard mode.allowsMultipleDays else { return nil }
             // 開いているあいだに連携が外れて、出していた Apple の保存先に保存できない（2026-10-19 ユーザー指示 3）
-            guard mode.allowsMultipleDays, let name = lostAppleTargetName else { return nil }
-            return "保存先の「\(name)」（Apple カレンダー）には保存できません（\(appleLinkStatus.saveUnavailableReason)）。「TimyCue のみ」を選ぶと、このiPhoneに保存します。保存するときにも確かめます。"
+            if let name = lostAppleTargetName {
+                return "保存先の「\(name)」（Apple カレンダー）には保存できません（\(appleLinkStatus.saveUnavailableReason)）。「TimyCue のみ」を選ぶと、このiPhoneに保存します。保存するときにも確かめます。"
+            }
+            // 連携の設定を確かめられない（2026-10-19 決定 3）
+            if awaitsUnconfirmedLinkChoice {
+                return "Apple カレンダーの設定を確かめられないため、Apple カレンダーには保存できません。「TimyCue のみ」を選ぶと、このiPhoneに保存します。保存するときにも確かめます。"
+            }
+            return nil
         }
         if calendarRowIsMoveTarget {
             return "「Apple Calendarに保存」の移す先を選びます。この予定は、このiPhoneに保存しています。"
@@ -247,11 +258,17 @@ extension ScheduleEditorStore {
 
     /// 新規・コピーを開いているあいだに連携が外れ（連携 OFF・許可がなくなった）、画面に出していた Apple カレンダーの保存先に
     /// 保存できないとき、保存の前に出す確かめの本文。黙って TimyCue のみへ変えない（「TimyCue のみ（このiPhone）に保存」か「やめる」）。
+    /// 連携の設定を確かめられない（設定のファイルを開けない）あいだの新しい予定も、同じ確かめを出す（理由の言い方だけ変える。2026-10-19 決定 3）。
     /// 足りない項目があるときは、先に行で知らせる（§46）。文言は仮
     var linkLossPrompt: String? {
-        guard !isFinished, mode.allowsMultipleDays, !isConnectedToApple, saveIssues.isEmpty,
-              let name = lostAppleTargetName else { return nil }
-        return "保存先の「\(name)」（Apple カレンダー）には保存できません（\(appleLinkStatus.saveUnavailableReason)）。\(SaveTargetRules.timyCueOnlyLabel)に保存しますか？"
+        guard !isFinished, mode.allowsMultipleDays, !isConnectedToApple, saveIssues.isEmpty else { return nil }
+        if let name = lostAppleTargetName {
+            return "保存先の「\(name)」（Apple カレンダー）には保存できません（\(appleLinkStatus.saveUnavailableReason)）。\(SaveTargetRules.timyCueOnlyLabel)に保存しますか？"
+        }
+        if awaitsUnconfirmedLinkChoice {
+            return "Apple カレンダーの設定を確かめられないため、Apple カレンダーには保存できません。\(SaveTargetRules.timyCueOnlyLabel)に保存しますか？"
+        }
+        return nil
     }
 
     // MARK: - 開いたあとに設定が変わって保存先が変わったときの確かめ（spec §89.4・2026-10-19 決定 1）

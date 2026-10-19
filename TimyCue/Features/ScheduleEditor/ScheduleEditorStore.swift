@@ -161,7 +161,8 @@ final class ScheduleEditorStore {
         }
     }
 
-    /// アプリの連携の知らせを受ける（CalendarConnection が知らせるたび。TimyCueApp）。rules が nil なら連携していない（連携 OFF・許可なし）。
+    /// アプリの連携の知らせを受ける（CalendarConnection が知らせるたび。TimyCueApp）。rules が nil なら連携していない
+    /// （連携 OFF・許可なし・連携の設定を確かめられない）。
     /// 作成画面を開いているあいだに連携の状態が変わったら、画面に出していた保存先を保つ（黙って変えない。2026-10-19 ユーザー指示 3）。
     /// 連携したまま設定が変わって、行で選んでいない新しい予定の書く先が変わったら、それを覚えて保存の前に確かめる（2026-10-19 決定 1）。
     /// そのあと setCalendars で保存先の決まりを入れる
@@ -210,6 +211,13 @@ final class ScheduleEditorStore {
         guard change() else { return false }
         saveTargetChange = nil
         return true
+    }
+
+    /// 連携の設定を確かめられないあいだ（設定のファイルを開けない。spec §89.6・2026-10-19 決定 3）の新しい予定（新規・コピー）で、
+    /// TimyCue のみをまだはっきり選んでいない。黙って TimyCue のみにせず、保存の前に確かめる
+    var awaitsUnconfirmedLinkChoice: Bool {
+        mode.allowsMultipleDays && !isConnectedToApple && appleLinkStatus == .unconfirmed
+            && content.saveChoice != SaveChoice.timyCueOnly
     }
 
     /// Apple カレンダーとつないだ・設定を変えたとき（書き込めないカレンダーも含めた一覧と、表示・表示のみ・既定の保存先の設定）。
@@ -308,13 +316,14 @@ final class ScheduleEditorStore {
     /// TimyCue のみしか使えなくても、今の保存先・開いたときの保存先（設定の既定・コピー元）が使えない、またはまだ決まっていないときは、
     /// 出して選び直せるようにする。行で選んで使えるようになっても、開いたときの保存先が使えなければ出したままにする（選んだ値が見えるように）。
     /// 開いているあいだに連携の状態が変わったとき（2026-10-19 ユーザー指示 3）と、設定が変わって書く先が変わったとき（2026-10-19 決定 1）は、
-    /// 実際の保存先が見えるように出したままにする
+    /// 実際の保存先が見えるように出したままにする。連携の設定を確かめられないあいだも出す（2026-10-19 決定 3）
     var showsCalendarRow: Bool {
         switch mode {
         case .edit:
             return true
         case .new, .copy:
             if linkChangedWhileEditing || targetChangedWhileEditing { return true }
+            if appleLinkStatus == .unconfirmed { return true }
             guard isConnectedToApple else { return false }
             if !saveTargetCandidates.isEmpty { return true }
             if case .notChosen? = pendingSaveTarget { return true }
@@ -361,6 +370,8 @@ final class ScheduleEditorStore {
             // 保存できないときは、その名前に「（保存できません）」を付ける（黙って TimyCue のみと出さない。2026-10-19 ユーザー指示 3）
             guard let resolution = pendingSaveTarget else {
                 if let name = lostAppleTargetName { return ["\(name)（保存できません）", "保存できません"] }
+                // 連携の設定を確かめられないあいだも、黙って TimyCue のみと出さない（保存の前に確かめる。2026-10-19 決定 3。文言は仮）
+                if awaitsUnconfirmedLinkChoice { return [SaveTargetRules.unconfirmedLabel, SaveTargetRules.unconfirmedShortLabel] }
                 return timyCueOnly
             }
             return Self.rowValues(for: resolution, rules: saveTargets)
@@ -403,11 +414,14 @@ final class ScheduleEditorStore {
     func chooseSaveTarget(_ choice: SaveChoice) {
         switch mode {
         case .new, .copy:
+            // 連携が外れて保存できなくなった Apple の保存先・連携の設定を確かめられないあいだの確かめを待っていたか（選ぶ前に見る）
+            let wasAsking = lostAppleTargetName != nil || awaitsUnconfirmedLinkChoice
             content.saveChoice = choice
             // この予定の保存先をはっきり選んだので、開いたあとの設定の変化の記録は消す（2026-10-19 決定 1）
             saveTargetChange = nil
-            // 連携が外れて保存できなくなった Apple の保存先の代わりに、TimyCue のみをはっきり選んだ（2026-10-19 ユーザー指示 3）
-            if choice == .timyCueOnly, lostAppleTargetName != nil {
+            // 連携が外れて保存できなくなった Apple の保存先の代わりに、TimyCue のみをはっきり選んだ（2026-10-19 ユーザー指示 3）。
+            // 連携の設定を確かめられないあいだに、TimyCue のみをはっきり選んだときも同じ（2026-10-19 決定 3）
+            if choice == .timyCueOnly, wasAsking {
                 lostAppleTargetName = nil
                 // 連携していなければ、ほかに選べるものはないので行を閉じる
                 if !isConnectedToApple, expandedRow == .calendar { expandedRow = nil }
@@ -858,8 +872,9 @@ final class ScheduleEditorStore {
             throw ScheduleEditorError.notReady(issues)
         }
         // 開いているあいだに連携が外れて、画面に出していた Apple の保存先に保存できない：黙って TimyCue のみへ変えず、何も書かずに止める
-        // （画面は保存の前に確かめを出すので、ここは最後の守り。2026-10-19 ユーザー指示 3）
-        if mode.allowsMultipleDays, !isConnectedToApple, lostAppleTargetName != nil {
+        // （画面は保存の前に確かめを出すので、ここは最後の守り。2026-10-19 ユーザー指示 3）。
+        // 連携の設定を確かめられないあいだに、TimyCue のみをまだはっきり選んでいないときも同じ（2026-10-19 決定 3）
+        if mode.allowsMultipleDays, !isConnectedToApple, lostAppleTargetName != nil || awaitsUnconfirmedLinkChoice {
             throw ScheduleEditorError.needsLinkLossConfirmation
         }
         // 開いているあいだに連携が外れて、編集していた Apple の予定を直せない：何も書かずに理由を出す（入力はそのまま）

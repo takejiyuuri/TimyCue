@@ -190,6 +190,10 @@ struct SaveTargetRules: Equatable {
     static let timyCueOnlyNote = "このiPhoneに保存します。Appleカレンダーやほかの端末とは同期しません。アプリを削除すると予定が失われる場合があります。"
     /// 保存先がまだ決まっていない
     static let notChosenLabel = "未選択"
+    /// 連携の設定を確かめられないあいだ（設定のファイルを開けない）の、作成画面の「カレンダー」の行の値と短い言い方
+    /// （保存の前に TimyCue のみに保存するかを確かめる。2026-10-19 決定 3。文言は仮）
+    static let unconfirmedLabel = "確認中（保存するときに確かめます）"
+    static let unconfirmedShortLabel = "確認中"
 
     /// 「iPhoneの既定（Default）」。実際の名前が取れなければ「iPhoneの既定」
     var systemDefaultLabel: String {

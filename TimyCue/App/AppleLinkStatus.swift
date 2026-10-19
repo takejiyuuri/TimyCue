@@ -1,7 +1,8 @@
 import EventKit
 
 /// Apple カレンダー連携の状態（spec §89.6・Q101・Q102・Q115。S6）。iPhone の許可の状態と、TimyCue の連携の ON/OFF から決める。
-/// 利用者がわざと OFF にした状態（off）と、まだ連携していない・許可がない状態（notLinked・needsPermission・unavailable）を分ける
+/// 利用者がわざと OFF にした状態（off）と、まだ連携していない・許可がない状態（notLinked・needsPermission・unavailable）を分ける。
+/// 設定のファイルを開けず、連携の ON/OFF を確かめられない状態（unconfirmed）は、そのどれとも分ける（2026-10-19 決定 3）
 enum AppleLinkStatus: Equatable {
     /// 連携している（連携 ON で、フルアクセスがある）
     case linked
@@ -13,6 +14,16 @@ enum AppleLinkStatus: Equatable {
     case needsPermission
     /// 端末の制限で使えない
     case unavailable
+    /// 設定のファイルを開けない（再起動の直後でまだロックを解除していないときなど）ので、TimyCue の連携の設定（ON/OFF）を確かめられない
+    /// （spec §89.6・2026-10-19 決定 3）。ON とも OFF とも、許可がないのとも分ける。確かめられるまで Apple カレンダーを読み書きしない
+    case unconfirmed
+
+    /// 確かめられないときの、設定トップと 設定 ＞ カレンダー連携 の値（文言は仮）
+    static let unconfirmedLabel = "確認中"
+    /// 確かめられないときの 設定 ＞ カレンダー連携 の説明（文言は仮）
+    static let unconfirmedNote = "設定を読み込めないため、Apple カレンダーを読み書きしていません。iPhone のロックを解除すると、もう一度読み込みます。そのあいだに作る新しい予定は、保存するときに、TimyCue のみ（このiPhone）に保存するかを確かめます。"
+    /// 「もう一度読み込む」を押しても、まだ読み込めなかったとき（文言は仮）
+    static let stillUnreadableNote = "まだ読み込めませんでした。iPhone のロックを解除してから、もう一度お試しください。"
 
     static func resolve(authorization: EKAuthorizationStatus, linkEnabled: Bool) -> AppleLinkStatus {
         guard linkEnabled else { return .off }
@@ -26,8 +37,9 @@ enum AppleLinkStatus: Equatable {
     }
 
     /// 設定トップの「カレンダー連携」の右に出す状態（v1.2「設定画面」。OFF は Q102 のおすすめの「OFF」。文言は仮）。
-    /// OFF でも、端末の制限で使えないときは「利用できません」
+    /// OFF でも、端末の制限で使えないときは「利用できません」。連携の設定を確かめられないときは「確認中」（2026-10-19 決定 3。文言は仮）
     func statusLabel(authorization: EKAuthorizationStatus) -> String {
+        if self == .unconfirmed { return Self.unconfirmedLabel }
         if self == .off {
             return authorization == .restricted ? "利用できません" : "OFF"
         }
@@ -88,16 +100,18 @@ enum AppleLinkStatus: Equatable {
         case .off: "連携が OFF です"
         case .notLinked, .needsPermission: "カレンダーの許可がありません"
         case .unavailable: "この端末では Apple カレンダーを使えません"
+        case .unconfirmed: "連携の設定を確かめられません"
         case .linked: "連携していません"
         }
     }
 
     /// Home に「カレンダーを連携、または予定を登録すると…」のカードを出すか。まだ連携していない・許可がないときは今の案内のまま
-    /// （Q42-8・Q115）。わざと OFF にしたときは、連携を促すカード・帯を出さない（Q102）
+    /// （Q42-8・Q115）。わざと OFF にしたときは、連携を促すカード・帯を出さない（Q102）。
+    /// 連携の設定を確かめられないときも出さない（未連携の案内と混同しない。2026-10-19 決定 3）
     var showsSetupCard: Bool {
         switch self {
         case .notLinked, .needsPermission, .unavailable: true
-        case .linked, .off: false
+        case .linked, .off, .unconfirmed: false
         }
     }
 }

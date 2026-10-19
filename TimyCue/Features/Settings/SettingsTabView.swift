@@ -138,18 +138,19 @@ struct SettingsTabView: View {
     }
 }
 
-/// 設定 ＞ カレンダー連携（Q31〜Q33・spec §89.1・§89.6）：いちばん上に Apple カレンダー連携の ON/OFF（許可がなければ連携の入口）、
+/// 設定 ＞ カレンダー連携（Q31〜Q33・spec §89.1・§89.6）：いちばん上に Apple カレンダー連携の ON/OFF（許可がなければ連携の入口も）、
 /// 連携しているときは重複候補・新しい予定の既定の保存先・表示のみのカレンダー・表示するカレンダー。
-/// 連携していないとき（連携 OFF・許可なし）は、それらの欄を隠し（値は消さない）、選べない「新しい予定の保存先　TimyCue のみ（このiPhone）」を出す
+/// 連携していないとき（連携 OFF・許可なし）は、それらの欄を隠し（値は消さない）、選べない「新しい予定の保存先　TimyCue のみ（このiPhone）」を出す。
+/// 連携の設定を確かめられないあいだは、保存先の欄も出さない（新しい予定の扱いは、いちばん上の説明に書く。2026-10-19 決定 3）
 struct CalendarSettingsView: View {
     @Environment(CalendarConnection.self) private var connection
 
     var body: some View {
         List {
             CalendarLinkSection()
-            if !connection.isLinked {
+            if !connection.isLinked && !connection.isLinkSettingUnconfirmed {
                 UnlinkedSaveTargetSection()
-            } else {
+            } else if connection.isLinked {
                 // あとから確かめられるように、重複候補の数を残しておく（Q50）
                 Section {
                     NavigationLink {

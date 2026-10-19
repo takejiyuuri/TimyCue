@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// 作成画面で、保存の前に保存先を選んでもらう確かめ（spec §89.4・Q99・Q111-4。S3）。作成画面の本体を短く保つため、別にする。
-/// 開いているあいだに連携が外れたときの確かめ（2026-10-19 ユーザー指示 3）は LinkLossDialog、
+/// 開いているあいだに連携が外れたとき・連携の設定を確かめられないときの確かめ（2026-10-19 ユーザー指示 3・決定 3）は LinkLossDialog、
 /// 開いたあとに設定が変わって保存先が変わったときの確かめ（2026-10-19 決定 1）は SaveTargetChangeDialog。文言は仮
 struct SaveTargetDialogs: ViewModifier {
     @Environment(ScheduleEditorStore.self) private var store
@@ -10,7 +10,8 @@ struct SaveTargetDialogs: ViewModifier {
     @Binding var asksFirstSaveTarget: Bool
     /// 保存先が使えないので、保存の前に選び直してもらっている
     @Binding var asksSaveTargetAgain: Bool
-    /// 開いているあいだに連携が外れ、出していた Apple の保存先に保存できないので、TimyCue のみに保存するかを聞いている
+    /// 開いているあいだに連携が外れ、出していた Apple の保存先に保存できない（または連携の設定を確かめられない）ので、
+    /// TimyCue のみに保存するかを聞いている
     @Binding var asksLinkLoss: Bool
     /// 開いたあとに設定が変わって保存先が変わったので、新しい保存先に保存するかを聞いている
     @Binding var asksSaveTargetChange: Bool
@@ -105,6 +106,7 @@ private struct SaveTargetChangeDialog: ViewModifier {
 
 /// 作成画面（新規・コピー）を開いているあいだに連携が外れ（連携 OFF・許可がなくなった）、画面に出していた Apple カレンダーの保存先に
 /// 保存できないときの、保存の前の確かめ（2026-10-19 ユーザー指示 3）。黙って TimyCue のみへ変えず、TimyCue のみに保存するかを聞く。
+/// 連携の設定を確かめられない（設定のファイルを開けない）あいだの新しい予定も、ここで聞く（2026-10-19 決定 3）。
 /// 文言は仮
 private struct LinkLossDialog: ViewModifier {
     @Environment(ScheduleEditorStore.self) private var store

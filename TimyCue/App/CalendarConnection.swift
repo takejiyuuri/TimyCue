@@ -7,7 +7,9 @@ import SwiftUI
 /// つないだあとの状態の確認・変更は 設定 ＞ カレンダー連携 で行う。
 /// 許可しなくても、TimyCue で作った予定は端末の中に保存して使える（§80）。
 /// Apple カレンダー連携（全体）は TimyCue の設定で ON/OFF できる（spec §89.6。S6）。連携しているのは、連携 ON でフルアクセスがあるときだけ。
-/// OFF にしても iPhone の許可や iCloud の設定は変えず、Apple 側の予定も消さない。iPhone の許可がなくても OFF にできる（2026-10-19 決定 2）
+/// OFF にしても iPhone の許可や iCloud の設定は変えず、Apple 側の予定も消さない。iPhone の許可がなくても OFF にできる（2026-10-19 決定 2）。
+/// 起動のときに設定のファイルを開けない（再起動の直後でまだロックを解除していないときなど）あいだは、連携の ON/OFF を確かめられない状態とし、
+/// Apple カレンダーを読み書きせず、設定のファイルにも書かない。読めるようになったら読み直して、その設定に従う（2026-10-19 決定 3）
 @MainActor
 @Observable
 final class CalendarConnection {
@@ -39,6 +41,12 @@ final class CalendarConnection {
     private(set) var settingsRevision = 0
     /// 前回、予定の保存の途中でアプリが終わっていて、確かめてもらうことがあるときの知らせ（spec §89.9）
     private(set) var recoveryNotice: String?
+    /// 設定のファイルがあるのに開けなかった（一時的）ので、連携の ON/OFF を確かめられない（spec §89.6・2026-10-19 決定 3）。
+    /// このあいだは Apple カレンダーを読み書きせず（保存先を作らない・カレンダーも予定も読まない）、設定のファイルにも書かず、
+    /// 保存先の移行もしない。読み直して読めたら false にして、その設定に従う
+    private(set) var isLinkSettingUnconfirmed = false
+    /// 設定 ＞ カレンダー連携 の「もう一度読み込む」を押しても、まだ読み込めなかった（画面に出す）
+    private(set) var preferencesStillUnreadable = false
     /// 「Appleカレンダー連携」を ON にしたときに始めた、iPhone のカレンダーの許可を求める処理（テストで終わりを待つため）
     @ObservationIgnored private(set) var permissionRequest: Task<Void, Never>?
 
@@ -73,7 +81,8 @@ final class CalendarConnection {
     /// localEvents が nil のとき（DEBUG の見本の予定で動かしているとき）は、つながない。
     /// 開発用・見本の予定を Apple カレンダーへ書き込まないため（Q34）。
     /// saveTargetRecords を渡したとき（アプリの本物の保存先）は、読み込みの直後に保存先の移行を一度だけ行う（spec §89.8）。
-    /// 連携を OFF にして起動したときは、Apple カレンダーの保存先を作らず、カレンダーも予定も読まない（spec §89.6）
+    /// 連携を OFF にして起動したときは、Apple カレンダーの保存先を作らず、カレンダーも予定も読まない（spec §89.6）。
+    /// 設定のファイルを開けないときも同じく Apple カレンダーに触れず、連携の ON/OFF を確かめられないことを画面へ知らせる（2026-10-19 決定 3）
     init(eventStore: EKEventStore,
          switchable: SwitchableEventRepository,
          localEvents: FileEventRepository?,
@@ -105,10 +114,20 @@ final class CalendarConnection {
         authorization = status
         state = Self.state(for: status)
         preferencesFileExistedAtLaunch = existed
-        // 保存先の移行は、保存の途中の記録の復旧と Apple カレンダーの読み込みより前に行う
+        // 設定のファイルがあるのに開けない：読めた設定がないので、連携の ON/OFF を確かめられない。ON とはみなさず、Apple カレンダーを
+        // 読み書きしない（spec §89.6・2026-10-19 決定 3）。空の設定はメモリの中だけで、ファイルには書かない（JSONFile も上書きを止める）
+        isLinkSettingUnconfirmed = preferencesFile.couldNotOpen
+        // 保存先の移行は、保存の途中の記録の復旧と Apple カレンダーの読み込みより前に行う（確かめられないあいだは今までどおり先送り）
         migrateSaveTargetIfNeeded()
-        recoverLocalSaves()
-        if isLinked { useEventKit() }
+        // この iPhone の中への保存の途中の記録の片付けも、設定を確かめられないあいだはしない（記録を消さない・やり直さない。
+        // 次に確かめられた起動で行う）
+        if !isLinkSettingUnconfirmed { recoverLocalSaves() }
+        if isLinked {
+            useEventKit()
+        } else if isLinkSettingUnconfirmed {
+            // 作成画面へ、確かめられないことを知らせる（新しい予定を、黙って TimyCue のみにしない）
+            notify()
+        }
     }
 
     static func state(for status: EKAuthorizationStatus) -> State {
@@ -129,12 +148,14 @@ final class CalendarConnection {
     /// カレンダーのフルアクセスがある
     var hasFullAccess: Bool { state == .connected }
 
-    /// 連携している（連携 ON で、フルアクセスがある）。連携していないあいだは、Apple カレンダーを読まず、書かない
-    var isLinked: Bool { hasFullAccess && isLinkEnabled }
+    /// 連携している（連携 ON で、フルアクセスがある）。連携していないあいだは、Apple カレンダーを読まず、書かない。
+    /// 連携の設定を確かめられないあいだも、連携していないとして扱う（2026-10-19 決定 3）
+    var isLinked: Bool { hasFullAccess && isLinkEnabled && !isLinkSettingUnconfirmed }
 
-    /// 連携の状態（わざと OFF にした・まだ連携していない・許可がない、を分ける）
+    /// 連携の状態（わざと OFF にした・まだ連携していない・許可がない・設定を確かめられない、を分ける）
     var linkStatus: AppleLinkStatus {
-        AppleLinkStatus.resolve(authorization: authorization, linkEnabled: isLinkEnabled)
+        if isLinkSettingUnconfirmed { return .unconfirmed }
+        return AppleLinkStatus.resolve(authorization: authorization, linkEnabled: isLinkEnabled)
     }
 
     /// 設定トップの「カレンダー連携」の右に出す今の状態（v1.2「設定画面」。連携 OFF は「OFF」）
@@ -151,9 +172,11 @@ final class CalendarConnection {
         AppleLinkStatus.permissionStateLabel(for: authorization)
     }
 
-    /// 連携が ON なのにフルアクセスがないときの説明（Apple を読み書きしていないこと・許可のしかた）。端末の制限は ON/OFF によらず
+    /// 連携が ON なのにフルアクセスがないときの説明（Apple を読み書きしていないこと・許可のしかた）。端末の制限は ON/OFF によらず。
+    /// 連携の設定を確かめられないあいだは、ON とは言えないので出さない（代わりに確かめられないことの説明を出す。2026-10-19 決定 3）
     var permissionNote: String? {
-        AppleLinkStatus.permissionNote(authorization: authorization, linkEnabled: isLinkEnabled)
+        guard !isLinkSettingUnconfirmed else { return nil }
+        return AppleLinkStatus.permissionNote(authorization: authorization, linkEnabled: isLinkEnabled)
     }
 
     /// Home に連携のカードを出すか。まだ連携していない・許可がないときだけ（Q42-8・Q115）。わざと OFF にしたときは出さない（Q102）
@@ -196,9 +219,14 @@ final class CalendarConnection {
     }
 
     /// アプリが前面に戻ったとき（RootTabView）。保存先の移行を先送りしていたら、やり直す（spec §89.8）。
-    /// iPhone の許可が変わっていたら、Apple カレンダーを使い始める・止める（spec §89.6）
+    /// iPhone の許可が変わっていたら、Apple カレンダーを使い始める・止める（spec §89.6）。
+    /// 連携の設定を確かめられないあいだは、設定のファイルの読み直しだけを試す（読めたら、その中で移行・使い始めまで行う。2026-10-19 決定 3）
     func handleBecameActive() {
         guard isLive else { return }
+        if isLinkSettingUnconfirmed {
+            reloadPreferences()
+            return
+        }
         var changed = retryDeferredMigration()
         let status = authorizationStatus()
         if status != authorization {
@@ -232,9 +260,14 @@ final class CalendarConnection {
     /// 書けたら Apple カレンダーの保存先を止め、TimyCue のみの予定だけを見せる。Apple 側の予定・結び付け（終了未設定の印・
     /// 繰り返しの共通設定の id・「見つからない」の記録を含む）・TimyCue の設定・保存先の設定・表示の設定は消さない。
     /// ON：許可を読み直し、フルアクセスがあるときだけ最新を取り直す（許可がなければ Apple を読み書きしない。OFF の前の
-    /// 「見つからない」の記録はやり直す。表示の設定は勝手に ON にしない。Q103）。保存できなければ戻して知らせ、false を返す
+    /// 「見つからない」の記録はやり直す。表示の設定は勝手に ON にしない。Q103）。保存できなければ戻して知らせ、false を返す。
+    /// 連携の設定を確かめられないあいだは変えない（読めない設定のファイルを上書きしない。2026-10-19 決定 3）
     @discardableResult
     func setAppleLinkEnabled(_ enabled: Bool) -> Bool {
+        guard !isLinkSettingUnconfirmed else {
+            reportSettingsFailure(Self.unconfirmedSettingsFailureMessage)
+            return false
+        }
         guard enabled != isLinkEnabled else { return true }
         guard enabled else { return turnLinkOff() }
         guard updatePreferences({ $0.appleLinkEnabled = true }) else { return false }
@@ -264,6 +297,8 @@ final class CalendarConnection {
     /// 連携を OFF にできなかったときの知らせ（文言は仮）
     static let linkOffLinksFailureMessage = "Apple カレンダー連携を OFF にできませんでした。予定と到着目標などの結び付けを保存できませんでした。もう一度お試しください。"
     static let linkOffSettingsFailureMessage = "Apple カレンダー連携を OFF にできませんでした。設定を保存できませんでした。もう一度お試しください。"
+    /// 連携の設定を確かめられないあいだに、連携を変えようとしたときの知らせ（文言は仮）
+    static let unconfirmedSettingsFailureMessage = "設定を読み込めないため、Apple カレンダー連携を変えられませんでした。iPhone のロックを解除してから、もう一度お試しください。"
 
     /// 設定 ＞ カレンダー連携 の「Appleカレンダー連携」のスイッチ（iPhone の許可の状態によらず出す）と「Appleカレンダーを連携する」
     /// （spec §89.6・2026-10-19 決定 2）。OFF：setAppleLinkEnabled と同じ（OFF の前に要るものを残し、残せなければ OFF にせず理由を出す。
@@ -384,9 +419,10 @@ final class CalendarConnection {
     /// ローカル予定を削除する（隠すのではなく削除。Apple の予定を正本にする）。
     /// 途中で失敗したら、両方の予定を残して投げる（設定の引き継ぎに失敗：何も変えない／ローカル予定の削除に失敗：両方に残る）。
     /// ローカル予定を消せたあとの、その設定の削除の失敗は失敗にしない（残った設定は使われない）。
-    /// 成功でも失敗でも、最後に重複候補を作り直す（spec §89.9・2026-10-18 S1b）。連携を OFF にしているあいだは何もしない（spec §89.6）
+    /// 成功でも失敗でも、最後に重複候補を作り直す（spec §89.9・2026-10-18 S1b）。連携を OFF にしているあいだと、
+    /// 連携の設定を確かめられないあいだは何もしない（spec §89.6）
     func useApple(_ candidate: DuplicateCandidate, preferLocalSettings: Bool? = nil) throws {
-        guard let localEvents, isLinkEnabled else { return }
+        guard let localEvents, isLinkEnabled, !isLinkSettingUnconfirmed else { return }
         defer { notify() }
         // もうローカル予定がなければ、前の操作で済んでいる
         guard localEvents.allEvents().contains(where: { $0.id == candidate.local.id }) else { return }
@@ -582,7 +618,8 @@ final class CalendarConnection {
         if records.load() != record { records.save(record) }
     }
 
-    /// 移行を先送りしていたら、もう一度やり直す（設定のファイルを開けなかったなら読み直す）。決まったら true
+    /// 移行を先送りしていたら、もう一度やり直す（設定のファイルを開けなかったなら読み直す。設定のファイルを開けない起動は、
+    /// 連携の設定を確かめられない状態として reloadPreferences で読み直すので、ここへ来るのは、ほかの材料を開けなかったとき）。決まったら true
     private func retryDeferredMigration() -> Bool {
         guard migrationDeferred else { return false }
         if preferencesFile.couldNotOpen {
@@ -593,6 +630,47 @@ final class CalendarConnection {
         migrationDeferred = false
         migrateSaveTargetIfNeeded()
         return !migrationDeferred
+    }
+
+    // MARK: - 連携の設定を確かめられないとき（spec §89.6・2026-10-19 決定 3）
+
+    /// 連携の設定を確かめられないあいだに、設定のファイルを読み直す（アプリが前面に戻ったとき・ロックを解除して読めるようになったとき・
+    /// 設定の「もう一度読み込む」）。読めたら、その設定を使い、先送りしていた保存先の移行を行い、連携 ON でフルアクセスがあれば
+    /// Apple カレンダーを使い始めて知らせる（起動のときと同じく、「見つからない」の記録はやり直さない）。
+    /// 読めないままなら、確かめられない状態のまま（Apple カレンダーにも設定のファイルにも触れない）。確かめられていれば true
+    @discardableResult
+    func reloadPreferences() -> Bool {
+        guard isLinkSettingUnconfirmed else { return true }
+        guard isLive else { return false }
+        let reloaded = preferencesFile.load()
+        guard !preferencesFile.couldNotOpen else {
+            // iPhone の許可の行だけは読み直しておく（許可の状態は設定のファイルとは別）
+            let status = authorizationStatus()
+            if status != authorization {
+                authorization = status
+                state = Self.state(for: status)
+                notify()
+            }
+            return false
+        }
+        preferences = reloaded
+        isLinkSettingUnconfirmed = false
+        preferencesStillUnreadable = false
+        // 先送りしていた保存先の移行を、ここで行う（spec §89.8。ほかの材料を開けなければ、今までどおりまた先送り）
+        migrationDeferred = false
+        migrateSaveTargetIfNeeded()
+        refreshAuthorization()
+        if isLinked {
+            useEventKit()
+        } else {
+            notify()
+        }
+        return true
+    }
+
+    /// 設定 ＞ カレンダー連携 の「もう一度読み込む」（文言は仮）。読めなければ、まだ読み込めないことを画面に出す
+    func retryReadingPreferences() {
+        preferencesStillUnreadable = !reloadPreferences()
     }
 
     /// 設定の保存の失敗の知らせを閉じた
