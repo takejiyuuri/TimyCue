@@ -147,8 +147,8 @@ struct HomeView: View {
     private func screen(_ model: HomeScreenModel) -> some View {
         GeometryReader { proxy in
             VStack(alignment: .leading, spacing: 0) {
+                // 上の余白は HomeTopBar の中（前と同じ高さの中で、大きくした日付の分だけ縮む）
                 HomeTopBar(dateTitle: model.dateTitle)
-                    .padding(.top, HomeLayoutMetrics.topPadding)
                 HomeStageView(timeline: model.timeline,
                               clock: model.clock,
                               headline: model.headline,

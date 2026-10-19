@@ -8,25 +8,28 @@ enum HomeLayoutMetrics {
 
     /// 画面の左右の余白
     static let horizontalPadding: CGFloat = Theme.Spacing.l
-    /// 日付を 20 → 22pt にして、日付の行が高くなる分（pt。SF の行の高さは文字の大きさの約 1.19 倍。2026-10-19 の上の段の最終調整）
-    static let dateLineGrowth: CGFloat = 2.4
-    /// Safe Area の上から日付までの余白（Home はステータスバーを出さないので、小さい iPhone では画面の上の端からの余白になる）。
-    /// 前は 10pt。日付を大きくして行が高くなる分（dateLineGrowth）をここで吸収し、上の段の高さ（時計・タイムラインの縦の位置と、
-    /// タイムラインに出せる予定の数）を前と同じにする（2026-10-19 の上の段の最終調整）
-    static let topPadding: CGFloat = 10 - dateLineGrowth
-    /// 左上の日付（大きな見出しにはしない：§88.2）。2026-10-19 の見やすさの調整で約 2pt 大きくした（title3 20pt → title2 22pt）。
-    /// 並べ方の高さも 22pt の本当の高さで取る（上の段の最終調整）
+    /// 日付の行の上の余白（Safe Area の上から。Home はステータスバーを出さないので、小さい iPhone では画面の上の端から）。
+    /// 上の段の並べ方の高さは「この余白＋前の日付の大きさ（dateLayoutFont）の行」で、前と同じ。本当の日付（dateFont）はその中の下に
+    /// そろえて置き（はみ出さない）、大きくした分は日付の上の余白が実際の文字の高さに合わせて縮んで吸収する（約 10 → 7.6pt）。
+    /// 2026-10-19 ビルド確認 #78 の直し：前は余白を見込みの数（10 − 2.4pt）で減らしたが、日本語の日付の行の高さの増え方が見込みより大きく、
+    /// 小さい iPhone の予定 11 件で出せる予定が 1 件減った（small-home-h2-many。14:00 まで「ほか4件」→ 13:00 まで「ほか5件」）
+    static let topPadding: CGFloat = 10
+    /// 左上の日付（大きな見出しにはしない：§88.2）。2026-10-19 の見やすさの調整で約 2pt 大きくした（title3 20pt → title2 22pt）
     static let dateFont = Font.title2.weight(.semibold)
+    /// 上の段の並べ方の高さを決める、前の日付の大きさ（title3 20pt。見えない文字で使う）
+    static let dateLayoutFont = Font.title3.weight(.semibold)
     /// 日付の下の終日の予定
     static let headerLineFont = Font.footnote
     static let headerLineSpacing: CGFloat = 4
     /// 「終わった予定 ○件」の文字の大きさ（pt。標準の文字の大きさのとき。footnote と同じ割合で文字の大きさの設定に合わせる）。
     /// 2026-10-19 の見やすさの調整で 13pt から約 1pt 大きくし、色も操作の文字（#C8601A）より少し濃くした（仮）。
-    /// 並べ方の高さも 14pt の本当の高さで取り、行が高くなる分（finishedLineGrowth）は人型の上の最小の間で吸収する（上の段の最終調整）
+    /// 並べ方の高さは「前の大きさ（footnote）の行＋finishedLineAllowance」。本当の文字（14pt）はその中の上にそろえて置き（はみ出さない）、
+    /// 足した高さの分、人型の上の最小の間を縮める（figureTopGapWithFinished。合わせて前と同じ高さ）
     static let finishedTextSize: CGFloat = 14
     static let finishedTextColor = Color(hex: 0xB45617)
-    /// 「終わった予定」を 13 → 14pt にして、その行が高くなる分（pt）
-    static let finishedLineGrowth: CGFloat = 1.2
+    /// 「終わった予定」の行に、大きくした文字の分としてあけておく高さ（pt）。実際に増える高さ（標準の文字の大きさで約 1.2pt、
+    /// 文字を最大にしても約 2pt）より少し多め。日本語の文字でも、本当の文字がこの中に収まることをテストで確かめる
+    static let finishedLineAllowance: CGFloat = 2.5
     /// 右上の電池の残量（%）とマーク（画面見本：マーク 22×11pt＋「80%」。形は H2 の実機で決める：§88.2）
     static let batteryFont = Font.caption.weight(.semibold).monospacedDigit()
     static let batteryIconFont = Font.footnote
@@ -80,9 +83,10 @@ enum HomeLayoutMetrics {
     /// 日付・知らせと人型のあいだの最小の間、人型の足元と「いま」（または過ぎた出発の点）のあいだ（H1 と同じ 8pt。仮）
     static let figureTopGap: CGFloat = Theme.Spacing.s
     static let figureBottomGap: CGFloat = Theme.Spacing.s
-    /// 「終わった予定 ○件」があるときの、人型の上の最小の間。大きくした「終わった予定」の行の分を吸収して、時計がないとき（演出帯の高さが
-    /// 左の列で決まるとき）も、タイムラインに使える高さを前と同じにする（2026-10-19 の上の段の最終調整）
-    static let figureTopGapWithFinished: CGFloat = figureTopGap - finishedLineGrowth
+    /// 「終わった予定 ○件」があるときの、人型の上の最小の間。「終わった予定」の行に足した高さ（finishedLineAllowance）の分を縮めて、
+    /// 時計がないとき（演出帯の高さが左の列で決まるとき）も、タイムラインに使える高さを前と同じにする（2026-10-19 #78 の直し）。
+    /// 足した高さのうち使わなかった分は「終わった予定」の下に残るので、見た目の間は約 6.8pt
+    static let figureTopGapWithFinished: CGFloat = figureTopGap - finishedLineAllowance
     /// 主状態の大きな知らせ（時計がないときは日付の下に横幅を使って：Q92。色は今の Home のまま）
     static let headlineFont = Font.title3.weight(.bold)
     /// 出発時刻を計算できない原因・目安の知らせ（小さく）

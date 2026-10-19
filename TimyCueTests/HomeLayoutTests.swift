@@ -329,7 +329,8 @@ final class HomeLayoutTests: XCTestCase {
             XCTAssertGreaterThanOrEqual(placement.frame(screenWidth: phone.width).minY - notch.maxY, 8, "\(phone.name)：ノッチの下に 8pt 以上")
             XCTAssertGreaterThanOrEqual(estimate.maxX, notch.maxX, "\(phone.name)：見込みは実際より広い")
             XCTAssertGreaterThanOrEqual(estimate.maxY, notch.maxY, "\(phone.name)：見込みは実際より下まで")
-            let dateCenter = phone.safeTop + HomeLayoutMetrics.topPadding + 13
+            // 日付の中心は Safe Area の上から約 20.7pt（上の段 10＋約 23.9pt の下の端に、22pt の日付の下をそろえる）。少し上で見る
+            let dateCenter = phone.safeTop + 20
             XCTAssertLessThan(placement.centerY, dateCenter, "\(phone.name)：日付の中心より上")
         }
     }
@@ -375,25 +376,65 @@ final class HomeLayoutTests: XCTestCase {
         }
     }
 
-    // MARK: - 日付と「終わった予定」の高さ（2026-10-19 の上の段の最終調整）
+    // MARK: - 日付と「終わった予定」の高さ（2026-10-19 ビルド確認 #78 の直し）
 
-    /// 日付（22pt）と「終わった予定」（14pt）は本当の高さで並べ、高くなった分を余白で吸収する（上の段の高さと、時計がないときの
-    /// 演出帯の高さを前と同じにして、タイムラインに出せる予定の数を保つ）。標準の文字の大きさの行の高さで確かめる
-    func testTheLargerDateAndFinishedLinesAreAbsorbedByTheMargins() {
-        let standard = UITraitCollection(preferredContentSizeCategory: .large)
-        let date = UIFont.preferredFont(forTextStyle: .title2, compatibleWith: standard).lineHeight
-        let dateBefore = UIFont.preferredFont(forTextStyle: .title3, compatibleWith: standard).lineHeight
-        XCTAssertEqual(date - dateBefore, HomeLayoutMetrics.dateLineGrowth, accuracy: 0.3, "日付の行が高くなる分の見込み")
-        XCTAssertEqual(HomeLayoutMetrics.topPadding + date, 10 + dateBefore, accuracy: 0.3,
-                       "上の余白＋日付の行は、前（10pt＋20pt の日付の行）と同じ")
-        let finished = UIFont.systemFont(ofSize: HomeLayoutMetrics.finishedTextSize).lineHeight
-        let finishedBefore = UIFont.preferredFont(forTextStyle: .footnote, compatibleWith: standard).lineHeight
-        XCTAssertEqual(finished - finishedBefore, HomeLayoutMetrics.finishedLineGrowth, accuracy: 0.3, "「終わった予定」の行が高くなる分の見込み")
-        XCTAssertEqual(finished + HomeLayoutMetrics.figureTopGapWithFinished, finishedBefore + HomeLayoutMetrics.figureTopGap, accuracy: 0.3,
-                       "時計がないとき：「終わった予定」の行＋人型の上の最小の間は前と同じ")
-        XCTAssertGreaterThanOrEqual(HomeLayoutMetrics.topPadding, 6, "日付の上の余白を削りすぎない")
-        XCTAssertGreaterThanOrEqual(HomeLayoutMetrics.figureTopGapWithFinished, 6, "人型の上の間を削りすぎない")
+    /// 日本語の文字を 1 行で並べたときの高さ（UILabel で測る。SwiftUI の文字の行の高さとほぼ同じ）
+    @MainActor
+    private func lineHeight(_ text: String, _ font: UIFont) -> CGFloat {
+        let label = UILabel()
+        label.font = font
+        label.text = text
+        label.numberOfLines = 1
+        return label.sizeThatFits(CGSize(width: 2000, height: 2000)).height
     }
+
+    /// 上の段の並べ方の高さは前と同じ「上の余白 10pt＋前の大きさ（20pt）の日付の行」で、本当の日付（22pt）はその中に収まり（はみ出さない）、
+    /// 上に 6pt 以上の余白が残る。「終わった予定」も、前の大きさ（footnote）の行＋ゆとりの中に本当の文字（14pt）が収まる。
+    /// どちらも日本語の文字で、標準と最大（xxxLarge）の文字の大きさで測る（前は SF の見込みの数で余白を減らし、日本語の日付で
+    /// 足りなかった：小さい iPhone の予定 11 件で 1 件減った）。前のテスト（見込みの数どおりか）を、この形に直した
+    @MainActor
+    func testTheLargerDateAndFinishedLinesFitInTheFormerHeights() {
+        let date = "10月19日（月）"
+        let finished = "終わった予定 3件"
+        for category in [UIContentSizeCategory.large, .extraExtraExtraLarge] {
+            let traits = UITraitCollection(preferredContentSizeCategory: category)
+            let newDate = lineHeight(date, UIFont.preferredFont(forTextStyle: .title2, compatibleWith: traits))
+            let formerDate = lineHeight(date, UIFont.preferredFont(forTextStyle: .title3, compatibleWith: traits))
+            XCTAssertLessThanOrEqual(newDate, HomeLayoutMetrics.topPadding + formerDate - 6,
+                                     "\(category.rawValue)：22pt の日付が前の上の段の高さに収まり、上に 6pt 以上の余白が残る")
+            let footnote = UIFont.preferredFont(forTextStyle: .footnote, compatibleWith: traits)
+            let newFinished = lineHeight(finished, UIFontMetrics(forTextStyle: .footnote)
+                .scaledFont(for: .systemFont(ofSize: HomeLayoutMetrics.finishedTextSize), compatibleWith: traits))
+            XCTAssertLessThanOrEqual(newFinished, lineHeight(finished, footnote) + HomeLayoutMetrics.finishedLineAllowance,
+                                     "\(category.rawValue)：14pt の「終わった予定」が、前の行＋ゆとりの中に収まる")
+        }
+        XCTAssertEqual(HomeLayoutMetrics.topPadding, 10, "上の段の並べ方の高さの余白は前と同じ")
+        XCTAssertEqual(HomeLayoutMetrics.figureTopGapWithFinished + HomeLayoutMetrics.finishedLineAllowance, HomeLayoutMetrics.figureTopGap,
+                       accuracy: 0.01, "時計がないとき：「終わった予定」の行に足した分だけ人型の上の最小の間を縮め、合わせて前と同じ")
+        XCTAssertGreaterThanOrEqual(HomeLayoutMetrics.figureTopGapWithFinished, 5, "人型の上の間を削りすぎない")
+    }
+
+    /// 小さい iPhone（SE 系）の予定 11 件の画面（small-home-h2-many）で出せる件数。#76 は 14:00 まで出て「ほか4件」で、
+    /// そのときのタイムラインに使える高さは 300〜330pt の範囲（詰めた段の行の高さから）。上の段・演出帯の並べ方の高さを前と同じに
+    /// 保つので、その範囲の高さで 14:00 まで・「ほか4件」が出る。300pt より少しでも低いと 13:00 まで・「ほか5件」になる（#78 の形）
+    #if DEBUG
+    func testManyEventsOnASmallPhoneShowUntil14WithFourMore() throws {
+        let today = CalendarDay(year: 2026, month: 10, day: 19)
+        let scenario = HomeDebugScenario.many
+        let sample = scenario.sample(around: today)
+        let items = HomeScreenModel.make(events: sample.events, now: scenario.now(on: today),
+                                         estimate: { scenario.estimate(for: $0) }).timeline.items
+        for available: CGFloat in [300, 315, 329.9] {
+            let plan = HomeTimelineLayout.plan(items: items, availableHeight: available)
+            XCTAssertEqual(plan.density, .tight, "\(available)pt")
+            XCTAssertEqual(plan.hiddenEventCount, 4, "\(available)pt：ほか4件")
+            let last = try XCTUnwrap(plan.rows.last(where: { $0.item.isEventRow })?.item.event)
+            XCTAssertEqual(last.startMinute, 14 * 60, "\(available)pt：14:00 まで")
+        }
+        let short = HomeTimelineLayout.plan(items: items, availableHeight: 299.9)
+        XCTAssertEqual(short.hiddenEventCount, 5, "300pt より低いと 1 件減る（#78 の 13:00 まで・ほか5件）")
+    }
+    #endif
 
     // MARK: - 文字の段と行の間（2026-10-19 の見やすさの調整）
 

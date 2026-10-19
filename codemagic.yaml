@@ -79,8 +79,7 @@ workflows:
           # TimyCueSampleLink：画面写真用の見本の連携の起動引数の鍵（S6。DEBUG だけでコンパイルする）。公開版の形に入っていないことも確かめる。
           # TimyCueSampleDefaultChange：作成画面を開いたあとに見本の設定を変える起動引数の鍵（2026-10-19 決定 1 の画面写真。DEBUG だけ）
           # TimyCueHomeScenario・TimyCueSampleBattery：H2 の Home の画面写真用の見本の予定と固定の時刻、見本の電池の残量の起動引数の鍵（DEBUG だけ）
-          # HomeBatteryProbe：H2 の Home の画面写真の見本のときだけ、電池の置き場所の計算の値を画面の下に出す表示（2026-10-19 #77 の確かめ。DEBUG だけ）
-          WORDS="SaveFaultView CharacterSizeComparisonView ClockVerificationView TimyCueSaveFault TimyCueSampleLink TimyCueTapNewEvent TimyCueReproSystemDefault TimyCueSampleDefaultChange TimyCueHomeScenario TimyCueSampleBattery HomeBatteryProbe 開発用：保存の失敗の再現 開発用：キャラクターの大きさ"
+          WORDS="SaveFaultView CharacterSizeComparisonView ClockVerificationView TimyCueSaveFault TimyCueSampleLink TimyCueTapNewEvent TimyCueReproSystemDefault TimyCueSampleDefaultChange TimyCueHomeScenario TimyCueSampleBattery 開発用：保存の失敗の再現 開発用：キャラクターの大きさ"
           for WORD in $WORDS; do
             has "$DEBUG_APP" "$WORD" || { echo "確かめ方が働いていません：両方の印を付けたビルドに「${WORD}」が見つかりません"; exit 1; }
           done
@@ -108,7 +107,7 @@ workflows:
           for WORD in CharacterSizeComparisonView 開発用：キャラクターの大きさ; do
             LC_ALL=C grep -a -F -q "$WORD" "$APP/TimyCue" || { echo "TestFlight の形に H1 の比べる画面（${WORD}）が入っていません（印の付け方を確かめてください）"; exit 1; }
           done
-          for WORD in SaveFaultView TimyCueSaveFault TimyCueSampleLink TimyCueTapNewEvent TimyCueReproSystemDefault TimyCueSampleDefaultChange TimyCueHomeScenario TimyCueSampleBattery HomeBatteryProbe 開発用：保存の失敗の再現 "Apple に書けた直後にアプリを終える"; do
+          for WORD in SaveFaultView TimyCueSaveFault TimyCueSampleLink TimyCueTapNewEvent TimyCueReproSystemDefault TimyCueSampleDefaultChange TimyCueHomeScenario TimyCueSampleBattery 開発用：保存の失敗の再現 "Apple に書けた直後にアプリを終える"; do
             if LC_ALL=C grep -a -F -q "$WORD" "$APP/TimyCue"; then echo "TestFlight の形のアプリに「${WORD}」が入っています"; exit 1; fi
           done
           echo "TestFlight の形（H1 の検証用の印だけ）でビルドでき、H1 の比べる画面は入り（型の名前と「開発用：キャラクターの大きさ」が見つかる）、保存の失敗の再現の画面と、失敗の再現の印を付ける処理と、画面写真用の見本の連携・Home の見本の時刻と電池は入っていません" | tee build/testflight-config-check.log
