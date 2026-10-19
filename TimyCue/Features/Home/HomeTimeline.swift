@@ -143,8 +143,12 @@ struct HomeTimeline: Equatable {
             points.append((Item(id: "start-\(event.id.uuidString)", kind: .start, event: event, date: start(event), isMain: isMain), 1))
         }
         points.sort { lhs, rhs in
-            (lhs.item.date, lhs.order, lhs.item.event?.displayTitle ?? "", lhs.item.id)
-                < (rhs.item.date, rhs.order, rhs.item.event?.displayTitle ?? "", rhs.item.id)
+            if lhs.item.date != rhs.item.date { return lhs.item.date < rhs.item.date }
+            if lhs.order != rhs.order { return lhs.order < rhs.order }
+            let leftTitle = lhs.item.event?.displayTitle ?? ""
+            let rightTitle = rhs.item.event?.displayTitle ?? ""
+            if leftTitle != rightTitle { return leftTitle < rightTitle }
+            return lhs.item.id < rhs.item.id
         }
 
         var items: [Item] = inProgress.map { event in
