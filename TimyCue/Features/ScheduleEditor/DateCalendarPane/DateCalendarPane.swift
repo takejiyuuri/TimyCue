@@ -188,18 +188,21 @@ private struct EditorWeekRow: View {
     let month: CalendarMonth
     let week: CalendarWeek
     @Environment(ScheduleEditorStore.self) private var store
+    /// 今日の淡い丸は、カレンダーの「今日」で決める（日付が変わったときに、この行の印だけが描き直される。Q96）
+    @Environment(CalendarStore.self) private var calendarStore
 
     var body: some View {
-        let copySource = store.copySourceDay
+        let today = calendarStore.today
         HStack(spacing: 0) {
             ForEach(week.days, id: \.self) { day in
                 if CalendarMonth(day) == month {
                     let dots = store.eventDots(on: day)
+                    let marks = store.calendarMarks(on: day, today: today)
                     EditorDayCell(day: day,
-                                  isSelected: store.selectedDays.contains(day),
-                                  isDisplayed: store.displayedDay == day,
-                                  isCopySource: day == copySource,
-                                  isToday: day == CalendarDay(Date()),
+                                  isSelected: marks.isSelected,
+                                  isDisplayed: marks.isDisplayed,
+                                  isCopySource: marks.isCopySource,
+                                  isToday: marks.isToday,
                                   dotColors: dots.colors,
                                   moreCount: dots.more)
                         .frame(maxWidth: .infinity)
