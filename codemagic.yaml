@@ -78,14 +78,15 @@ workflows:
           [ -f "$RELEASE_APP/TimyCue" ] || { echo "公開版の形のアプリが見つかりません"; exit 1; }
           # TimyCueSampleLink：画面写真用の見本の連携の起動引数の鍵（S6。DEBUG だけでコンパイルする）。公開版の形に入っていないことも確かめる。
           # TimyCueSampleDefaultChange：作成画面を開いたあとに見本の設定を変える起動引数の鍵（2026-10-19 決定 1 の画面写真。DEBUG だけ）
-          WORDS="SaveFaultView CharacterSizeComparisonView ClockVerificationView TimyCueSaveFault TimyCueSampleLink TimyCueTapNewEvent TimyCueReproSystemDefault TimyCueSampleDefaultChange 開発用：保存の失敗の再現 開発用：キャラクターの大きさ"
+          # TimyCueHomeScenario・TimyCueSampleBattery：H2 の Home の画面写真用の見本の予定と固定の時刻、見本の電池の残量の起動引数の鍵（DEBUG だけ）
+          WORDS="SaveFaultView CharacterSizeComparisonView ClockVerificationView TimyCueSaveFault TimyCueSampleLink TimyCueTapNewEvent TimyCueReproSystemDefault TimyCueSampleDefaultChange TimyCueHomeScenario TimyCueSampleBattery 開発用：保存の失敗の再現 開発用：キャラクターの大きさ"
           for WORD in $WORDS; do
             has "$DEBUG_APP" "$WORD" || { echo "確かめ方が働いていません：両方の印を付けたビルドに「${WORD}」が見つかりません"; exit 1; }
           done
           for WORD in $WORDS 開発用：; do
             if has "$RELEASE_APP" "$WORD"; then echo "公開版の形のアプリに「${WORD}」が入っています"; exit 1; fi
           done
-          echo "両方の印のビルドで「${WORDS}」が見つかることを確かめたうえで、公開版の形（印なし）ではどれも（と「開発用：」も）見つからない：開発用の画面（キャラクター・時計・保存の失敗の再現）と、失敗の再現の印を付ける処理と、画面写真用の見本の連携は入っていません" | tee build/release-check.log
+          echo "両方の印のビルドで「${WORDS}」が見つかることを確かめたうえで、公開版の形（印なし）ではどれも（と「開発用：」も）見つからない：開発用の画面（キャラクター・時計・保存の失敗の再現）と、失敗の再現の印を付ける処理と、画面写真用の見本の連携・Home の見本の時刻と電池は入っていません" | tee build/release-check.log
       - name: TestFlight の形（H1 の検証用の印だけ）に失敗の再現が入らないか
         # 2026-10-18 S1a＋S1b TestFlight 配信の指示：TestFlight は H1 の比べる画面のために検証用の印（TIMYCUE_DEV_TOOLS）を付けるが、
         # 保存の失敗の再現（TIMYCUE_SAVE_FAULTS）は付けない。TestFlight と同じ条件（Release・TIMYCUE_DEV_TOOLS だけ）でビルドし、
@@ -106,10 +107,10 @@ workflows:
           for WORD in CharacterSizeComparisonView 開発用：キャラクターの大きさ; do
             LC_ALL=C grep -a -F -q "$WORD" "$APP/TimyCue" || { echo "TestFlight の形に H1 の比べる画面（${WORD}）が入っていません（印の付け方を確かめてください）"; exit 1; }
           done
-          for WORD in SaveFaultView TimyCueSaveFault TimyCueSampleLink TimyCueTapNewEvent TimyCueReproSystemDefault TimyCueSampleDefaultChange 開発用：保存の失敗の再現 "Apple に書けた直後にアプリを終える"; do
+          for WORD in SaveFaultView TimyCueSaveFault TimyCueSampleLink TimyCueTapNewEvent TimyCueReproSystemDefault TimyCueSampleDefaultChange TimyCueHomeScenario TimyCueSampleBattery 開発用：保存の失敗の再現 "Apple に書けた直後にアプリを終える"; do
             if LC_ALL=C grep -a -F -q "$WORD" "$APP/TimyCue"; then echo "TestFlight の形のアプリに「${WORD}」が入っています"; exit 1; fi
           done
-          echo "TestFlight の形（H1 の検証用の印だけ）でビルドでき、H1 の比べる画面は入り（型の名前と「開発用：キャラクターの大きさ」が見つかる）、保存の失敗の再現の画面と、失敗の再現の印を付ける処理と、画面写真用の見本の連携は入っていません" | tee build/testflight-config-check.log
+          echo "TestFlight の形（H1 の検証用の印だけ）でビルドでき、H1 の比べる画面は入り（型の名前と「開発用：キャラクターの大きさ」が見つかる）、保存の失敗の再現の画面と、失敗の再現の印を付ける処理と、画面写真用の見本の連携・Home の見本の時刻と電池は入っていません" | tee build/testflight-config-check.log
       - name: 画面写真を撮る（見本の予定だけが入った状態）
         script: |
           set -e
@@ -171,6 +172,7 @@ workflows:
             ELAPSED=$AT
             xcrun simctl io "$SIM_UDID" screenshot "build/diagnostics/launch-${AT}s.png" >/dev/null
           done
+          # home は H2 の新しい Home（見本の予定・シミュレータの今の時刻。まだ連携していないので下に連携のカード。Q115）
           for TAB in home calendar settings; do
             capture "$TAB" -TimyCueTab "$TAB"
           done
@@ -210,6 +212,39 @@ workflows:
           # 設定トップの状態「OFF」と、連携 OFF の Home（連携のカードを出さない。Q102。上の home は、まだ連携していないのでカードあり。Q115）
           capture settings-top-off -TimyCueTab settings -TimyCueSampleCalendars appleDefault -TimyCueSampleLink off
           capture home-link-off -TimyCueTab home -TimyCueSampleCalendars appleDefault -TimyCueSampleLink off
+          # H2 の新しい Home（spec §88・2026-10-19 指示）。DEBUG の起動引数だけで、場面ごとの見本の予定と固定の時刻（-TimyCueHomeScenario。
+          # メモリの中だけ。本物の予定・設定のファイル・Apple カレンダーには書かない）と、見本の電池の残量（-TimyCueSampleBattery 80。
+          # シミュレータは電池の残量を返さないため）で撮る。見本の連携（appleDefault）で、連携のカードは出ない。場所ありの予定の出発は開始の 15 分前（見本）。
+          # どの写真でも確かめたいこと：縦にスクロールせずタブの上まで収まる／文字の重なり・欠け・はみ出しがない／時計（画面の幅の 40％）とタイムラインの
+          # 釣り合い／人型（本体 36pt）が「いま」の直上（過ぎた出発の点があるときはその上）で時計と重ならない／ステータスバーが出ず、右上に電池「80%」／
+          # 出発の点と予定開始の点が別の点で、同じ予定どうしが色の線でつながる／主状態の予定だけが 2 行の札。場面ごとに確かめたいこと：
+          #  empty：今日の予定なし。「予定はありません」と［予定を登録］（Q43）。人型は亀
+          #  onePlaceless：場所なし 1 件。9:37・時計は「開始まで 23分」・弧の終わりは「開始」・出発の点なし・うさぎ
+          #  onePlace：場所あり 1 件。9:37・時計は「出発まで 23分」・出発 10:00 と開始 10:15 の 2 点・うさぎ（弧は黄）
+          #  two：予定 2 件。8:30・出発まで 45 分・人型（弧は緑）・行の間が広め
+          #  several：予定 5 件と終日の予定。7:50・出発まで 85 分なので時計なしで帯が低い・亀・終日の予定が日付の下
+          #  many：予定 11 件。8:30・時計あり・詰めた行と「ほか○件」（件数は出していない予定の数）
+          #  departure60：出発まで 60 分（9:00）。時計が出る最初の分・「いま」と「出発」の丸のずらし・人型
+          #  departure30：出発まで 30 分。うさぎ（耳はフードの耳）・弧は黄
+          #  departure1：出発まで 1 分。弧はコーラル・「いま」の文字なし
+          #  overdue：出発時刻を 3 分過ぎた（10:03）。時計なし・「出発時刻を3分過ぎています」を日付の下に横幅を使って（Q92）・
+          #           人型 → 過ぎた出発の点（控えめ）→ いま の並び（Q87）・過ぎた出発の点から開始の点まで色の線
+          #  finished：14:20。「終わった予定 3件」が日付の下・人型の上（Q91）・進行中の予定が「いま」のすぐ下に終わりの時刻つき
+          #  started：場所なしの予定の開始時刻（10:01）。「予定時刻になりました」・その予定が「いま」の下に札で
+          #  allDayOnly：終日の予定だけ。「今日は時間指定の予定はありません」（§13）と「明日」の区切り・明日の予定
+          #  tomorrow：今日の予定が終わった夜（20:00）。「終わった予定 2件」と「明日」の区切り・明日の最初の予定 1 件
+          #  longText：長い予定名・場所名・終日の予定名。1 行で切れて（…）、時計・人型・ほかの行と重ならない
+          for SCENE in empty onePlaceless onePlace two several many departure60 departure30 departure1 overdue finished started allDayOnly tomorrow longText; do
+            capture "home-h2-${SCENE}" -TimyCueTab home -TimyCueHomeScenario "$SCENE" -TimyCueSampleCalendars appleDefault -TimyCueSampleBattery 80
+          done
+          # まだ連携していないとき（連携のカードが下に出る。Q42-8・Q115）：予定なし・予定 5 件でも縦にスクロールせず収まるか
+          capture home-h2-empty-unlinked -TimyCueTab home -TimyCueHomeScenario empty -TimyCueSampleBattery 80
+          capture home-h2-several-unlinked -TimyCueTab home -TimyCueHomeScenario several -TimyCueSampleBattery 80
+          # Apple 連携 OFF（連携のカードを出さない。Q102）
+          capture home-h2-link-off -TimyCueTab home -TimyCueHomeScenario two -TimyCueSampleCalendars appleDefault -TimyCueSampleLink off -TimyCueSampleBattery 80
+          # 電池の残りが少ないとき（15%。警告の色）と充電中（稲妻）の形（仮。§88.2 の電池の表示は H2 の実機で決める）
+          capture home-h2-battery-low -TimyCueTab home -TimyCueHomeScenario onePlace -TimyCueSampleCalendars appleDefault -TimyCueSampleBattery 15
+          capture home-h2-battery-charging -TimyCueTab home -TimyCueHomeScenario onePlace -TimyCueSampleCalendars appleDefault -TimyCueSampleBattery 60c
           # S1b：開発用の失敗の再現の画面（検証用のビルドだけ）
           capture dev-save-faults -TimyCueTab settings -TimyCueDevScreen saveFaults
           # S1b（spec §89.9）：3 日を選んで保存し、検証用の失敗の再現で途中を失敗させる（見本の予定はメモリの中だけ。何も書かない）。
@@ -357,6 +392,13 @@ workflows:
               capture "small-layout-$1-$CLOCK-$3-$4" -TimyCueTab settings -TimyCueDevScreen characterDesigns -TimyCueCharacterDesign official3 \
                 -TimyCueCharacterMode "$1" -TimyCueCharacterClock "$2" -TimyCueDevScenario "$3" -TimyCueDevEvents "$4"
             done
+            # H2 の新しい Home を小さい iPhone（幅 375pt・高さ 667pt。ステータスバーを出さないので上は画面の端から）で。
+            # 時計 40％（150pt）・人型・タイムラインが重ならず、縦にスクロールせずタブの上まで収まるか。行が入らなければ詰めて「ほか○件」
+            for SCENE in onePlace two several many overdue finished longText; do
+              capture "small-home-h2-${SCENE}" -TimyCueTab home -TimyCueHomeScenario "$SCENE" -TimyCueSampleCalendars appleDefault -TimyCueSampleBattery 80
+            done
+            # 連携のカード（まだ連携していないとき）が下に出ても収まるか
+            capture small-home-h2-several-unlinked -TimyCueTab home -TimyCueHomeScenario several -TimyCueSampleBattery 80
           ) || true
           else
             echo "小さい iPhone のシミュレータを用意できなかったので、小さい幅の画面写真は撮らない"
