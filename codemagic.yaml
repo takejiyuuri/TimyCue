@@ -79,12 +79,12 @@ workflows:
           # TimyCueSampleLink：画面写真用の見本の連携の起動引数の鍵（S6。DEBUG だけでコンパイルする）。公開版の形に入っていないことも確かめる
           WORDS="SaveFaultView CharacterSizeComparisonView ClockVerificationView TimyCueSaveFault TimyCueSampleLink 開発用：保存の失敗の再現 開発用：キャラクターの大きさ"
           for WORD in $WORDS; do
-            has "$DEBUG_APP" "$WORD" || { echo "確かめ方が働いていません：両方の印を付けたビルドに「$WORD」が見つかりません"; exit 1; }
+            has "$DEBUG_APP" "$WORD" || { echo "確かめ方が働いていません：両方の印を付けたビルドに「${WORD}」が見つかりません"; exit 1; }
           done
           for WORD in $WORDS 開発用：; do
-            if has "$RELEASE_APP" "$WORD"; then echo "公開版の形のアプリに「$WORD」が入っています"; exit 1; fi
+            if has "$RELEASE_APP" "$WORD"; then echo "公開版の形のアプリに「${WORD}」が入っています"; exit 1; fi
           done
-          echo "両方の印のビルドで「$WORDS」が見つかることを確かめたうえで、公開版の形（印なし）ではどれも（と「開発用：」も）見つからない：開発用の画面（キャラクター・時計・保存の失敗の再現）と、失敗の再現の印を付ける処理と、画面写真用の見本の連携は入っていません" | tee build/release-check.log
+          echo "両方の印のビルドで「${WORDS}」が見つかることを確かめたうえで、公開版の形（印なし）ではどれも（と「開発用：」も）見つからない：開発用の画面（キャラクター・時計・保存の失敗の再現）と、失敗の再現の印を付ける処理と、画面写真用の見本の連携は入っていません" | tee build/release-check.log
       - name: TestFlight の形（H1 の検証用の印だけ）に失敗の再現が入らないか
         # 2026-10-18 S1a＋S1b TestFlight 配信の指示：TestFlight は H1 の比べる画面のために検証用の印（TIMYCUE_DEV_TOOLS）を付けるが、
         # 保存の失敗の再現（TIMYCUE_SAVE_FAULTS）は付けない。TestFlight と同じ条件（Release・TIMYCUE_DEV_TOOLS だけ）でビルドし、
@@ -103,10 +103,10 @@ workflows:
           [ -f "$APP/TimyCue" ] || { echo "TestFlight の形のアプリが見つかりません"; exit 1; }
           # 言語設定を外して（LC_ALL=C）バイトのまま探す（前の段の説明）
           for WORD in CharacterSizeComparisonView 開発用：キャラクターの大きさ; do
-            LC_ALL=C grep -a -F -q "$WORD" "$APP/TimyCue" || { echo "TestFlight の形に H1 の比べる画面（$WORD）が入っていません（印の付け方を確かめてください）"; exit 1; }
+            LC_ALL=C grep -a -F -q "$WORD" "$APP/TimyCue" || { echo "TestFlight の形に H1 の比べる画面（${WORD}）が入っていません（印の付け方を確かめてください）"; exit 1; }
           done
           for WORD in SaveFaultView TimyCueSaveFault TimyCueSampleLink 開発用：保存の失敗の再現 "Apple に書けた直後にアプリを終える"; do
-            if LC_ALL=C grep -a -F -q "$WORD" "$APP/TimyCue"; then echo "TestFlight の形のアプリに「$WORD」が入っています"; exit 1; fi
+            if LC_ALL=C grep -a -F -q "$WORD" "$APP/TimyCue"; then echo "TestFlight の形のアプリに「${WORD}」が入っています"; exit 1; fi
           done
           echo "TestFlight の形（H1 の検証用の印だけ）でビルドでき、H1 の比べる画面は入り（型の名前と「開発用：キャラクターの大きさ」が見つかる）、保存の失敗の再現の画面と、失敗の再現の印を付ける処理と、画面写真用の見本の連携は入っていません" | tee build/testflight-config-check.log
       - name: 画面写真を撮る（見本の予定だけが入った状態）
@@ -154,10 +154,10 @@ workflows:
               sleep "$SETTLE"
               xcrun simctl io "$SIM_UDID" screenshot "build/screenshots/$NAME.png" >/dev/null
               if ! is_launch_screen "build/screenshots/$NAME.png"; then break; fi
-              echo "$NAME：起動画面のままだったので、開き直して撮り直す（${TRY} 回目）"
+              echo "${NAME}：起動画面のままだったので、開き直して撮り直す（${TRY} 回目）"
               sleep 5
             done
-            echo "$NAME：最初の画面が出るまで約 ${WAITED} 秒"
+            echo "${NAME}：最初の画面が出るまで約 ${WAITED} 秒"
           }
           # 入れた直後に一度開いておく（初めの起動は特に遅い）
           launch_and_wait -TimyCueTab home
