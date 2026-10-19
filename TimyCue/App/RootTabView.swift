@@ -53,6 +53,9 @@ struct RootTabView: View {
             }
         }
         .tint(Theme.Colors.accent)
+        // Home だけ iOS のステータスバーを出さない（右上にアプリ独自の電池の残量を出す。spec §88.2）。ほかのタブは今までどおり出す
+        // （タブを移ると戻る）。タブごとの画面ではなく、ここで選んでいるタブから決める
+        .statusBarHidden(selection == .home)
         // 設定（保存先・表示など）を保存できなかったら、変更は戻して知らせる（spec §89.9）
         .settingsFailureAlert()
         // 前回、予定の保存の途中でアプリが終わっていたら、確かめてもらうことを知らせる（spec §89.9）
@@ -206,8 +209,19 @@ struct RootTabView: View {
         switch tab {
         case .calendar: CalendarTabView()
         case .settings: SettingsTabView()
-        case .home: HomeView()
+        case .home:
+            // Home は縦にスクロールしない 1 画面なので、文字の大きさは xxxLarge までにする（行の高さもそれに合わせて広げる。spec §88.2）
+            HomeView(openDayInCalendar: { day in openDayInCalendar(day) })
+                .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
         }
+    }
+
+    /// Home の「ほか○件」（Q84）：カレンダーのタブへ移り、その日の 1 日タイムライン（今ある日の表示）を開く
+    private func openDayInCalendar(_ day: CalendarDay) {
+        calendarStore.updateToday()
+        calendarStore.closeAllPopovers()
+        calendarStore.openTimeline(day)
+        selection = .calendar
     }
 
     /// Codemagic でシミュレータの画面写真を撮るとき、起動引数 `-TimyCueTab calendar` で最初のタブを選ぶ

@@ -24,6 +24,11 @@ struct TimyCueApp: App {
         if Self.usesSampleData {
             #if DEBUG
             var samples = SampleEvents.make()
+            // H2 の Home の画面写真用：起動引数 -TimyCueHomeScenario で、場面ごとの見本の予定に置き換える（メモリの中だけ。
+            // 時刻と出発時刻の見本は Home が同じ起動引数で使う。HomeDebugScenario）
+            if let scenario = HomeDebugScenario.current {
+                samples = scenario.sample(around: CalendarDay(Date()))
+            }
             // Codemagic の画面写真用：起動引数 -TimyCueSampleAppleEvent YES で、書き込めない Apple カレンダー（見本の「チーム」）の
             // 見本の予定を足す（既存の予定の所属の画面写真。メモリの中だけ。Apple カレンダーにはつながない）
             if UserDefaults.standard.bool(forKey: "TimyCueSampleAppleEvent") {
