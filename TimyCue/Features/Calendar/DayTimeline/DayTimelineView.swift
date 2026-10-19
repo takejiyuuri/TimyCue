@@ -95,14 +95,21 @@ struct DayTimelineView: View {
             // 1 日タイムラインの「＋」（Q21）：表示中の日を選んだ新規。開始時刻は未設定
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
-                    editorStore.refresh()
-                    editorStore.startNew(on: day)
-                    showsNewEvent = true
+                    openNewEvent()
                 } label: {
                     Image(systemName: "plus")
                 }
                 .accessibilityLabel("新規予定")
             }
+        }
+        .task {
+            #if DEBUG
+            // 起動引数 -TimyCueTapNewEvent YES：この「＋」と同じ処理で新規を開く（2026-10-19 TestFlight 1.0 (30) のクラッシュの再現と確かめ）
+            if UserDefaults.standard.bool(forKey: "TimyCueTapNewEvent"), !showsNewEvent {
+                try? await Task.sleep(for: .seconds(1))
+                openNewEvent()
+            }
+            #endif
         }
         .fullScreenCover(isPresented: $showsNewEvent) {
             ScheduleEditorView(initialMonth: CalendarMonth(day), onSaved: { saved in
@@ -120,6 +127,13 @@ struct DayTimelineView: View {
 }
 
 extension DayTimelineView {
+    /// 1 日タイムラインの「＋」（Q21）：表示中の日を選んだ新規。開始時刻は未設定
+    private func openNewEvent() {
+        editorStore.refresh()
+        editorStore.startNew(on: day)
+        showsNewEvent = true
+    }
+
     /// 縦のピンチで拡大・縮小する。つまみ始めに指の下にあった時刻を、指の高さに保つ（仕様 §27・Q16）
     private func pinchGesture(proxy: ScrollViewProxy, viewportHeight: CGFloat) -> some Gesture {
         MagnifyGesture()

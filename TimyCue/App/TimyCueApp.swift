@@ -93,7 +93,8 @@ struct TimyCueApp: App {
     /// Codemagic の画面写真用：起動引数 -TimyCueSampleCalendars と -TimyCueSampleLink で、見本のカレンダーと見本の連携を渡す。
     /// Apple カレンダーにはつながず、何も書き込まない（見本の予定・設定はメモリの中だけ）。
     /// -TimyCueSampleCalendars：hiddenDefault（iPhone の既定 Default の表示を OFF）／displayOnlyDefault（Default を手で表示のみ）／
-    /// appleDefault（保存先は Apple の iPhone の既定）／timyCueOnlyDefault（保存先は TimyCue のみ）／askDefault（保存先がまだ決まっていない）。
+    /// appleDefault（保存先は Apple の iPhone の既定）／timyCueOnlyDefault（保存先は TimyCue のみ）／askDefault（保存先がまだ決まっていない）／
+    /// hiddenSettingsDefault・allHidden・allHiddenSettingsDefault・missingSettingsDefault・askHidden（2026-10-19 のクラッシュの再現。下の switch）。
     /// -TimyCueSampleLink：off（フルアクセスのまま連携 OFF）／offDenied（許可なしで連携 OFF）。どちらもなければ連携中
     private static func sampleLink() -> CalendarConnection.SampleLink? {
         let defaults = UserDefaults.standard
@@ -116,6 +117,24 @@ struct TimyCueApp: App {
         case "displayOnlyDefault": preferences.setHoliday(true, calendarID: "sample-default")
         case "timyCueOnlyDefault": preferences.saveTargetKind = .timyCueOnly
         case "askDefault": preferences.saveTargetKind = .askBeforeSaving
+        // 2026-10-19 TestFlight 1.0 (30) のクラッシュ（設定で Default の表示を OFF にして新しい予定を開くと落ちる）の再現と確かめ
+        case "hiddenSettingsDefault":
+            // 設定の既定の保存先に Default をはっきり選び、その表示を OFF
+            preferences.defaultCalendarID = "sample-default"
+            preferences.hiddenCalendarIDs = ["sample-default"]
+        case "allHidden":
+            // 書き込めるカレンダーを全部表示 OFF（使える Apple カレンダーが 0 件）
+            preferences.hiddenCalendarIDs = ["sample-default", "sample-home", "sample-work"]
+        case "allHiddenSettingsDefault":
+            preferences.defaultCalendarID = "sample-default"
+            preferences.hiddenCalendarIDs = ["sample-default", "sample-home", "sample-work"]
+        case "missingSettingsDefault":
+            // 設定の既定の保存先のカレンダーが見つからない
+            preferences.defaultCalendarID = "sample-missing"
+        case "askHidden":
+            // 保存先がまだ決まっていない（未選択）で、Default の表示 OFF
+            preferences.saveTargetKind = .askBeforeSaving
+            preferences.hiddenCalendarIDs = ["sample-default"]
         default: break
         }
         var authorization = EKAuthorizationStatus.fullAccess

@@ -77,7 +77,7 @@ workflows:
           RELEASE_APP=build/release/Build/Products/Release-iphonesimulator/TimyCue.app
           [ -f "$RELEASE_APP/TimyCue" ] || { echo "公開版の形のアプリが見つかりません"; exit 1; }
           # TimyCueSampleLink：画面写真用の見本の連携の起動引数の鍵（S6。DEBUG だけでコンパイルする）。公開版の形に入っていないことも確かめる
-          WORDS="SaveFaultView CharacterSizeComparisonView ClockVerificationView TimyCueSaveFault TimyCueSampleLink 開発用：保存の失敗の再現 開発用：キャラクターの大きさ"
+          WORDS="SaveFaultView CharacterSizeComparisonView ClockVerificationView TimyCueSaveFault TimyCueSampleLink TimyCueTapNewEvent TimyCueReproSystemDefault 開発用：保存の失敗の再現 開発用：キャラクターの大きさ"
           for WORD in $WORDS; do
             has "$DEBUG_APP" "$WORD" || { echo "確かめ方が働いていません：両方の印を付けたビルドに「${WORD}」が見つかりません"; exit 1; }
           done
@@ -105,7 +105,7 @@ workflows:
           for WORD in CharacterSizeComparisonView 開発用：キャラクターの大きさ; do
             LC_ALL=C grep -a -F -q "$WORD" "$APP/TimyCue" || { echo "TestFlight の形に H1 の比べる画面（${WORD}）が入っていません（印の付け方を確かめてください）"; exit 1; }
           done
-          for WORD in SaveFaultView TimyCueSaveFault TimyCueSampleLink 開発用：保存の失敗の再現 "Apple に書けた直後にアプリを終える"; do
+          for WORD in SaveFaultView TimyCueSaveFault TimyCueSampleLink TimyCueTapNewEvent TimyCueReproSystemDefault 開発用：保存の失敗の再現 "Apple に書けた直後にアプリを終える"; do
             if LC_ALL=C grep -a -F -q "$WORD" "$APP/TimyCue"; then echo "TestFlight の形のアプリに「${WORD}」が入っています"; exit 1; fi
           done
           echo "TestFlight の形（H1 の検証用の印だけ）でビルドでき、H1 の比べる画面は入り（型の名前と「開発用：キャラクターの大きさ」が見つかる）、保存の失敗の再現の画面と、失敗の再現の印を付ける処理と、画面写真用の見本の連携は入っていません" | tee build/testflight-config-check.log
@@ -215,9 +215,47 @@ workflows:
           # 2 日目で失敗：保存した日と保存していない日を分けて出し、保存していない日だけが残る。結果不明：自動で再保存しないと出す
           capture editor-save-partial -TimyCueEditorDays "0,1,2" -TimyCueEditorAutoSave YES -TimyCueSaveFault multiDaySecondDay
           capture editor-save-unknown -TimyCueEditorDays "0,1,2" -TimyCueEditorAutoSave YES -TimyCueSaveFault unknownResult
+          # 2026-10-19 TestFlight 1.0 (30) のクラッシュ（設定で Default の表示を OFF にして、新しい予定を開くと落ちる）の再現と確かめ。
+          # 見本のカレンダー（メモリの中だけ）で保存先の形を変え、月カレンダーの「＋」・Home の［予定を登録］・1 日タイムラインの「＋」と
+          # 同じ処理で作成画面を開く（起動引数 -TimyCueTapNewEvent YES。DEBUG のときだけ）。撮ったあと、アプリが動いているかを記録する
+          alive() {   # アプリが動いているか（シミュレータの中のプロセスの番号があるか）
+            PID=$(xcrun simctl spawn "$SIM_UDID" launchctl list 2>/dev/null | grep "UIKitApplication:${BUNDLE}" | awk '{print $1}' | head -1)
+            case "$PID" in ''|-|*[!0-9]*) return 1 ;; *) return 0 ;; esac
+          }
+          repro() {   # $1 = 画面写真の名前、残りは起動の引数
+            RNAME=$1
+            capture "$@"
+            sleep 2
+            if alive; then
+              echo "${RNAME}: 動いている" | tee -a build/diagnostics/repro.log
+            else
+              echo "${RNAME}: 落ちた（アプリが動いていない）" | tee -a build/diagnostics/repro.log
+            fi
+          }
+          for KIND in appleDefault hiddenDefault hiddenSettingsDefault allHidden allHiddenSettingsDefault missingSettingsDefault askHidden; do
+            repro "repro-calendar-plus-${KIND}" -TimyCueTab calendar -TimyCueTapNewEvent YES -TimyCueSampleCalendars "$KIND"
+          done
+          for KIND in hiddenDefault hiddenSettingsDefault; do
+            repro "repro-home-register-${KIND}" -TimyCueTab home -TimyCueTapNewEvent YES -TimyCueSampleCalendars "$KIND"
+            repro "repro-timeline-plus-${KIND}" -TimyCueTab calendar -TimyCueTimelineDay 0 -TimyCueTapNewEvent YES -TimyCueSampleCalendars "$KIND"
+          done
+          repro repro-calendar-plus-link-off -TimyCueTab calendar -TimyCueTapNewEvent YES -TimyCueSampleCalendars hiddenSettingsDefault -TimyCueSampleLink off
           # S1a＋S1b の TestFlight の前の確かめ：本物の保存先（見本の予定でない。この iPhone の中のファイルと保存の途中の記録）で起動し、
           # 保存の途中の記録の読み込み・復旧が起動を妨げないこと（シミュレータではカレンダーの許可がないので、端末の中の保存）
           capture launch-real-data -TimyCueTab home -TimyCueRealData YES
+          # 2026-10-19 のクラッシュの再現と確かめ（続き）：本物の Apple カレンダー（シミュレータのカレンダー）で。カレンダーの許可を与え、
+          # 本物の保存先で、保存先を iPhone の既定にしてその表示を OFF（hidden）／iPhone の既定のカレンダーを保存先にはっきり選んでその表示を OFF
+          # （explicitHidden）にしてから、開き直して月カレンダーの「＋」と同じ処理で開く。終わったら許可を戻す（このあとの画面写真は見本の予定）
+          if xcrun simctl privacy "$SIM_UDID" grant calendar "$BUNDLE"; then
+            for MODE in hidden explicitHidden; do
+              repro "repro-real-settings-${MODE}" -TimyCueTab settings -TimyCueSettingsScreen calendar -TimyCueRealData YES -TimyCueReproSystemDefault "$MODE"
+              sleep 3
+              repro "repro-real-calendar-plus-${MODE}" -TimyCueTab calendar -TimyCueTapNewEvent YES -TimyCueRealData YES
+            done
+            xcrun simctl privacy "$SIM_UDID" revoke calendar "$BUNDLE" || true
+          else
+            echo "カレンダーの許可を与えられなかったので、本物の Apple カレンダーでの再現は撮らない" | tee -a build/diagnostics/repro.log
+          fi
           # H1 の比べる画面（設定 ＞ 開発用：キャラクターの案）で、正式キャラクター 3 モードを「いま」の直上の定位置に（2026-10-17。§88.3・Q87・Q88）。
           # 人型 36pt・時計 40％。名前は layout-モード-時計-見本の時刻-予定の数。overdue は 9:18（出発 9:15 を 3 分過ぎ。時計は終わっているので noclock。過ぎた出発の点が人型と「いま」のあいだ）
           for SHOT in "human YES before usual" "turtle YES before usual" "rabbit YES before usual" "human NO before usual" \
@@ -305,9 +343,14 @@ workflows:
             echo "小さい iPhone のシミュレータを用意できなかったので、小さい幅の画面写真は撮らない"
           fi
           ls -l build/screenshots
+          # 再現で落ちたときの記録（シミュレータのアプリのクラッシュは、Mac の DiagnosticReports に残る）
+          ls -1t ~/Library/Logs/DiagnosticReports/ 2>/dev/null | grep -i timycue | head -20 | tee -a build/diagnostics/repro.log || true
+          cp ~/Library/Logs/DiagnosticReports/TimyCue*.ips build/diagnostics/ 2>/dev/null || true
     artifacts:
       - build/screenshots/*.png
       - build/diagnostics/*.png
+      - build/diagnostics/*.ips
+      - build/diagnostics/*.log
       - build/test.log
       - build/release-build.log
       - build/release-check.log

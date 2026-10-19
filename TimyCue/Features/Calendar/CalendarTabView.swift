@@ -106,6 +106,14 @@ struct CalendarTabView: View {
             store.openTimeline(store.today)
             store.tapTimelineEvent(first.id)
         }
+        // `-TimyCueTapNewEvent YES`：月カレンダーの「＋」と同じ処理で新規を開く（2026-10-19 TestFlight 1.0 (30) のクラッシュの再現と確かめ）。
+        // 1 日タイムラインを開くときは、タイムラインの「＋」のほうで開く
+        if defaults.bool(forKey: "TimyCueTapNewEvent"), defaults.string(forKey: "TimyCueTimelineDay") == nil, newEventDay == nil {
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(1))
+                openNewEvent()
+            }
+        }
         #endif
     }
 }

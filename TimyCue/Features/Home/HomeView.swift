@@ -105,6 +105,17 @@ struct HomeView: View {
             departures.location.startWatching()
         }
         .onDisappear { departures.location.stopWatching() }
+        .task {
+            #if DEBUG
+            // 起動引数 -TimyCueTapNewEvent YES：［予定を登録］と同じ処理で新規を開く（2026-10-19 TestFlight 1.0 (30) のクラッシュの再現と確かめ。
+            // ［予定を登録］が出ていない状態でも開く）
+            let defaults = UserDefaults.standard
+            if defaults.bool(forKey: "TimyCueTapNewEvent"), (defaults.string(forKey: "TimyCueTab") ?? "home") == "home", newEventDay == nil {
+                try? await Task.sleep(for: .seconds(1))
+                openNewEvent()
+            }
+            #endif
+        }
         .sheet(isPresented: $showsDuplicates) {
             NavigationStack {
                 DuplicateListView()
@@ -336,10 +347,7 @@ struct HomeView: View {
     /// カレンダーを許可しなくても、TimyCue の中に予定を作れる（Q45）
     private var registerButton: some View {
         Button {
-            let today = CalendarDay(Date())
-            editorStore.refresh()
-            editorStore.startNew(on: today)
-            newEventDay = today
+            openNewEvent()
         } label: {
             Text("予定を登録")
                 .foregroundStyle(Theme.Colors.onAccent)
@@ -348,6 +356,14 @@ struct HomeView: View {
         .buttonStyle(.bordered)
         .tint(Theme.Colors.accent)
         .controlSize(.large)
+    }
+
+    /// ［予定を登録］の新規：初期日付は今日、開始時刻は未設定（Q42-8）
+    private func openNewEvent() {
+        let today = CalendarDay(Date())
+        editorStore.refresh()
+        editorStore.startNew(on: today)
+        newEventDay = today
     }
 
     private func openEditor(for event: CalendarEvent) {

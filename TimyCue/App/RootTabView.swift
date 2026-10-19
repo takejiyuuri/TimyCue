@@ -64,6 +64,7 @@ struct RootTabView: View {
         }
         .onAppear {
             openEditorForScreenshot()
+            applyReproSettings()
             markReadyForScreenshot()
         }
         // カレンダーの「今日」（月カレンダーの今日の丸・［＋］の初めの日・1 日タイムラインの今日）を、アプリを前面に戻したときと、
@@ -146,6 +147,31 @@ struct RootTabView: View {
         guard UserDefaults.standard.bool(forKey: "TimyCueScreenshot"),
               let folder = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
         try? Data().write(to: folder.appendingPathComponent("timycue-screenshot-ready"))
+        #endif
+    }
+
+    /// 2026-10-19 TestFlight 1.0 (30) のクラッシュの再現と確かめ（DEBUG のときだけ。Codemagic のシミュレータで、-TimyCueRealData YES と一緒に使う）。
+    /// 起動引数 `-TimyCueReproSystemDefault` で、本物の Apple カレンダー（シミュレータのカレンダー）の設定を実機と同じ形にする。
+    /// hidden：新しい予定の保存先を iPhone の既定にして、そのカレンダーの表示を OFF。
+    /// explicitHidden：保存先に iPhone の既定のカレンダーをはっきり選んで、そのカレンダーの表示を OFF
+    private func applyReproSettings() {
+        #if DEBUG
+        guard let mode = UserDefaults.standard.string(forKey: "TimyCueReproSystemDefault") else { return }
+        Task { @MainActor in
+            var tries = 0
+            while connection.systemDefaultCalendarID == nil && tries < 40 {
+                try? await Task.sleep(for: .milliseconds(250))
+                tries += 1
+            }
+            guard let id = connection.systemDefaultCalendarID else { return }
+            if mode == "explicitHidden" {
+                connection.setShown(true, calendarID: id)
+                connection.setDefaultSaveTarget(.calendar(id))
+            } else {
+                connection.setDefaultSaveTarget(.systemDefault)
+            }
+            connection.setShown(false, calendarID: id)
+        }
         #endif
     }
 
