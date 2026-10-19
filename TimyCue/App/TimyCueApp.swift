@@ -97,7 +97,8 @@ struct TimyCueApp: App {
     /// -TimyCueSampleCalendars：hiddenDefault（iPhone の既定 Default の表示を OFF）／displayOnlyDefault（Default を手で表示のみ）／
     /// appleDefault（保存先は Apple の iPhone の既定）／timyCueOnlyDefault（保存先は TimyCue のみ）／askDefault（保存先がまだ決まっていない）／
     /// hiddenSettingsDefault・allHidden・allHiddenSettingsDefault・missingSettingsDefault・askHidden（2026-10-19 のクラッシュの再現。下の switch）。
-    /// -TimyCueSampleLink：off（フルアクセスのまま連携 OFF）／offDenied（許可なしで連携 OFF）。どちらもなければ連携中
+    /// -TimyCueSampleLink：off（フルアクセスのまま連携 OFF）／offDenied（許可なしで連携 OFF）／denied（連携 ON のまま許可なし。
+    /// 2026-10-19 決定 2）／unconfirmed（設定のファイルを読めず、連携の ON/OFF を確かめられない。2026-10-19 決定 3）。どれもなければ連携中
     private static func sampleLink() -> CalendarConnection.SampleLink? {
         let defaults = UserDefaults.standard
         let kind = defaults.string(forKey: "TimyCueSampleCalendars")
@@ -140,17 +141,26 @@ struct TimyCueApp: App {
         default: break
         }
         var authorization = EKAuthorizationStatus.fullAccess
+        var unconfirmed = false
         switch link ?? "" {
         case "off":
             preferences.appleLinkEnabled = false
         case "offDenied":
             preferences.appleLinkEnabled = false
             authorization = .denied
+        case "denied":
+            // 連携 ON のまま、iPhone のカレンダーの許可がない（設定 ＞ カレンダー連携 のスイッチと許可の説明の画面写真）
+            authorization = .denied
+        case "unconfirmed":
+            // 設定のファイルを読めないときと同じく、メモリの中の設定は空（保存先は先送りの「保存の前に確かめる」）
+            preferences = CalendarPreferences()
+            preferences.saveTargetKind = .askBeforeSaving
+            unconfirmed = true
         default:
             break
         }
         return CalendarConnection.SampleLink(calendars: calendars, systemDefaultID: "sample-default",
-                                             preferences: preferences, authorization: authorization)
+                                             preferences: preferences, authorization: authorization, unconfirmed: unconfirmed)
     }
     #endif
 

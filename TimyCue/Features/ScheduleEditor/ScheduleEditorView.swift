@@ -117,9 +117,11 @@ struct ScheduleEditorView: View {
         }
         .task {
             #if DEBUG
-            // Codemagic の画面写真用：起動引数 -TimyCueEditorAutoSave YES で、開いてすぐ保存を押す（保存の失敗の知らせを撮る）
+            // Codemagic の画面写真用：起動引数 -TimyCueEditorAutoSave YES で、開いてすぐ保存を押す（保存の失敗の知らせを撮る）。
+            // 開いたあとに見本の設定を変える画面写真（-TimyCueSampleDefaultChange。2026-10-19 決定 1）では、変わってから押す
             if UserDefaults.standard.bool(forKey: "TimyCueEditorAutoSave") {
-                try? await Task.sleep(for: .milliseconds(600))
+                let changesSettings = UserDefaults.standard.string(forKey: "TimyCueSampleDefaultChange") != nil
+                try? await Task.sleep(for: .milliseconds(changesSettings ? 1500 : 600))
                 save()
             }
             #endif

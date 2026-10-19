@@ -67,6 +67,7 @@ struct RootTabView: View {
             // （まだ読めなければ何も変えない。spec §89.6・2026-10-19 決定 3）
             _ = connection.reloadPreferences()
             openEditorForScreenshot()
+            changeSampleSettingsForScreenshot()
             applyReproSettings()
             markReadyForScreenshot()
         }
@@ -145,6 +146,22 @@ struct RootTabView: View {
         // 起動引数 -TimyCueEditorRow calendar で「カレンダー」の行を開いておく（保存先の画面写真）
         if UserDefaults.standard.string(forKey: "TimyCueEditorRow") == "calendar" { editorStore.toggleRow(.calendar) }
         showsEditorForScreenshot = true
+        #endif
+    }
+
+    /// Codemagic の画面写真用：起動引数 `-TimyCueSampleDefaultChange work` で、作成画面を開いてから少しあとに、見本の連携の
+    /// 新しい予定の既定の保存先を「仕事」（見本のカレンダーの id は sample-＋値）に変える（開いたあとに設定が変わって保存先が変わったときの
+    /// 確かめ。2026-10-19 決定 1。DEBUG のときだけ。メモリの中だけで、設定のファイルにも Apple カレンダーにも触れない）
+    private func changeSampleSettingsForScreenshot() {
+        #if DEBUG
+        guard let name = UserDefaults.standard.string(forKey: "TimyCueSampleDefaultChange") else { return }
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(300))
+            connection.changeSamplePreferences { preferences in
+                preferences.saveTargetKind = .appleCalendar
+                preferences.defaultCalendarID = "sample-\(name)"
+            }
+        }
         #endif
     }
 

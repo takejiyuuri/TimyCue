@@ -76,8 +76,9 @@ workflows:
           DEBUG_APP=build/derived/Build/Products/Debug-iphonesimulator/TimyCue.app
           RELEASE_APP=build/release/Build/Products/Release-iphonesimulator/TimyCue.app
           [ -f "$RELEASE_APP/TimyCue" ] || { echo "公開版の形のアプリが見つかりません"; exit 1; }
-          # TimyCueSampleLink：画面写真用の見本の連携の起動引数の鍵（S6。DEBUG だけでコンパイルする）。公開版の形に入っていないことも確かめる
-          WORDS="SaveFaultView CharacterSizeComparisonView ClockVerificationView TimyCueSaveFault TimyCueSampleLink TimyCueTapNewEvent TimyCueReproSystemDefault 開発用：保存の失敗の再現 開発用：キャラクターの大きさ"
+          # TimyCueSampleLink：画面写真用の見本の連携の起動引数の鍵（S6。DEBUG だけでコンパイルする）。公開版の形に入っていないことも確かめる。
+          # TimyCueSampleDefaultChange：作成画面を開いたあとに見本の設定を変える起動引数の鍵（2026-10-19 決定 1 の画面写真。DEBUG だけ）
+          WORDS="SaveFaultView CharacterSizeComparisonView ClockVerificationView TimyCueSaveFault TimyCueSampleLink TimyCueTapNewEvent TimyCueReproSystemDefault TimyCueSampleDefaultChange 開発用：保存の失敗の再現 開発用：キャラクターの大きさ"
           for WORD in $WORDS; do
             has "$DEBUG_APP" "$WORD" || { echo "確かめ方が働いていません：両方の印を付けたビルドに「${WORD}」が見つかりません"; exit 1; }
           done
@@ -105,7 +106,7 @@ workflows:
           for WORD in CharacterSizeComparisonView 開発用：キャラクターの大きさ; do
             LC_ALL=C grep -a -F -q "$WORD" "$APP/TimyCue" || { echo "TestFlight の形に H1 の比べる画面（${WORD}）が入っていません（印の付け方を確かめてください）"; exit 1; }
           done
-          for WORD in SaveFaultView TimyCueSaveFault TimyCueSampleLink TimyCueTapNewEvent TimyCueReproSystemDefault 開発用：保存の失敗の再現 "Apple に書けた直後にアプリを終える"; do
+          for WORD in SaveFaultView TimyCueSaveFault TimyCueSampleLink TimyCueTapNewEvent TimyCueReproSystemDefault TimyCueSampleDefaultChange 開発用：保存の失敗の再現 "Apple に書けた直後にアプリを終える"; do
             if LC_ALL=C grep -a -F -q "$WORD" "$APP/TimyCue"; then echo "TestFlight の形のアプリに「${WORD}」が入っています"; exit 1; fi
           done
           echo "TestFlight の形（H1 の検証用の印だけ）でビルドでき、H1 の比べる画面は入り（型の名前と「開発用：キャラクターの大きさ」が見つかる）、保存の失敗の再現の画面と、失敗の再現の印を付ける処理と、画面写真用の見本の連携は入っていません" | tee build/testflight-config-check.log
@@ -240,6 +241,24 @@ workflows:
             repro "repro-timeline-plus-${KIND}" -TimyCueTab calendar -TimyCueTimelineDay 0 -TimyCueTapNewEvent YES -TimyCueSampleCalendars "$KIND"
           done
           repro repro-calendar-plus-link-off -TimyCueTab calendar -TimyCueTapNewEvent YES -TimyCueSampleCalendars hiddenSettingsDefault -TimyCueSampleLink off
+          # 2026-10-19「TestFlight 1.0 (30) 報告への回答」の 3 つの直し（見本の連携と DEBUG の起動引数だけ。Apple カレンダーにも本物の設定のファイルにも書かない）。
+          # 作成画面の場面は repro で撮り、落ちていないことも記録する（落ちたらビルド確認を失敗にする）
+          # A（spec §89.4・決定 1）：作成画面を開いてから少しあとに、見本の設定の新しい予定の既定の保存先を「仕事」に変える（-TimyCueSampleDefaultChange work）。
+          # editor-target-change：保存を押すと「保存先が変わりました」（「iPhoneの既定（Default）」から「仕事」）の確かめが出る（確かめるまで書かない）。
+          # editor-target-change-row：「カレンダー」の行を開いたまま変わる。行の値は「仕事」、行の下に変わったことと保存するときに確かめることの説明
+          repro editor-target-change -TimyCueEditorDays "0" -TimyCueSampleCalendars appleDefault -TimyCueSampleDefaultChange work -TimyCueEditorAutoSave YES
+          repro editor-target-change-row -TimyCueEditorDays "0" -TimyCueSampleCalendars appleDefault -TimyCueSampleDefaultChange work -TimyCueEditorRow calendar
+          # B（spec §89.6・決定 2）：iPhone のカレンダーの許可がない（拒否）まま連携 ON の 設定 ＞ カレンダー連携。スイッチ（ON）・許可の行「許可が必要」・
+          # Apple を読み書きしていないことと許可のしかたの説明・「Appleカレンダーを連携する」の入口が出る。
+          # 上の settings-calendar-off-denied（OFF・拒否）も、ON／OFF の値ではなくスイッチ（OFF）が出る形になる（許可がなくても OFF にできる）
+          capture settings-calendar-on-denied -TimyCueTab settings -TimyCueSettingsScreen calendar -TimyCueSampleCalendars appleDefault -TimyCueSampleLink denied
+          # C（spec §89.6・決定 3）：設定のファイルを読めず、連携の ON/OFF を確かめられない（-TimyCueSampleLink unconfirmed）。
+          # settings-calendar-unconfirmed：スイッチの代わりに「確認中」と説明と「もう一度読み込む」（保存先などの欄は出さない）。
+          # settings-top-unconfirmed：設定トップのカレンダー連携の右が「確認中」。
+          # editor-save-unconfirmed：作成画面で保存を押すと、黙って TimyCue のみにせず「Apple カレンダーの設定を確かめられないため…」の確かめが出る
+          capture settings-calendar-unconfirmed -TimyCueTab settings -TimyCueSettingsScreen calendar -TimyCueSampleLink unconfirmed
+          capture settings-top-unconfirmed -TimyCueTab settings -TimyCueSampleLink unconfirmed
+          repro editor-save-unconfirmed -TimyCueEditorDays "0" -TimyCueSampleLink unconfirmed -TimyCueEditorAutoSave YES
           # S1a＋S1b の TestFlight の前の確かめ：本物の保存先（見本の予定でない。この iPhone の中のファイルと保存の途中の記録）で起動し、
           # 保存の途中の記録の読み込み・復旧が起動を妨げないこと（シミュレータではカレンダーの許可がないので、端末の中の保存）
           capture launch-real-data -TimyCueTab home -TimyCueRealData YES

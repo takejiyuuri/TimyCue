@@ -750,23 +750,34 @@ final class CalendarConnection {
 #if DEBUG
 /// Codemagic の画面写真用の見本の連携（DEBUG のときだけ。公開版の形と TestFlight の形には入らない）
 extension CalendarConnection {
-    /// 見本のカレンダー・iPhone の既定・設定・許可の状態
+    /// 見本のカレンダー・iPhone の既定・設定・許可の状態。unconfirmed は、設定のファイルを読めず連携の ON/OFF を確かめられない形
+    /// （2026-10-19 決定 3 の画面写真）
     struct SampleLink {
         var calendars: [CalendarChoice]
         var systemDefaultID: String?
         var preferences: CalendarPreferences
         var authorization: EKAuthorizationStatus
+        var unconfirmed = false
     }
 
     /// 見本の予定で動いているときだけ、見本の連携をメモリの中に入れて画面へ知らせる。
-    /// 設定のファイルにも Apple カレンダーにも触れない。連携 OFF・許可なしの見本では、カレンダーを空にする
+    /// 設定のファイルにも Apple カレンダーにも触れない。連携 OFF・許可なし・確かめられない見本では、カレンダーを空にする
     func useSampleLink(_ link: SampleLink) {
         guard !isLive else { return }
         authorization = link.authorization
         state = Self.state(for: link.authorization)
+        isLinkSettingUnconfirmed = link.unconfirmed
         preferences = link.preferences
         calendars = isLinked ? link.calendars : []
         systemDefaultCalendarID = isLinked ? link.systemDefaultID : nil
+        notify()
+    }
+
+    /// 見本の連携の設定だけを変えて、画面へ知らせる（作成画面を開いたあとに設定が変わったときの画面写真。2026-10-19 決定 1）。
+    /// メモリの中だけで、設定のファイルにも Apple カレンダーにも触れない
+    func changeSamplePreferences(_ change: (inout CalendarPreferences) -> Void) {
+        guard !isLive else { return }
+        change(&preferences)
         notify()
     }
 }
