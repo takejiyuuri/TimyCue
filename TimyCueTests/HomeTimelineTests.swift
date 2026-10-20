@@ -86,6 +86,67 @@ final class HomeTimelineTests: XCTestCase {
                        "出発と予定開始の間にほかの予定があっても、時刻の順を崩さない（§88.2）")
     }
 
+    // MARK: - 出発の点の強調（2026-10-20 ユーザー指示「出発ポイントの視認性」。§88.2・§88.7・Q81）
+
+    /// 出発の点を強調するのは「次の行動が出発」のときだけで、段の境目は時計（60 分）とキャラクターのモード（30 分）と同じ。
+    /// 61 分以上前は従来どおり控えめ
+    func testTheDeparturePointIsEmphasizedOnlyWhenDepartureIsTheNextAction() throws {
+        let visit = event("A社", 10 * 60 + 15, place: "広島駅")   // 推奨出発 10:00
+        let table: [(minute: Int, level: HomeDepartureEmphasis, mode: CharacterMode, clock: Bool)] = [
+            (8 * 60 + 59, .quiet, .turtle, false),      // 残り 61 分：時計なし・亀・控えめ
+            (9 * 60, .soon, .human, true),              // 残り 60 分：時計が出る最初の分
+            (9 * 60 + 29, .soon, .human, true),         // 残り 31 分
+            (9 * 60 + 30, .imminent, .rabbit, true),    // 残り 30 分
+            (9 * 60 + 59, .imminent, .rabbit, true),    // 残り 1 分
+        ]
+        for row in table {
+            let home = model([visit], row.minute)
+            let departure = try XCTUnwrap(home.timeline.items.first { $0.isDeparture }, hm(at(row.minute)))
+            XCTAssertEqual(departure.emphasis, row.level, "\(hm(at(row.minute)))：出発の点の強調の段")
+            XCTAssertEqual(home.mode, row.mode, "\(hm(at(row.minute)))：キャラクターのモードと同じ境目")
+            XCTAssertEqual(home.clock != nil, row.clock, "\(hm(at(row.minute)))：時計を出す条件と同じ境目")
+        }
+    }
+
+    /// 出発時刻を過ぎたら、強調した出発の点ではなく、控えめな「過ぎた出発の点」へ移る（Q83・Q87 の既決の移り変わりのまま）
+    func testTheEmphasisEndsWhenTheDepartureTimePasses() {
+        let visit = event("A社", 10 * 60 + 15, place: "広島駅", duration: 60)
+        for minute in [10 * 60, 10 * 60 + 3, 10 * 60 + 14] {
+            let home = model([visit], minute)
+            XCTAssertNil(home.timeline.emphasizedDeparture, "\(hm(at(minute)))：「いま」の下に強調した出発の点は残さない")
+            XCTAssertNotNil(home.timeline.pastDeparture, "\(hm(at(minute)))：控えめな過ぎた出発の点（Q87）")
+        }
+    }
+
+    /// 案内していない予定の出発の点は、60 分以内でも従来どおり控えめなまま（強調はいつも 1 件）
+    func testOnlyTheGuidedEventsDeparturePointIsEmphasized() throws {
+        let visit = event("A社", 10 * 60 + 15, place: "広島駅")      // 推奨出発 10:00（主状態）
+        let dentist = event("歯医者", 10 * 60 + 45, place: "歯科")   // 推奨出発 10:30（60 分以内だが案内の対象でない）
+        let home = model([visit, dentist], 9 * 60 + 40)
+        let departures = home.timeline.items.filter(\.isDeparture)
+        XCTAssertEqual(departures.count, 2)
+        XCTAssertEqual(departures.first?.event?.id, visit.id)
+        XCTAssertEqual(departures.first?.emphasis, .imminent, "残り 20 分の案内中の予定")
+        XCTAssertEqual(departures.last?.emphasis, .quiet, "案内の対象でない予定の出発の点は控えめなまま")
+        XCTAssertEqual(try XCTUnwrap(home.timeline.emphasizedDeparture).event?.id, visit.id, "強調するのは 1 件だけ")
+    }
+
+    /// 場所なしの予定は開始時刻が次の行動なので、今までどおり（出発の点そのものがない：§12・Q81）。
+    /// 出発時刻を計算できない・まだ計算していない予定も、出発の点がないので強調しない
+    func testEventsWithoutADeparturePointAreUnchanged() {
+        let online = event("オンライン", 10 * 60)
+        let placeless = model([online], 9 * 60 + 40)
+        XCTAssertEqual(describe(placeless.timeline), ["開始 10:00 オンライン*"])
+        XCTAssertNil(placeless.timeline.emphasizedDeparture)
+        XCTAssertEqual(placeless.clock?.word, "開始", "場所なしは開始までの時計（Q94）")
+
+        let visit = event("A社", 10 * 60 + 15, place: "広島駅")
+        for estimate in [DepartureEstimate.pending, .unavailable(.placeUnconfirmed), .unavailable(.failed)] {
+            let home = model([visit], 9 * 60 + 40, estimate: { _ in estimate })
+            XCTAssertNil(home.timeline.emphasizedDeparture, "出発の点がないので強調しない（\(estimate)）")
+        }
+    }
+
     // MARK: - 過ぎた出発の点と「いま」の並び（Q83・Q87）
 
     func testPastDepartureStaysBetweenTheFigureAndNowWhileGuided() {

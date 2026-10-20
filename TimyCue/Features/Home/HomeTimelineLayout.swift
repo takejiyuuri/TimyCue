@@ -39,6 +39,8 @@ enum HomeTimelineLayout {
 
     struct Plan: Equatable {
         let density: HomeDensity
+        /// 「いま」と最初の行のあいだに足す間（高さが余ったときだけ。2026-10-20 の予定が少ない日の余白）
+        let leadingSpace: CGFloat
         let rows: [Row]
         /// 出していない予定の数（「ほか○件」。出発の点は数えない）
         let hiddenEventCount: Int
@@ -47,9 +49,9 @@ enum HomeTimelineLayout {
 
         var showsMore: Bool { hiddenEventCount > 0 }
 
-        /// 並べた行の高さの合計（「ほか○件」を含む）
+        /// 並べた行の高さの合計（「いま」との間・「ほか○件」を含む）
         var height: CGFloat {
-            rows.reduce(0) { $0 + $1.height + $1.spacingAfter } + (showsMore ? moreRowHeight : 0)
+            leadingSpace + rows.reduce(0) { $0 + $1.height + $1.spacingAfter } + (showsMore ? moreRowHeight : 0)
         }
 
         var shownEventIDs: Set<UUID> {
@@ -81,8 +83,8 @@ enum HomeTimelineLayout {
         for density in HomeDensity.allCases where density >= widest {
             let total = items.reduce(CGFloat(0)) { $0 + rowHeight($1, density: density, scale: scale) }
             if total <= availableHeight {
-                let rows = spaced(items, density: density, scale: scale, spare: availableHeight - total)
-                return Plan(density: density, rows: rows, hiddenEventCount: 0,
+                let spacing = spaced(items, density: density, scale: scale, spare: availableHeight - total)
+                return Plan(density: density, leadingSpace: spacing.leading, rows: spacing.rows, hiddenEventCount: 0,
                             moreRowHeight: HomeLayoutMetrics.rows(density).moreRow * scale)
             }
         }
@@ -101,7 +103,8 @@ enum HomeTimelineLayout {
             shown = trial
         }
         let rows = filtered(items, showing: shown).map { Row(item: $0, height: rowHeight($0, density: density, scale: scale), spacingAfter: 0) }
-        return Plan(density: density, rows: rows, hiddenEventCount: eventIDs.count - shown.count, moreRowHeight: moreHeight)
+        return Plan(density: density, leadingSpace: 0, rows: rows, hiddenEventCount: eventIDs.count - shown.count,
+                    moreRowHeight: moreHeight)
     }
 
     /// 予定（開始の点・進行中の行）の並び順の id
@@ -136,25 +139,35 @@ enum HomeTimelineLayout {
         return result
     }
 
-    /// 高さが余ったときに、行のあとの間を広げる。時刻の間（分）を重みにして、いちばん長い間が上限まで広がる形にする
-    /// （時刻に比例させない一覧のまま、時間の流れを少しだけ感じられるように。上限は密度ごと）
-    static func spaced(_ items: [HomeTimeline.Item], density: HomeDensity, scale: CGFloat, spare: CGFloat) -> [Row] {
+    /// 高さが余ったときに、行のあとの間（と、広めの段では「いま」と最初の行のあいだ）を広げる。時刻の間（分）を重みにして、
+    /// いちばん長い間が上限まで広がる形にする（時刻に比例させない一覧のまま、時間の流れを少しだけ感じられるように。上限は密度ごと）。
+    /// 広めの段は重みに下限があり、出発の点と開始の点のような短い間も少し広がる（2026-10-20）。
+    /// 足す間は余った高さ（spare）を超えない（行の高さ・密度の選び方・出せる予定の数は変わらない）
+    static func spaced(_ items: [HomeTimeline.Item], density: HomeDensity, scale: CGFloat,
+                       spare: CGFloat) -> (leading: CGFloat, rows: [Row]) {
         let heights = items.map { rowHeight($0, density: density, scale: scale) }
-        guard items.count > 1, spare > 0 else {
-            return zip(items, heights).map { Row(item: $0.0, height: $0.1, spacingAfter: 0) }
-        }
-        let maxExtra = HomeLayoutMetrics.rows(density).maxExtraGap * scale
+        let metrics = HomeLayoutMetrics.rows(density)
+        let maxExtra = metrics.maxExtraGap * scale
         let range = HomeLayoutMetrics.gapWeightMinutes
-        let weights: [CGFloat] = (0..<(items.count - 1)).map { index in
+        var weights: [CGFloat] = []
+        for index in 0..<max(0, items.count - 1) {
             let minutes = Int(items[index + 1].date.timeIntervalSince(items[index].date) / 60)
-            return CGFloat(min(max(minutes, range.lowerBound), range.upperBound)) / CGFloat(range.upperBound)
+            let weight = CGFloat(min(max(minutes, range.lowerBound), range.upperBound)) / CGFloat(range.upperBound)
+            weights.append(max(metrics.minGapWeight, weight))
         }
-        let wanted = weights.reduce(0) { $0 + maxExtra * $1 }
-        let factor = wanted > 0 ? min(1, spare / wanted) : 0
-        return items.indices.map { index in
+        // 「いま」との間は、出発・予定の点があるときだけ（予定がない日の「予定はありません」と［予定を登録］は前の位置のまま）
+        let hasPoints = items.contains { $0.isDeparture || $0.isEventRow }
+        let leadingWanted = hasPoints ? metrics.leadingGap * scale : 0
+        let wanted = weights.reduce(leadingWanted) { $0 + maxExtra * $1 }
+        guard spare > 0, wanted > 0 else {
+            return (0, zip(items, heights).map { Row(item: $0.0, height: $0.1, spacingAfter: 0) })
+        }
+        let factor = min(1, spare / wanted)
+        let rows: [Row] = items.indices.map { index in
             let extra = index < weights.count ? maxExtra * weights[index] * factor : 0
             return Row(item: items[index], height: heights[index], spacingAfter: extra)
         }
+        return (leadingWanted * factor, rows)
     }
 }
 

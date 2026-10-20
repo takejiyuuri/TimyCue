@@ -224,9 +224,14 @@ workflows:
           #  two：予定 2 件。8:30・出発まで 45 分・人型（弧は緑）・行の間が広め
           #  several：予定 5 件と終日の予定。7:50・出発まで 85 分なので時計なしで帯が低い・亀・終日の予定が日付の下
           #  many：予定 11 件。8:30・時計あり・詰めた行と「ほか○件」（件数は出していない予定の数）
-          #  departure60：出発まで 60 分（9:00）。時計が出る最初の分・「いま」と「出発」の丸のずらし・人型
-          #  departure30：出発まで 30 分。うさぎ（耳はフードの耳）・弧は黄
+          #  departure61：出発まで 61 分（8:59）。時計がまだ出ない・亀・出発の点は控えめなまま（強調が始まる 1 分前。2026-10-20）
+          #  departure60：出発まで 60 分（9:00）。時計が出る最初の分・「いま」と「出発」の丸のずらし・人型・
+          #           出発の点の強調が始まる（操作のオレンジ・太字）。departure61 と並べて境目を確かめる
+          #  departure31：出発まで 31 分（9:29）。人型のまま・強調は「60〜31 分」の段（departure30 と並べて境目を確かめる。2026-10-20）
+          #  departure30：出発まで 30 分。うさぎ（耳はフードの耳）・弧は黄・強調は「30 分以内」の段（太く・大きく・点が塗りつぶし）
           #  departure1：出発まで 1 分。弧はコーラル・「いま」の文字なし
+          #  departureNow：出発時刻ちょうど（10:00）。「出発してください」・時計は終わり・強調した出発の点が控えめな
+          #           「過ぎた出発の点」に移る（Q87。2026-10-20）
           #  overdue：出発時刻を 3 分過ぎた（10:03）。時計なし・「出発時刻を3分過ぎています」を日付の下に横幅を使って（Q92）・
           #           人型 → 過ぎた出発の点（控えめ）→ いま の並び（Q87）・過ぎた出発の点から開始の点まで色の線
           #  finished：14:20。「終わった予定 3件」が日付の下・人型の上（Q91）・進行中の予定が「いま」のすぐ下に終わりの時刻つき
@@ -234,7 +239,7 @@ workflows:
           #  allDayOnly：終日の予定だけ。「今日は時間指定の予定はありません」（§13）と「明日」の区切り・明日の予定
           #  tomorrow：今日の予定が終わった夜（20:00）。「終わった予定 2件」と「明日」の区切り・明日の最初の予定 1 件
           #  longText：長い予定名・場所名・終日の予定名。1 行で切れて（…）、時計・人型・ほかの行と重ならない
-          for SCENE in empty onePlaceless onePlace two several many departure60 departure30 departure1 overdue finished started allDayOnly tomorrow longText; do
+          for SCENE in empty onePlaceless onePlace two several many departure61 departure60 departure31 departure30 departure1 departureNow overdue finished started allDayOnly tomorrow longText; do
             capture "home-h2-${SCENE}" -TimyCueTab home -TimyCueHomeScenario "$SCENE" -TimyCueSampleCalendars appleDefault -TimyCueSampleBattery 80
           done
           # まだ連携していないとき（連携のカードが下に出る。Q42-8・Q115）：予定なし・予定 5 件でも縦にスクロールせず収まるか
@@ -249,7 +254,9 @@ workflows:
           # 重なったりしないか。電池は文字の大きさの設定で大きくしない。撮ったら元の文字の大きさに戻す。変えられなければ撮らずに記録する
           ORIGINAL_SIZE=$(xcrun simctl ui "$SIM_UDID" content_size 2>/dev/null | tail -n 1 | tr -d '[:space:]' || true)
           if xcrun simctl ui "$SIM_UDID" content_size extra-extra-extra-large 2>/dev/null; then
-            for SCENE in several many; do
+            # onePlace・departure30 は 2026-10-20 の出発ポイントの強調で足した（強調した出発の点が、文字を最大にしても
+            # 行の高さに収まり、札や「いま」と重ならないか）
+            for SCENE in several many onePlace departure30; do
               capture "home-h2-${SCENE}-xxxl" -TimyCueTab home -TimyCueHomeScenario "$SCENE" -TimyCueSampleCalendars appleDefault -TimyCueSampleBattery 80
             done
             xcrun simctl ui "$SIM_UDID" content_size "${ORIGINAL_SIZE:-large}" 2>/dev/null || xcrun simctl ui "$SIM_UDID" content_size large 2>/dev/null || true
@@ -406,8 +413,10 @@ workflows:
             done
             # H2 の新しい Home を小さい iPhone（幅 375pt・高さ 667pt。ステータスバーを出さないので上は画面の端から）で。
             # 時計 40％（150pt）・人型・タイムラインが重ならず、縦にスクロールせずタブの上まで収まるか。行が入らなければ詰めて「ほか○件」
-            # empty は 2026-10-19 上の段の最終調整で足した（電池と日付の行の近さ・［予定を登録］の収まり）
-            for SCENE in empty onePlace two several many overdue finished longText; do
+            # empty は 2026-10-19 上の段の最終調整で足した（電池と日付の行の近さ・［予定を登録］の収まり）。
+            # departure60 は 2026-10-20 の出発ポイントの強調で足した（小さい画面で「60〜31 分」の段を確かめる。
+            # 「30 分以内」の段は onePlace（出発まで 23 分）で見る）
+            for SCENE in empty onePlace two several many departure60 overdue finished longText; do
               capture "small-home-h2-${SCENE}" -TimyCueTab home -TimyCueHomeScenario "$SCENE" -TimyCueSampleCalendars appleDefault -TimyCueSampleBattery 80
             done
             # 連携のカード（まだ連携していないとき）が下に出ても収まるか

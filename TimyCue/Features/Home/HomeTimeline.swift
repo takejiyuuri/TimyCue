@@ -1,5 +1,24 @@
 import Foundation
 
+/// 出発の点の強調の段（spec §88.2・§88.7・Q81・Q83・Q87。2026-10-20 ユーザー指示「出発ポイントの視認性」）。
+/// 「次に取るべき行動が分かること」を優先して、**次の行動が出発のときだけ**、その予定の出発の点を強調する。
+/// 段の境目は、時計を出す条件（60 分）とキャラクターのモードの境目（30 分。HomeCharacterMode）と同じ数え方にそろえる
+/// ＝「タイムラインの点と人型の動作は、同じ状態の変化で切り替える」（§88.7・Q82）。
+/// 過ぎた出発の点（Q83・Q87）は控えめなまま（この段には入れない）。見た目の値は HomeLayoutMetrics.departureLook
+enum HomeDepartureEmphasis: Int, Comparable, Equatable {
+    /// 従来どおりの控えめな表示：次の行動が出発でないとき・残り 61 分以上・主状態でない予定の出発の点
+    case quiet
+    /// 出発まで 60〜31 分（キャラクターは人型）：ブランドの操作の色で視認性を上げる
+    case soon
+    /// 出発まで 30 分以内（キャラクターはうさぎ）：文字の太さ・大きさと点でさらに分かりやすくする
+    case imminent
+
+    static func < (lhs: HomeDepartureEmphasis, rhs: HomeDepartureEmphasis) -> Bool { lhs.rawValue < rhs.rawValue }
+
+    /// 強調するか（quiet 以外）
+    var isEmphasized: Bool { self != .quiet }
+}
+
 /// 新しい Home（H2。spec §88.2・Q81〜Q84・Q87・Q91）の左のタイムラインに出すもの。画面に依らない計算だけを置く。
 /// 見本の予定を前提にせず、実際の予定（Apple の予定と TimyCue のみの予定。場所あり・なし）・今の時刻・出発時刻の見込みから作る。
 /// 時刻に比例させない時系列の一覧で、「いま」を基準に、推奨出発時刻と予定開始時刻を別々の点として並べる（Q81）
@@ -28,6 +47,18 @@ struct HomeTimeline: Equatable {
         let date: Date
         /// 主状態の予定の行か（いちばん強調する 1 件。§88.1）
         let isMain: Bool
+        /// 出発の点の強調の段（出発の点以外はいつも quiet。2026-10-20 の指示）
+        let emphasis: HomeDepartureEmphasis
+
+        init(id: String, kind: Kind, event: CalendarEvent?, date: Date, isMain: Bool,
+             emphasis: HomeDepartureEmphasis = .quiet) {
+            self.id = id
+            self.kind = kind
+            self.event = event
+            self.date = date
+            self.isMain = isMain
+            self.emphasis = emphasis
+        }
 
         /// 出発の点か
         var isDeparture: Bool { kind == .departure }
@@ -133,12 +164,27 @@ struct HomeTimeline: Equatable {
             }
         }()
 
+        // 出発の点の強調（2026-10-20 の指示）：次の行動が出発のとき（主状態が .departureCountdown ＝ 推奨出発時刻まで
+        // 60 分以内）の、その予定の出発の点だけを強調する。場所なしの予定は出発の点そのものがないので、今までどおり（§12・Q81）
+        var emphasizedEventID: UUID?
+        var emphasisLevel = HomeDepartureEmphasis.quiet
+        if case .departureCountdown(let event, let leaveAt) = state {
+            let remaining = HomeClockMath.remainingMinutes(now: now, target: leaveAt, calendar: calendar)
+            if remaining > 0 {
+                emphasizedEventID = event.id
+                emphasisLevel = remaining > HomeCharacterMode.rabbitFromMinutes ? HomeDepartureEmphasis.soon : HomeDepartureEmphasis.imminent
+            }
+        }
+
         // 出発の点と予定開始の点を、別々の点として時刻の順に並べる（同じ時刻なら出発の点を先に。Q81）
         var points: [(item: Item, order: Int)] = []
         for event in upcoming {
             let isMain = event.id == mainID
             if case .available(let leaveAt) = estimate(event), minuteStart < leaveAt {
-                points.append((Item(id: "departure-\(event.id.uuidString)", kind: .departure, event: event, date: leaveAt, isMain: isMain), 0))
+                let level: HomeDepartureEmphasis = event.id == emphasizedEventID ? emphasisLevel : .quiet
+                let departure = Item(id: "departure-\(event.id.uuidString)", kind: .departure, event: event, date: leaveAt,
+                                     isMain: isMain, emphasis: level)
+                points.append((departure, 0))
             }
             points.append((Item(id: "start-\(event.id.uuidString)", kind: .start, event: event, date: start(event), isMain: isMain), 1))
         }
@@ -198,6 +244,11 @@ struct HomeTimeline: Equatable {
     /// 並べた予定（開始の点・進行中の行）の数。出発の点・区切り・文は数えない
     var eventCount: Int {
         items.filter(\.isEventRow).count
+    }
+
+    /// 強調している出発の点（次の行動が出発のときの 1 件だけ。ないときは nil。2026-10-20 の指示）
+    var emphasizedDeparture: Item? {
+        items.first { $0.isDeparture && $0.emphasis.isEmphasized }
     }
 
     /// 日付の表示「10月16日（金）」（左上。大きな見出しにはしない：§88.2）

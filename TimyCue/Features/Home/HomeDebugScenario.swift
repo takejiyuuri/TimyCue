@@ -18,12 +18,18 @@ enum HomeDebugScenario: String, CaseIterable {
     case several
     /// 6 予定 11 件（「ほか○件」）
     case many
-    /// 7 出発まで 60 分（時計が出る最初の分。人型）
+    /// 出発まで 61 分（時計が出る 1 分前。亀・出発の点は控えめなまま。2026-10-20 の出発ポイントの強調の境目）
+    case departure61
+    /// 7 出発まで 60 分（時計が出る最初の分。人型・出発の点の強調が始まる）
     case departure60
-    /// 8 出発まで 30 分（うさぎ・弧は黄）
+    /// 出発まで 31 分（人型のまま・強調は「60〜31 分」の段。2026-10-20 の境目）
+    case departure31
+    /// 8 出発まで 30 分（うさぎ・弧は黄・強調は「30 分以内」の段）
     case departure30
     /// 9 出発まで 1 分
     case departure1
+    /// 出発時刻ちょうど（「出発してください」。時計は終わり、過ぎた出発の点になる）
+    case departureNow
     /// 10 出発時刻を 3 分過ぎた（過ぎた出発の点）
     case overdue
     /// 11 終わった予定がある（と進行中の予定）
@@ -51,9 +57,12 @@ enum HomeDebugScenario: String, CaseIterable {
         case .onePlaceless, .onePlace, .longText: 9 * 60 + 37
         case .two, .many: 8 * 60 + 30
         case .several: 7 * 60 + 50
+        case .departure61: 8 * 60 + 59
         case .departure60: 9 * 60
+        case .departure31: 9 * 60 + 29
         case .departure30: 9 * 60 + 30
         case .departure1: 9 * 60 + 59
+        case .departureNow: 10 * 60
         case .overdue: 10 * 60 + 3
         case .finished: 14 * 60 + 20
         case .started: 10 * 60 + 1
@@ -130,7 +139,7 @@ enum HomeDebugScenario: String, CaseIterable {
                 add(16, 30, "見本の会議", color: .saxeBlue, duration: 30)
                 add(17, 0, "見本さんへ連絡（夕方）", color: .orange)
             }
-        case .departure60, .departure30, .departure1, .overdue:
+        case .departure61, .departure60, .departure31, .departure30, .departure1, .departureNow, .overdue:
             addVisit(10, 15)
             addDentist()
             add(18, 0, "電話：見本さん", color: .lavender)

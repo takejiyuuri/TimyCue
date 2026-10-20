@@ -116,5 +116,35 @@ final class HomeStoreTests: XCTestCase {
             }
         }
     }
+
+    /// 出発の点の強調の境目を見る画面写真の見本（2026-10-20「出発ポイントの視認性」）：61 分（控えめ・時計なし・亀）、60 分・31 分
+    /// （60〜31 分の段・人型）、30 分・1 分（30 分以内の段・うさぎ）、出発時刻ちょうど（強調は終わり、過ぎた出発の点へ。Q87）
+    func testDepartureScenariosShowEachEmphasisStage() {
+        let today = CalendarDay(year: 2026, month: 10, day: 19)
+        func screen(_ scenario: HomeDebugScenario) -> HomeScreenModel {
+            let sample = scenario.sample(around: today)
+            return HomeScreenModel.make(events: sample.events, now: scenario.now(on: today),
+                                        estimate: { scenario.estimate(for: $0) })
+        }
+        let table: [(scenario: HomeDebugScenario, level: HomeDepartureEmphasis, mode: CharacterMode, clock: Bool)] = [
+            (.departure61, .quiet, .turtle, false),
+            (.departure60, .soon, .human, true),
+            (.departure31, .soon, .human, true),
+            (.departure30, .imminent, .rabbit, true),
+            (.departure1, .imminent, .rabbit, true),
+        ]
+        for row in table {
+            let home = screen(row.scenario)
+            let departure = home.timeline.items.first { $0.isDeparture && $0.isMain }
+            XCTAssertEqual(departure?.emphasis, row.level, row.scenario.rawValue)
+            XCTAssertEqual(home.mode, row.mode, row.scenario.rawValue)
+            XCTAssertEqual(home.clock != nil, row.clock, row.scenario.rawValue)
+        }
+        let now = screen(.departureNow)
+        XCTAssertEqual(now.headline, "出発してください", "出発時刻ちょうど")
+        XCTAssertNil(now.timeline.emphasizedDeparture, "強調した出発の点は残さない")
+        XCTAssertNotNil(now.timeline.pastDeparture, "控えめな過ぎた出発の点へ（Q87）")
+        XCTAssertNil(now.clock)
+    }
     #endif
 }

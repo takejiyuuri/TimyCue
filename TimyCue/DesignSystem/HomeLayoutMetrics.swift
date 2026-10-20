@@ -149,17 +149,51 @@ enum HomeLayoutMetrics {
     /// 密度ごとの行の高さ（画面見本：ふだん 44pt・予定が多いとき 34pt・主状態の予定の札 56pt。仮）。
     /// 2026-10-19 の見やすさの調整：予定が多いときの段（ふつう・詰める・さらに詰める）の行の高さは変えない（予定名を大きくしても、
     /// 出せる予定の数と密度の選び方を前と同じにする）。広め（予定 0〜2 件）だけ札を 66 → 70pt に。
-    /// 予定が少ない日は、余った高さで行の間を広げる上限を上げた（広め 28 → 40pt、ふつう 16 → 24pt。詰める段は前のまま）
+    /// 予定が少ない日は、余った高さで行の間を広げる上限を上げた（広め 28 → 40pt、ふつう 16 → 24pt。詰める段は前のまま）。
+    /// 2026-10-20「出発ポイントの視認性」：予定 0〜2 件の広めの段だけ、「いま」→ 出発 → 開始の流れを読み取りやすくする
+    /// （行の間の上限 40 → 48pt、短い間（出発の点と開始の点など）も上限の半分まで広げる、「いま」と最初の行のあいだに最大 16pt）。
+    /// どれも余った高さだけを使い、画面全体へは引き伸ばさない。ほかの段（予定 3 件以上）は前のまま
     static func rows(_ density: HomeDensity) -> HomeRowMetrics {
         switch density {
         case .spacious:
-            HomeRowMetrics(eventRow: 52, mainRow: 70, departureRow: 40, separatorRow: 30, messageRow: 44, moreRow: 34, maxExtraGap: 40)
+            HomeRowMetrics(eventRow: 52, mainRow: 70, departureRow: 40, separatorRow: 30, messageRow: 44, moreRow: 34, maxExtraGap: 48,
+                           minGapWeight: 0.5, leadingGap: 16)
         case .regular:
-            HomeRowMetrics(eventRow: 44, mainRow: 58, departureRow: 34, separatorRow: 28, messageRow: 40, moreRow: 32, maxExtraGap: 24)
+            HomeRowMetrics(eventRow: 44, mainRow: 58, departureRow: 34, separatorRow: 28, messageRow: 40, moreRow: 32, maxExtraGap: 24,
+                           minGapWeight: 0, leadingGap: 0)
         case .compact:
-            HomeRowMetrics(eventRow: 36, mainRow: 52, departureRow: 28, separatorRow: 26, messageRow: 36, moreRow: 30, maxExtraGap: 8)
+            HomeRowMetrics(eventRow: 36, mainRow: 52, departureRow: 28, separatorRow: 26, messageRow: 36, moreRow: 30, maxExtraGap: 8,
+                           minGapWeight: 0, leadingGap: 0)
         case .tight:
-            HomeRowMetrics(eventRow: 30, mainRow: 46, departureRow: 24, separatorRow: 22, messageRow: 32, moreRow: 26, maxExtraGap: 0)
+            HomeRowMetrics(eventRow: 30, mainRow: 46, departureRow: 24, separatorRow: 22, messageRow: 32, moreRow: 26, maxExtraGap: 0,
+                           minGapWeight: 0, leadingGap: 0)
+        }
+    }
+
+    // MARK: - 出発の点の強調（2026-10-20 ユーザー指示「出発ポイントの視認性」。HomeDepartureEmphasis。値は仮）
+
+    /// 60〜31 分の段の文字と点の色：ブランドの操作の文字の色（少し濃いオレンジ #C8601A）と、点はブランドのオレンジの輪
+    static let departureSoonColor = Theme.Colors.actionText
+    /// 30 分以内の段の文字の色：さらに少しだけ濃いオレンジ（「終わった予定」と同じ #B45617。警告の赤は使わない）
+    static let departureImminentColor = Color(hex: 0xB45617)
+
+    /// 出発の点の見た目（強調の段・密度ごと）。強調しても行の高さは変えない（出せる予定の数を変えない）。
+    /// 控えめ（quiet）は前のまま：時刻は fonts.time・「出発・車」は fonts.departure・灰色・白抜きの小さな点
+    static func departureLook(_ emphasis: HomeDepartureEmphasis, density: HomeDensity) -> HomeDepartureLook {
+        switch emphasis {
+        case .quiet:
+            return HomeDepartureLook(textSize: nil, weight: .regular, color: Theme.Colors.textSecondary,
+                                     dotDiameter: departureDot, dotFilled: false, dotLineWidth: 1.5, dotColor: Theme.Colors.textSecondary)
+        case .soon:
+            // 時刻の文字（15・15・13・13pt）より 1pt 大きく、太く、操作の色。点はオレンジの太い輪
+            let size: CGFloat = density <= .regular ? 16 : 14
+            return HomeDepartureLook(textSize: size, weight: .semibold, color: departureSoonColor,
+                                     dotDiameter: 11, dotFilled: false, dotLineWidth: 2.5, dotColor: Theme.Colors.accent)
+        case .imminent:
+            // さらに 1pt 大きく、もっと太く、少し濃い色。点はオレンジの塗りつぶし
+            let size: CGFloat = density <= .regular ? 17 : 15
+            return HomeDepartureLook(textSize: size, weight: .bold, color: departureImminentColor,
+                                     dotDiameter: 12, dotFilled: true, dotLineWidth: 0, dotColor: Theme.Colors.accent)
         }
     }
 
@@ -222,6 +256,24 @@ struct HomeRowMetrics: Equatable {
     var moreRow: CGFloat
     /// 高さが余ったときに、行のあとに足す間の上限
     var maxExtraGap: CGFloat
+    /// 行の間を広げるときの重みの下限（0〜1）。時刻の間が短くても、上限のこの割合までは広げる（広めの段の「出発 → 開始」など）
+    var minGapWeight: CGFloat
+    /// 高さが余ったときに、「いま」と最初の行のあいだに足す間の上限
+    var leadingGap: CGFloat
+}
+
+/// 出発の点の見た目（強調の段ごと。2026-10-20「出発ポイントの視認性」）
+struct HomeDepartureLook: Equatable {
+    /// 時刻と「出発・車」の文字の大きさ（pt。標準の文字の大きさのとき。文字の大きさの設定に合わせた倍率をかける）。
+    /// nil は前のままの控えめな文字（時刻は fonts.time、「出発・車」は fonts.departure）
+    let textSize: CGFloat?
+    let weight: Font.Weight
+    let color: Color
+    let dotDiameter: CGFloat
+    /// 点を塗りつぶすか（false は白抜きの輪）
+    let dotFilled: Bool
+    let dotLineWidth: CGFloat
+    let dotColor: Color
 }
 
 /// タイムラインの文字

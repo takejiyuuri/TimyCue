@@ -469,6 +469,88 @@ final class HomeLayoutTests: XCTestCase {
         XCTAssertEqual(HomeLayoutMetrics.rows(.tight).maxExtraGap, 0)
     }
 
+    // MARK: - 予定が少ない日の流れ（2026-10-20「出発ポイントの視認性」）
+
+    /// 予定 1〜2 件の日は、余った高さで「いま」→ 出発 → 開始の流れを読み取りやすくする：「いま」と最初の行のあいだをあけ、
+    /// 出発の点と開始の点の短い間も上限の半分まで広げる。ただし画面全体へは引き伸ばさない（足すのは決まった上限まで）
+    func testQuietDaysSpreadTheFlowFromNowToDepartureToStart() throws {
+        let metrics = HomeLayoutMetrics.rows(.spacious)
+        let one = items(events: 1)   // 出発 9:45・開始 10:00
+        let base = total(one, .spacious)
+        let plan = HomeTimelineLayout.plan(items: one, availableHeight: 1000)
+        XCTAssertEqual(plan.density, .spacious)
+        XCTAssertEqual(plan.leadingSpace, metrics.leadingGap, accuracy: 0.01, "「いま」と出発の点のあいだ")
+        XCTAssertGreaterThan(plan.leadingSpace, 0)
+        XCTAssertEqual(plan.rows[0].spacingAfter, metrics.maxExtraGap * metrics.minGapWeight, accuracy: 0.01,
+                       "出発の点と開始の点（15 分）のあいだも、上限の半分まで")
+        XCTAssertGreaterThanOrEqual(plan.rows[0].spacingAfter, 16)
+        XCTAssertLessThanOrEqual(plan.height, base + metrics.leadingGap + metrics.maxExtraGap, "画面全体へは引き伸ばさない")
+        XCTAssertLessThan(plan.height, 1000 / 2)
+
+        // 余りが少ないときは、余った分だけを割り振る（はみ出さない）
+        let snug = HomeTimelineLayout.plan(items: one, availableHeight: base + 6)
+        XCTAssertEqual(snug.height, base + 6, accuracy: 0.01)
+        XCTAssertLessThan(snug.leadingSpace, metrics.leadingGap)
+
+        // 予定がない日（「予定はありません」だけ）は、前の位置のまま（「いま」との間を足さない）
+        XCTAssertEqual(HomeTimelineLayout.plan(items: timeline([]).items, availableHeight: 1000).leadingSpace, 0)
+    }
+
+    /// 予定が 3 件以上の段（ふつう・詰める・さらに詰める）は前の密度の調整のまま（「いま」との間は足さない・短い間の下限なし）。
+    /// どの件数・高さでも、足す間は余った高さの中だけで、並べた高さは使える高さを超えない（出せる予定の数を減らさない）
+    func testSpacingOnlyUsesTheSpareHeight() {
+        for density in [HomeDensity.regular, .compact, .tight] {
+            XCTAssertEqual(HomeLayoutMetrics.rows(density).leadingGap, 0, "\(density)")
+            XCTAssertEqual(HomeLayoutMetrics.rows(density).minGapWeight, 0, "\(density)")
+        }
+        for count in 1...12 {
+            let rows = items(events: count, gap: 45)
+            for available in stride(from: CGFloat(120), through: 900, by: 30) {
+                let plan = HomeTimelineLayout.plan(items: rows, availableHeight: available)
+                XCTAssertLessThanOrEqual(plan.height, available + 0.01, "予定 \(count) 件・高さ \(available)")
+                if plan.density > .spacious {
+                    XCTAssertEqual(plan.leadingSpace, 0, "予定 \(count) 件・高さ \(available)：多い日は「いま」との間を足さない")
+                }
+            }
+        }
+    }
+
+    // MARK: - 出発の点の見た目（2026-10-20「出発ポイントの視認性」）
+
+    /// 控えめ（quiet）は前のまま。60〜31 分・30 分以内と段が上がるほど、文字は大きく・太く、点ははっきりする。
+    /// 強い警告の色（赤）は使わず、強調しても出発の点の行の高さに収まる（行の高さ・出せる予定の数は変えない）
+    func testDepartureLookGetsStrongerByStageAndFitsTheRow() throws {
+        for density in HomeDensity.allCases {
+            let quiet = HomeLayoutMetrics.departureLook(.quiet, density: density)
+            let soon = HomeLayoutMetrics.departureLook(.soon, density: density)
+            let imminent = HomeLayoutMetrics.departureLook(.imminent, density: density)
+            XCTAssertNil(quiet.textSize, "\(density)：控えめは前の文字のまま")
+            XCTAssertEqual(quiet.weight, .regular)
+            XCTAssertEqual(quiet.color, Theme.Colors.textSecondary)
+            XCTAssertEqual(quiet.dotDiameter, HomeLayoutMetrics.departureDot)
+            XCTAssertFalse(quiet.dotFilled)
+
+            let soonSize = try XCTUnwrap(soon.textSize)
+            let imminentSize = try XCTUnwrap(imminent.textSize)
+            let timeSize: CGFloat = density <= .regular ? 15 : 13   // 控えめなときの時刻の文字（subheadline・footnote）
+            XCTAssertGreaterThan(soonSize, timeSize, "\(density)：60〜31 分は時刻の文字より大きい")
+            XCTAssertGreaterThan(imminentSize, soonSize, "\(density)：30 分以内はさらに大きい")
+            XCTAssertEqual(soon.weight, .semibold)
+            XCTAssertEqual(imminent.weight, .bold)
+            XCTAssertGreaterThan(soon.dotDiameter, quiet.dotDiameter)
+            XCTAssertGreaterThanOrEqual(imminent.dotDiameter, soon.dotDiameter)
+            XCTAssertTrue(imminent.dotFilled, "30 分以内は点を塗りつぶす")
+            for look in [soon, imminent] {
+                XCTAssertNotEqual(look.color, Theme.Colors.danger, "強い警告の色は使わない")
+                XCTAssertNotEqual(look.color, Theme.Colors.textSecondary, "ブランドの色で見やすく")
+                // 行の高さに収まる（文字の行の高さは大きさの約 1.2 倍。上下に少し余白を残す）
+                let lineHeight = try XCTUnwrap(look.textSize) * 1.2
+                XCTAssertLessThanOrEqual(lineHeight + 2, HomeLayoutMetrics.rows(density).departureRow, "\(density)：行の高さに収まる")
+                XCTAssertLessThanOrEqual(look.dotDiameter, HomeLayoutMetrics.railWidth, "点は左の列の幅に収まる")
+            }
+        }
+    }
+
     /// 文字を大きくしても、予定が多い日に出せる予定の数と密度の選び方を変えない（2026-10-19 の見やすさの調整の指示）。
     /// 件数と密度を決める行の高さ（ふつう・詰める・さらに詰める段、「いま」・過ぎた出発の点の行）は TestFlight 1.0 (32) のまま。
     /// 行の間の上限（maxExtraGap）は余った高さだけを使うので件数に関わらない。実機で決めてここを変えるときは、

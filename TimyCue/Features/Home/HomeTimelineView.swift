@@ -86,6 +86,8 @@ struct HomeRailSection: View {
                 HomeTimelineRowView(item: row.item,
                                     today: timeline.today,
                                     fonts: fonts,
+                                    departureLook: HomeLayoutMetrics.departureLook(row.item.emphasis, density: plan.density),
+                                    scale: scale,
                                     color: row.item.event.map(color) ?? .orange,
                                     transport: row.item.event.map(transport) ?? "") {
                     onTapRow(row.item)
@@ -102,6 +104,8 @@ struct HomeRailSection: View {
                     .padding(.top, Theme.Spacing.m)
             }
         }
+        // 予定が少ない日だけ、余った高さで「いま」と最初の行のあいだを少しあける（2026-10-20。多い日は 0）
+        .padding(.top, plan.leadingSpace)
         // 案内する予定が替わったら、行を自然に上へ詰める（§88.2）
         .animation(animates ? .easeInOut(duration: HomeLayoutMetrics.rowAnimation) : nil, value: plan.rows.map(\.id))
     }
@@ -183,11 +187,16 @@ struct HomePastDepartureRow: View {
 }
 
 /// タイムラインの 1 行（出発の点・予定開始の点・進行中・日付の区切り・文）。
-/// 主状態の予定は予定名と場所の 2 行の札で強調し、ほかの予定と出発の点は 1 行（§88.2・Q84）
+/// 主状態の予定は予定名と場所の 2 行の札で強調し、ほかの予定と出発の点は 1 行（§88.2・Q84）。
+/// 次の行動が出発のときは、その出発の点を強調の段（item.emphasis）に合わせて目立たせる（2026-10-20。departureLook）
 struct HomeTimelineRowView: View {
     let item: HomeTimeline.Item
     let today: CalendarDay
     let fonts: HomeRowFonts
+    /// 出発の点の見た目（出発の点の行だけで使う）
+    let departureLook: HomeDepartureLook
+    /// 文字の大きさの設定に合わせた倍率（強調した出発の点の文字に使う。行の高さと同じもの）
+    let scale: CGFloat
     let color: EventColor
     /// 移動手段（設定どおり。「自動」は「自動」のまま：Q81・Q77-5）
     let transport: String
@@ -263,10 +272,8 @@ struct HomeTimelineRowView: View {
     @ViewBuilder
     private var dot: some View {
         if item.isDeparture {
-            Circle()
-                .strokeBorder(Theme.Colors.textSecondary, lineWidth: 1.5)
-                .background(Circle().fill(Theme.Colors.homeBackground))
-                .frame(width: HomeLayoutMetrics.departureDot, height: HomeLayoutMetrics.departureDot)
+            departureDot
+                .frame(width: departureLook.dotDiameter, height: departureLook.dotDiameter)
                 .homeRailDot(HomeRailDot(rowID: item.id, role: .departure, eventID: item.event?.id, color: color))
         } else {
             Circle()
@@ -279,16 +286,40 @@ struct HomeTimelineRowView: View {
         }
     }
 
+    /// 出発の点の丸：控えめは灰色の白抜き、60〜31 分はオレンジの太い輪、30 分以内はオレンジの塗りつぶし（departureLook）
+    @ViewBuilder
+    private var departureDot: some View {
+        if departureLook.dotFilled {
+            Circle()
+                .fill(departureLook.dotColor)
+        } else {
+            Circle()
+                .strokeBorder(departureLook.dotColor, lineWidth: departureLook.dotLineWidth)
+                .background(Circle().fill(Theme.Colors.homeBackground))
+        }
+    }
+
+    /// 出発の点の時刻と「出発・車」の文字。控えめなときは前のまま（fonts）、強調するときは departureLook の大きさ・太さ
+    private var departureTimeFont: Font {
+        guard let size = departureLook.textSize else { return fonts.time }
+        return Font.system(size: size * scale, weight: departureLook.weight).monospacedDigit()
+    }
+
+    private var departureLabelFont: Font {
+        guard let size = departureLook.textSize else { return fonts.departure }
+        return Font.system(size: size * scale, weight: departureLook.weight)
+    }
+
     @ViewBuilder
     private var content: some View {
         if item.isDeparture {
             HStack(alignment: .firstTextBaseline, spacing: Theme.Spacing.s) {
-                time(fonts.time)
+                time(departureTimeFont)
                 Text("出発・\(transport)")
-                    .font(fonts.departure)
+                    .font(departureLabelFont)
                     .lineLimit(1)
             }
-            .foregroundStyle(Theme.Colors.textSecondary)
+            .foregroundStyle(departureLook.color)
         } else if item.isMain {
             mainCard
         } else {
@@ -348,7 +379,9 @@ struct HomeTimelineRowView: View {
     private var accessibilityText: String {
         switch item.kind {
         case .departure:
-            return "\(timeText) 出発、\(transport)、\(title)"
+            // 強調している出発の点は、次の行動であることも読み上げる（2026-10-20。見た目の強調だけに頼らない）
+            let next = item.emphasis.isEmphasized ? "次の行動、" : ""
+            return "\(next)\(timeText) 出発、\(transport)、\(title)"
         case .inProgress:
             return ["進行中", title, place, endText].compactMap { $0 }.joined(separator: "、")
         default:
